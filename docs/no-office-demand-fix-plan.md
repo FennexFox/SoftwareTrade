@@ -1,251 +1,94 @@
 # No Office Demand Fix Patch Plan
 
-## Goal
+## Summary
 
-Implement the smallest gameplay fix that addresses the real driver of the `No Office Demand` symptom in a given save.
+The project still has two active tracks:
 
-The current investigation no longer assumes that `software` trade is the only primary cause. The mod now has two active diagnostic and fix tracks:
+- `Track A`: office-resource / `software` trade and storage consistency
+- `Track B`: `Phantom Vacancy`
 
-- Track A: office-resource trade and storage consistency
-- Track B: stale `PropertyOnMarket` on occupied office or industrial properties
+The important current status difference is:
 
-This plan is based on the findings in [no-office-demand-fix-analysis.md](./no-office-demand-fix-analysis.md).
+- `Phantom Vacancy` is the current shipped fix
+- `software` remains the main unresolved gameplay track
 
-## Current Diagnosis
+## Current Patch Status
 
-Two different failure modes now look relevant.
+The current version ships `SignaturePropertyMarketGuardSystem`.
 
-### Track A: office-resource trade or storage inconsistency
+Shipped status:
 
-The base game already contains partial support for virtual office-resource trade and storage, but the implementation is inconsistent.
+- it runs after the known market-state writers and before office or industrial property search and demand evaluation
+- it removes stale `PropertyOnMarket` and `PropertyToBeOnMarket` from occupied `Signature` office or industrial properties
+- it fixed the confirmed reproduced symptom in the current save
 
-The main mismatch is:
+Current confirmed result:
 
-- some systems treat office resources as special virtual goods
-- other systems still require them to exist in `StorageCompanyData.m_StoredResources`
+- `SignatureOffice` phantom vacancy was corrected
+- `SignatureIndustrial` phantom vacancy was also corrected
+- the inaccurate `Unoccupied Buildings` style symptom is resolved in the reproduced save
 
-This can still explain `software` starvation, `LackResources == 0`, and office efficiency collapse.
+Current monitoring result:
 
-### Track B: stale `PropertyOnMarket` on occupied office properties
+- no confirmed non-signature phantom-vacancy reproduction has appeared yet
 
-The new diagnostics show a second bug track that is separate from software supply.
+## Track A: Software / Office-Resource Next Work
 
-Observed live examples:
+The `software` track remains an active future work stream.
 
-- `EE_OfficeSignature01`
-- `EE_OfficeSignature02`
+Next steps:
 
-Observed contradiction:
+1. validate whether the current prefab augmentation materially improves software availability in gameplay
+2. patch import seller discovery directly if office-resource imports are still blocked there
+3. patch provider visibility directly if office-resource sellers are still hidden there
+4. patch storage-transfer or storage-company logic only if evidence still shows blocked office-resource buffering
 
-- `PropertyOnMarket == true`
-- `propertyCount == 1`
-- `active company renters == 1`
-- the same entities are still counted as free office supply
+Recommended validation signals:
 
-This can hold `officeBuildingDemand` at `0` even when no truly vacant office building exists.
+- software production and demand counters
+- software office `propertyless` counts
+- `efficiencyZero` and `lackResourcesZero` counts for software offices
+- whether long-running saves still show sustained software starvation with the trade patch enabled
 
-## Patch Scope
+Current interpretation:
 
-### In scope for the next investigation
+- the trade patch remains useful
+- it is still a mitigation or validation experiment, not a confirmed complete solution
 
-- keep the current prefab-level trade patch available as a toggleable experiment
-- keep diagnostics focused on both office-resource supply and property-market state
-- determine whether stale `PropertyOnMarket` is currently limited to `SignatureOffice` or also affects non-signature office or industrial properties
-- determine whether the correct fix belongs in listing lifecycle or in demand counting safeguards
+## Track B: Phantom Vacancy Next Work
 
-### Out of scope for this stage
+The `Phantom Vacancy` track is now in monitor-and-extend mode rather than first-fix mode.
 
-- broad economy rebalance
-- fake office demand injection
-- blanket vacancy overrides
-- rewriting every storage or transport system before the main driver is confirmed
+Next steps:
 
-## Current v0 Implementation
+1. monitor non-signature office and industrial reproduction through diagnostics
+2. determine whether new `Signature` corrections happen only after load or also later during simulation
+3. distinguish deserialize-driven relisting from runtime object-apply relisting if new cases appear
+4. widen the phantom-vacancy fix only if concrete non-signature evidence appears
 
-The repository currently contains two things:
+Current guidance:
 
-1. a prefab-level trade patch
-2. office-demand diagnostics
-
-Implemented behavior:
-
-- a one-shot ECS system augments `m_StoredResources` with `Software`, `Telecom`, `Financial`, and `Media` on outside connection and cargo station prefabs
-- diagnostics log office demand factors, software office efficiency, and occupied-on-market office properties
-- both the trade patch and diagnostics can be toggled in mod settings
-
-Interpretation:
-
-- the trade patch is now best treated as a partial mitigation or validation tool
-- it should not be treated as the single confirmed fix path while the stale `PropertyOnMarket` issue remains unresolved
-
-## Implementation Phases
-
-## Track A: Office-Resource Trade And Storage Consistency
-
-### Phase A1: Validate the existing prefab augmentation
-
-Target:
-
-- outside connection prefabs
-- cargo station prefabs
-
-Question:
-
-- does the current patch materially improve office-resource availability in real gameplay
-
-Success condition:
-
-- software imports become reachable
-- software starvation is reduced
-- office efficiency collapses caused by `LackResources` become less frequent
-
-### Phase A2: Restore import reachability directly if prefab augmentation is not enough
-
-Target:
-
-- `Game/Simulation/ResourcePathfindSetup`
-
-Problem:
-
-- import sellers still require the resource to be present in `m_StoredResources`
-
-Patch concept:
-
-- treat office resources as valid import-seller resources under the same special-case logic already used by `TradeSystem`
-
-### Phase A3: Restore provider visibility directly if needed
-
-Target:
-
-- `Game/Simulation/ResourceAvailabilitySystem`
-
-Problem:
-
-- provider lookup still hides office-resource sellers behind the normal storage gate
-
-Patch concept:
-
-- mirror the office-resource exception in availability queries
-
-### Phase A4: Verify whether storage-transfer logic still blocks stable supply
-
-Targets:
-
-- `Game/Simulation/StorageCompanySystem`
-- `Game/Simulation/StorageTransferSystem`
-
-Problem:
-
-- even if sellers become visible, storage balancing may still reject office resources through normal storage assumptions
-
-Patch concept:
-
-- add targeted office-resource exceptions only where the old gate still breaks buffering
-
-## Track B: Stale `PropertyOnMarket` On Occupied Office Or Industrial Properties
-
-### Phase B1: Confirm where occupied properties keep or regain `PropertyOnMarket`
-
-Primary code targets:
-
-- `Game/Simulation/PropertyProcessingSystem`
-- `Game/Simulation/RentAdjustSystem`
-- `Game/Simulation/CompanyMoveAwaySystem`
-- signature-related property flow
-
-Question:
-
-- which path leaves a property on market after it already has an active renter again
-
-Expected evidence:
-
-- a property with active renter count equal to `CountProperties()` still retains `PropertyOnMarket`
-
-### Phase B2: Confirm reproduction scope
-
-Question:
-
-- does the issue reproduce only on `SignatureOffice`, or also on:
-  - non-signature office properties
-  - non-office industrial properties
-
-Current status:
-
-- current live confirmation only covers `SignatureOffice`
-- non-office reproducibility is plausible but not yet confirmed
-
-### Phase B3: Choose the actual fix once scope is confirmed
-
-Choose between:
-
-- fixing stale listing creation or removal in the property lifecycle
-- hardening office or industrial demand counting so stale on-market properties are ignored when they already have an active company renter
-
-Decision rule:
-
-- prefer lifecycle cleanup if the stale listing is clearly wrong and isolated
-- prefer demand-count hardening if stale listing can still occur transiently or from multiple systems
-
-## Logging Plan
-
-Current evidence comes from these diagnostic fields:
-
-- `onMarketOfficeProperties(total, activelyVacant, occupied, staleRenterOnly)`
-- free software office property detail lines
-- on-market office property detail lines
-
-Recommended next diagnostics if Track B continues:
-
-- same occupied-on-market checks for non-office industrial properties
-- explicit signature vs non-signature breakdown
-- which system most recently re-added `PropertyOnMarket` if practical to instrument
-
-Recommended next diagnostics if Track A continues:
-
-- office resource requested
-- seller candidate accepted or rejected
-- rejection reason: `m_StoredResources` gate
-- seller type: local producer, outside connection, cargo station, storage company
-
-## Test Scenarios
-
-## Scenario 1: Save showing office demand stuck at zero
-
-Check:
-
-- are there occupied-on-market office properties
-- are they currently `SignatureOffice` only or not
-- does `officeBuildingDemand` stay at `0` while `officeCompanyDemand` remains positive
-
-## Scenario 2: Software-supply stress case
-
-Check:
-
-- does software still oscillate or collapse
-- do offices still hit `efficiencyZero` or `lackResourcesZero`
-- does the trade patch change that behavior materially
-
-## Scenario 3: Industrial comparison
-
-Check:
-
-- do occupied-on-market industrial properties exist under the same conditions
-- if yes, does industrial building demand show the same suppression pattern
+- keep the current narrow `Signature` fix in place
+- do not widen the guard blindly
+- do not claim non-signature safety until a reproduced case set is broader
 
 ## Decision Note
 
-If stale occupied-on-market properties are confirmed to be the main driver of office-demand collapse, demand or property handling becomes a higher priority than further trade patches.
+The current release should be understood as:
 
-The trade patch should then be treated as a separate mitigation for software starvation, not as the main office-demand fix.
+- `Phantom Vacancy` is the currently shipped and confirmed fix track
+- `software` remains the main next unresolved gameplay track
 
-## Definition Of Done
+That means future gameplay work should prioritize:
 
-The next usable version of `No Office Demand Fix` is ready only when all of the following are true:
+1. keeping phantom-vacancy monitoring active
+2. using the next iteration primarily to reduce uncertainty in the `software` trade and storage path
 
-- documentation and diagnostics clearly separate the software-supply bug track from the stale `PropertyOnMarket` bug track
-- the mod can tell whether the current save is blocked mainly by supply failure, stale market listings, or both
-- the chosen fix target is decision-complete:
-  - listing lifecycle cleanup
-  - demand-count hardening
-  - or trade-path consistency
-- non-office reproducibility is either confirmed or explicitly left documented as unconfirmed
+## Definition Of Done For The Next Stage
+
+The next stage should be considered successful only if:
+
+- the current `Signature` phantom-vacancy fix remains stable
+- non-signature phantom-vacancy counters remain monitored and explicitly documented as confirmed or unconfirmed
+- the `software` track has clearer evidence about whether prefab augmentation is enough
+- any new runtime trade or storage patch is justified by direct evidence rather than guesswork
