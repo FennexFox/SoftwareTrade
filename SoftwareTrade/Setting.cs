@@ -21,7 +21,10 @@ namespace SoftwareTrade
         }
 
         [SettingsUISection(kSection, kGeneralGroup)]
-        public bool EnableTradePatch { get; set; }
+        public bool EnableTradePatch { get; set; } = true;
+
+        [SettingsUISection(kSection, kDiagnosticsGroup)]
+        public bool EnableDemandDiagnostics { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
         public bool VerboseLogging { get; set; }
@@ -29,6 +32,7 @@ namespace SoftwareTrade
         public override void SetDefaults()
         {
             EnableTradePatch = true;
+            EnableDemandDiagnostics = true;
             VerboseLogging = false;
         }
     }
@@ -55,8 +59,11 @@ namespace SoftwareTrade
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableTradePatch)), "Enable office resource trade patch" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableTradePatch)), "Adds office resources to outside connection and cargo station storage definitions so software can pass existing import and storage gates. Restart or reload after changing this option." },
 
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Logs office demand factors, free office properties, vacant office buildings, and software office efficiency whenever the office demand state looks suspicious." },
+
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.VerboseLogging)), "Verbose logging" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Logs every prefab updated by the office resource storage patch." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Logs every prefab updated by the office resource storage patch and forces daily office diagnostics output while diagnostics are enabled." },
             };
         }
 

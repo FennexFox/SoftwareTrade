@@ -4,6 +4,7 @@ using Game;
 using Game.Modding;
 using Game.Prefabs;
 using Game.SceneFlow;
+using Game.Simulation;
 using SoftwareTrade.Systems;
 
 namespace SoftwareTrade
@@ -25,6 +26,7 @@ namespace SoftwareTrade
             }
 
             updateSystem.UpdateAfter<OfficeResourceStoragePatchSystem, PrefabSystem>(SystemUpdatePhase.MainLoop);
+            updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
 
             m_Setting = new Setting(this);
             m_Setting.RegisterInOptionsUI();
