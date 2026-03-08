@@ -2,11 +2,20 @@
 
 ## Goal
 
-Implement the smallest gameplay patch that makes office-resource trade and buffering behave consistently enough to prevent the `software -> efficiency 0 -> office demand collapse` chain.
+Implement the smallest gameplay fix that addresses the real driver of the `No Office Demand` symptom in a given save.
+
+The current investigation no longer assumes that `software` trade is the only primary cause. The mod now has two active diagnostic and fix tracks:
+
+- Track A: office-resource trade and storage consistency
+- Track B: stale `PropertyOnMarket` on occupied office or industrial properties
 
 This plan is based on the findings in [softwaretrade-analysis.md](./softwaretrade-analysis.md).
 
 ## Current Diagnosis
+
+Two different failure modes now look relevant.
+
+### Track A: office-resource trade or storage inconsistency
 
 The base game already contains partial support for virtual office-resource trade and storage, but the implementation is inconsistent.
 
@@ -15,207 +24,228 @@ The main mismatch is:
 - some systems treat office resources as special virtual goods
 - other systems still require them to exist in `StorageCompanyData.m_StoredResources`
 
-The most likely failure point is not production itself, but the path from "office resource is theoretically tradable" to "buyers can actually find and use import sellers reliably".
+This can still explain `software` starvation, `LackResources == 0`, and office efficiency collapse.
+
+### Track B: stale `PropertyOnMarket` on occupied office properties
+
+The new diagnostics show a second bug track that is separate from software supply.
+
+Observed live examples:
+
+- `EE_OfficeSignature01`
+- `EE_OfficeSignature02`
+
+Observed contradiction:
+
+- `PropertyOnMarket == true`
+- `propertyCount == 1`
+- `active company renters == 1`
+- the same entities are still counted as free office supply
+
+This can hold `officeBuildingDemand` at `0` even when no truly vacant office building exists.
 
 ## Patch Scope
 
-### In scope for v0
+### In scope for the next investigation
 
-- augment prefab stored-resource definitions for office resources on import-capable storage prefabs
-- add temporary diagnostics to confirm office-resource import behavior
-- keep changes as local and reversible as possible
+- keep the current prefab-level trade patch available as a toggleable experiment
+- keep diagnostics focused on both office-resource supply and property-market state
+- determine whether stale `PropertyOnMarket` is currently limited to `SignatureOffice` or also affects non-signature office or industrial properties
+- determine whether the correct fix belongs in listing lifecycle or in demand counting safeguards
 
-### Out of scope for v0
+### Out of scope for this stage
 
 - broad economy rebalance
-- office demand cheats or forced demand injection
-- direct vacancy overrides
-- rewriting every storage or transport system
+- fake office demand injection
+- blanket vacancy overrides
+- rewriting every storage or transport system before the main driver is confirmed
 
 ## Current v0 Implementation
 
-The repository now contains a first implementation that takes the broader prefab-data route first.
+The repository currently contains two things:
+
+1. a prefab-level trade patch
+2. office-demand diagnostics
 
 Implemented behavior:
 
-- a one-shot ECS system runs after the game world is available
-- it finds prefab entities that have `StorageCompanyData` plus `OutsideConnectionData`
-- it also finds prefab entities that have `StorageCompanyData` plus `CargoTransportStationData`
-- it augments `m_StoredResources` with `Software`, `Telecom`, `Financial`, and `Media`
-- the patch can be turned off, and verbose logging can be enabled from the mod settings
+- a one-shot ECS system augments `m_StoredResources` with `Software`, `Telecom`, `Financial`, and `Media` on outside connection and cargo station prefabs
+- diagnostics log office demand factors, software office efficiency, and occupied-on-market office properties
+- both the trade patch and diagnostics can be toggled in mod settings
 
-Why this came first:
+Interpretation:
 
-- the current bug hypothesis points to several separate systems using the same `m_StoredResources` gate
-- patching the prefab definition first is the smallest way to test all of those gates together without multiple Harmony or IL patches
+- the trade patch is now best treated as a partial mitigation or validation tool
+- it should not be treated as the single confirmed fix path while the stale `PropertyOnMarket` issue remains unresolved
 
 ## Implementation Phases
 
-## Phase 1: Validate prefab augmentation
+## Track A: Office-Resource Trade And Storage Consistency
 
-### Target
+### Phase A1: Validate the existing prefab augmentation
+
+Target:
 
 - outside connection prefabs
 - cargo station prefabs
 
-### Problem
+Question:
 
-Several known trade, provider, and storage systems still gate office resources through `m_StoredResources`.
+- does the current patch materially improve office-resource availability in real gameplay
 
-### Patch concept
+Success condition:
 
-Augment `StorageCompanyData.m_StoredResources` for import-capable prefab entities so all of those systems see office resources as allowed.
+- software imports become reachable
+- software starvation is reduced
+- office efficiency collapses caused by `LackResources` become less frequent
 
-### Success condition
+### Phase A2: Restore import reachability directly if prefab augmentation is not enough
 
-- software imports become reachable in actual gameplay
-- office-resource starvation is reduced without any direct seller-discovery patch
-
-## Phase 2: Restore import reachability directly if Phase 1 is not enough
-
-### Target
+Target:
 
 - `Game/Simulation/ResourcePathfindSetup`
 
-### Problem
+Problem:
 
-Import sellers currently require the resource to be present in `m_StoredResources`, even though `TradeSystem` already allows office resources as a special case.
+- import sellers still require the resource to be present in `m_StoredResources`
 
-### Patch concept
+Patch concept:
 
-Treat office resources as valid import-seller resources when the candidate entity is:
+- treat office resources as valid import-seller resources under the same special-case logic already used by `TradeSystem`
 
-- an outside connection
-- a cargo station
-- another storage-style import provider that already participates in import flow
+### Phase A3: Restore provider visibility directly if needed
 
-### Success condition
-
-When an office company tries to buy `software`, an outside connection should no longer be filtered out solely because the prefab does not list `software` in `m_StoredResources`.
-
-## Phase 3: Restore provider visibility directly if Phase 2 is not enough
-
-### Target
+Target:
 
 - `Game/Simulation/ResourceAvailabilitySystem`
 
-### Problem
+Problem:
 
-Provider lookup still hides storage-style office-resource sellers unless the resource exists in `m_StoredResources`.
+- provider lookup still hides office-resource sellers behind the normal storage gate
 
-### Patch concept
+Patch concept:
 
-Mirror the same office-resource exception used in Phase 1.
+- mirror the office-resource exception in availability queries
 
-### Success condition
+### Phase A4: Verify whether storage-transfer logic still blocks stable supply
 
-Systems that rely on availability queries should see valid office-resource providers, especially outside connections.
-
-## Phase 4: Verify whether storage transfer still blocks the fix
-
-### Targets
+Targets:
 
 - `Game/Simulation/StorageCompanySystem`
 - `Game/Simulation/StorageTransferSystem`
 
-### Problem
+Problem:
 
-Even if sellers become discoverable, storage balancing may still reject office resources because of the same `m_StoredResources` assumptions.
+- even if sellers become visible, storage balancing may still reject office resources through normal storage assumptions
 
-### Patch concept
+Patch concept:
 
-Apply a targeted exception for office resources only where the old storage gate blocks import buffering or outside-connection transfer.
+- add targeted office-resource exceptions only where the old gate still breaks buffering
 
-### Success condition
+## Track B: Stale `PropertyOnMarket` On Occupied Office Or Industrial Properties
 
-Office-resource import and buffering should remain stable over time instead of oscillating between short spikes and full starvation.
+### Phase B1: Confirm where occupied properties keep or regain `PropertyOnMarket`
 
-## Phase 5: Optional deeper runtime patch
+Primary code targets:
 
-### Targets
+- `Game/Simulation/PropertyProcessingSystem`
+- `Game/Simulation/RentAdjustSystem`
+- `Game/Simulation/CompanyMoveAwaySystem`
+- signature-related property flow
 
-- `Game/Simulation/ResourcePathfindSetup`
-- `Game/Simulation/ResourceAvailabilitySystem`
-- `Game/Simulation/StorageCompanySystem`
-- `Game/Simulation/StorageTransferSystem`
+Question:
 
-### Use only if needed
+- which path leaves a property on market after it already has an active renter again
 
-If prefab augmentation is still too broad or not sufficient, replace it with narrower runtime exceptions in the affected systems.
+Expected evidence:
 
-## Concrete Code Tasks
+- a property with active renter count equal to `CountProperties()` still retains `PropertyOnMarket`
 
-1. Validate the current prefab augmentation in-game.
-2. Keep the setting toggle and verbose logging while testing.
-3. Patch `ResourcePathfindSetup` only if imports are still unreachable.
-4. Patch `ResourceAvailabilitySystem` only if provider visibility is still wrong.
-5. Re-test before touching `StorageCompanySystem`.
-6. Only patch `StorageCompanySystem` and `StorageTransferSystem` if logs show sellers are found but stock flow still collapses.
+### Phase B2: Confirm reproduction scope
+
+Question:
+
+- does the issue reproduce only on `SignatureOffice`, or also on:
+  - non-signature office properties
+  - non-office industrial properties
+
+Current status:
+
+- current live confirmation only covers `SignatureOffice`
+- non-office reproducibility is plausible but not yet confirmed
+
+### Phase B3: Choose the actual fix once scope is confirmed
+
+Choose between:
+
+- fixing stale listing creation or removal in the property lifecycle
+- hardening office or industrial demand counting so stale on-market properties are ignored when they already have an active company renter
+
+Decision rule:
+
+- prefer lifecycle cleanup if the stale listing is clearly wrong and isolated
+- prefer demand-count hardening if stale listing can still occur transiently or from multiple systems
 
 ## Logging Plan
 
-The first gameplay iteration should ship with lightweight diagnostics that can be disabled later.
+Current evidence comes from these diagnostic fields:
 
-Current logs:
+- `onMarketOfficeProperties(total, activelyVacant, occupied, staleRenterOnly)`
+- free software office property detail lines
+- on-market office property detail lines
 
-- number of outside connection prefabs patched
-- number of cargo station prefabs patched
-- optional per-prefab patch logs when verbose logging is enabled
+Recommended next diagnostics if Track B continues:
 
-Recommended next logs if Phase 1 is not sufficient:
+- same occupied-on-market checks for non-office industrial properties
+- explicit signature vs non-signature breakdown
+- which system most recently re-added `PropertyOnMarket` if practical to instrument
+
+Recommended next diagnostics if Track A continues:
 
 - office resource requested
 - seller candidate accepted or rejected
 - rejection reason: `m_StoredResources` gate
 - seller type: local producer, outside connection, cargo station, storage company
-- resulting sale flags: `Virtual`, `ImportFromOC`
-- buyer stock before and after purchase
 
 ## Test Scenarios
 
-## Scenario 1: Fresh city with offices unlocked
+## Scenario 1: Save showing office demand stuck at zero
 
 Check:
 
-- does office demand continue to appear after offices start consuming software
-- do office buildings avoid long runs of zero efficiency caused by `LackResources`
+- are there occupied-on-market office properties
+- are they currently `SignatureOffice` only or not
+- does `officeBuildingDemand` stay at `0` while `officeCompanyDemand` remains positive
 
-## Scenario 2: Existing save already showing low or zero office demand
-
-Check:
-
-- do software imports resume
-- do some offices recover efficiency without bulldozing or rezoning
-- does office demand rebound after simulation catches up
-
-## Scenario 3: Stress case with high office concentration
+## Scenario 2: Software-supply stress case
 
 Check:
 
-- whether software still oscillates violently month to month
-- whether import and export both remain active without runaway stock growth
+- does software still oscillate or collapse
+- do offices still hit `efficiencyZero` or `lackResourcesZero`
+- does the trade patch change that behavior materially
 
-## Risks
+## Scenario 3: Industrial comparison
 
-- treating office resources as normal storage goods in too many places could create side effects in cost balancing or routing
-- patching only one discovery system may produce partial improvement but still leave starvation in place
-- a prefab-data workaround may mask the underlying inconsistency and make future debugging harder
+Check:
 
-## Decision Rules
+- do occupied-on-market industrial properties exist under the same conditions
+- if yes, does industrial building demand show the same suppression pattern
 
-Use these rules while implementing:
+## Decision Note
 
-1. Prefer the smallest patch that restores consistency with existing office-resource special cases.
-2. Avoid direct demand manipulation unless the supply-path fix clearly fails.
-3. Avoid vacancy hacks unless the code later proves there is a separate vacancy-state bug.
-4. Keep logging until seller discovery and stock flow are clearly behaving as expected.
+If stale occupied-on-market properties are confirmed to be the main driver of office-demand collapse, demand or property handling becomes a higher priority than further trade patches.
+
+The trade patch should then be treated as a separate mitigation for software starvation, not as the main office-demand fix.
 
 ## Definition Of Done
 
-The first usable version of `SoftwareTrade` is done when all of the following are true:
+The next usable version of `SoftwareTrade` is ready only when all of the following are true:
 
-- office-resource imports can be observed and are not blocked by `m_StoredResources`
-- software starvation is materially reduced in normal gameplay
-- affected office buildings recover from `LackResources`-driven efficiency collapse
-- office demand recovers without a separate artificial demand patch
-- the patch does not obviously break non-office resource trade
+- documentation and diagnostics clearly separate the software-supply bug track from the stale `PropertyOnMarket` bug track
+- the mod can tell whether the current save is blocked mainly by supply failure, stale market listings, or both
+- the chosen fix target is decision-complete:
+  - listing lifecycle cleanup
+  - demand-count hardening
+  - or trade-path consistency
+- non-office reproducibility is either confirmed or explicitly left documented as unconfirmed

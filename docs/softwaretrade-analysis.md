@@ -2,13 +2,14 @@
 
 ## Scope
 
-This document summarizes what has been confirmed from the decompiled base game code in `..\CSL2_Decompiled` about the `No Office Demand` bug and the `software` supply chain.
+This document summarizes what has been confirmed from the decompiled base game code in `..\CSL2_Decompiled` about the `No Office Demand` bug, the `software` supply chain, and the newly observed `PropertyOnMarket` issue on occupied office properties.
 
 The goal is to separate:
 
 - what is clearly confirmed by code
 - what was initially assumed but is not directly supported by code
 - what now looks like a likely implementation bug in the game's virtual trade or virtual storage handling
+- what now looks like a second likely bug in property-market state handling and office-demand counting
 
 ## Confirmed Causal Chain
 
@@ -389,6 +390,206 @@ For v0, prefer:
 
 This is the narrowest path that can confirm whether import reachability is the main failure.
 
+## Second Bug Track: Stale `PropertyOnMarket` On Occupied Office Properties
+
+The latest diagnostics point to a second bug track that is separate from the virtual office-resource trade issue.
+
+This track currently has the strongest direct evidence for the visible `office building demand = 0` symptom.
+
+### What `PropertyOnMarket` means
+
+`PropertyOnMarket` is a market-listing component, not a guaranteed vacancy state.
+
+### Relevant code
+
+- `Game/Buildings/PropertyOnMarket.cs:6`
+  - the component only stores asking rent
+- `Game/Simulation/CommercialFindPropertySystem.cs:142`
+  - commercial companies search properties with `PropertyOnMarket`
+- `Game/Simulation/IndustrialFindPropertySystem.cs:197`
+  - industrial and office companies also search properties with `PropertyOnMarket`
+
+Practical interpretation:
+
+- if a property has `PropertyOnMarket`, the game is treating it as a rentable market entry
+- this normally implies "available for a renter"
+- but it does **not** by itself prove that the property has no active renter
+
+### Observed contradiction from live diagnostics
+
+The current diagnostics captured two live office properties:
+
+- `EE_OfficeSignature01`
+- `EE_OfficeSignature02`
+
+For both properties, the log showed:
+
+- `PropertyOnMarket == true`
+- `propertyCount == 1`
+- `renters(total=1, company=1, active=1)`
+- the same entities still counted toward `freeOfficeProperties(total=2, software=2)`
+
+That is the key contradiction.
+
+These properties are:
+
+- already occupied by an active company
+- still listed as on-market
+- still counted as free office supply
+
+This means the current office-demand collapse is **not** well explained by "the game thinks the building is vacant because efficiency is zero".
+
+The stronger explanation is:
+
+- some occupied office properties remain listed on the market
+- `IndustrialDemandSystem` counts those stale listings as free office supply
+- office building demand stays at `0` even though there is no true vacant office building
+
+### Evidence source in the mod diagnostics
+
+The current evidence comes from these diagnostic lines:
+
+- `onMarketOfficeProperties(total, activelyVacant, occupied, staleRenterOnly)`
+- free software office property detail lines
+- on-market office property detail lines
+
+In the current observed case, the most important values were:
+
+- `onMarketOfficeProperties(total=2, activelyVacant=0, occupied=2, staleRenterOnly=0)`
+- the same two entities also appeared in the free software property detail line
+
+That combination means:
+
+- they were not truly vacant
+- they were still treated as on-market office properties
+- they were still counted as free supply for office demand purposes
+
+### Why this can happen in code
+
+There are several legitimate paths that can put a property back on the market:
+
+- `Game/Simulation/CompanyMoveAwaySystem.cs:198`
+  - adds `PropertyToBeOnMarket` when a company leaves a property
+- `Game/Simulation/PropertyRenterSystem.cs:146`
+  - normal buildings can be flagged for market listing when renter count is below capacity
+- `Game/Simulation/PropertyProcessingSystem.cs:164`
+  - converts `PropertyToBeOnMarket` into `PropertyOnMarket`
+- `Game/Simulation/RentAdjustSystem.cs:355`
+  - can also add `PropertyOnMarket` when it sees free capacity after renter cleanup
+
+In normal operation, a fully occupied property should stop being on market again:
+
+- `Game/Simulation/PropertyProcessingSystem.cs:433`
+  - removes `PropertyOnMarket` when renter count reaches `CountProperties()`
+- `Game/Simulation/PropertyProcessingSystem.cs:450`
+  - same removal rule in the alternate branch
+
+So the current live state strongly suggests a stale listing or stale transition:
+
+- the property was put on market through a legitimate lifecycle path
+- but later cleanup did not remove the listing even though the property already had an active renter again
+
+### Code-backed comparison: why office and industrial demand are hit harder
+
+This is where the latest diagnosis becomes much more specific.
+
+#### Commercial demand is defensive against stale listings
+
+`CommercialDemandSystem` does not blindly count every on-market commercial property as free.
+
+- `Game/Simulation/CommercialDemandSystem.cs:140`
+  - checks whether the on-market property already has a commercial renter
+- `Game/Simulation/CommercialDemandSystem.cs:150`
+  - skips the property if it is already occupied by a commercial company
+
+So a stale `PropertyOnMarket` does not automatically become fake commercial free supply.
+
+#### Residential demand is also renter-count based
+
+Residential free-property counting uses renter counts rather than blindly trusting `PropertyOnMarket`.
+
+- `Game/Simulation/CountResidentialPropertySystem.cs:152`
+  - residential free count is derived from total residential properties minus renter count
+- `Game/Simulation/CountResidentialPropertySystem.cs:168`
+  - same pattern across density bands
+
+So residential counting is also more defensive.
+
+#### Industrial and office demand are not defensive in the same way
+
+`IndustrialDemandSystem` counts `PropertyOnMarket` industrial properties without a renter guard.
+
+- `Game/Simulation/IndustrialDemandSystem.cs:292`
+  - only checks whether the property chunk has `PropertyOnMarket`
+- `Game/Simulation/IndustrialDemandSystem.cs:314`
+  - increments `m_FreeProperties` for each allowed manufactured resource
+
+There is no equivalent "skip if already occupied by the matching renter type" check in this loop.
+
+That means:
+
+- a stale on-market industrial property becomes fake industrial free supply
+- a stale on-market office property becomes fake office free supply
+
+This asymmetry is currently the strongest code-level explanation for why the symptom is mainly visible in office demand even if the underlying listing bug is not office-exclusive.
+
+### Why the on-market property is not truly available
+
+The property-market state and the company property-search state are not identical.
+
+`PropertyOnMarket` says "listed on the market", but company property search still rejects properties that already have a company renter.
+
+### Relevant code
+
+- `Game/Buildings/PropertyUtils.cs:353`
+  - checks the renter buffer of candidate properties
+- `Game/Buildings/PropertyUtils.cs:359`
+  - if a company renter exists, the candidate is rejected
+
+So the stale listing does not even help with real availability.
+
+Instead it creates the worst possible combination:
+
+- the property is not truly rentable
+- but office demand still counts it as free supply
+
+### Refined conclusion
+
+The current best-supported explanation for the visible office-demand collapse is now:
+
+- stale `PropertyOnMarket` can suppress office building demand even when no true office vacancy exists
+- the same structural bug may also affect industrial demand
+- office is where it is currently most visible because the current live examples are office properties and because office demand UI highlights the effect clearly
+
+This also means the current observed office-demand failure appears largely independent from the prefab-level `SoftwareTrade` patch.
+
+The trade patch may still matter for software starvation, but it is not the strongest explanation for the currently observed `officeBuildingDemand = 0` state.
+
+### Current best hypothesis
+
+The safest interpretation at this point is:
+
+- stale market listing is likely a common state-corruption or stale-transition problem
+- demand collapse is office or industrial specific because their free-property counting is less defensive than commercial or residential
+- the currently observed live examples are `SignatureOffice` buildings, so signature-specific lifecycle handling may be involved
+
+Important limit:
+
+- non-office reproducibility is plausible but not yet confirmed from live diagnostics
+- the docs should therefore distinguish:
+  - generic office or industrial possibility
+  - currently observed `SignatureOffice` evidence
+
+### Immediate investigation target
+
+The next highest-value investigation is now:
+
+1. determine whether occupied-on-market properties also exist in non-signature office properties
+2. determine whether the same stale-listing pattern also appears in non-office industrial properties
+3. decide whether the fix belongs in:
+   - listing lifecycle cleanup
+   - or demand-count hardening against stale on-market properties
+
 ## Validation Plan
 
 The mod should be validated against observable in-game behavior, not only against static code consistency.
@@ -398,7 +599,8 @@ The mod should be validated against observable in-game behavior, not only agains
 1. verify that office companies can select outside connections as sellers for `software`
 2. verify that `software` stock no longer collapses to zero for long periods in a stable city
 3. verify that affected office buildings recover non-zero efficiency after supply recovers
-4. verify that office demand starts recovering without any separate "fake demand" patch
+4. verify whether occupied-on-market office properties still exist while `officeBuildingDemand` is `0`
+5. verify that office demand starts recovering without any separate "fake demand" patch
 
 ### Useful instrumentation
 
@@ -406,6 +608,8 @@ The mod should be validated against observable in-game behavior, not only agains
 - log whether import targets were filtered out by `m_StoredResources`
 - log resource deltas on outside connections for `software`
 - log office-company efficiency and `LackResources` transitions
+- log occupied-on-market office properties and whether they are `SignatureOffice`
+- log the same occupied-on-market pattern for non-office industrial properties if it appears
 
 ### Exit criteria for the first gameplay patch
 
@@ -413,6 +617,7 @@ The first real gameplay patch should be considered successful only if:
 
 - office-resource imports are visibly reachable
 - software shortages are reduced or eliminated in normal play
+- occupied-on-market office properties no longer suppress office building demand
 - office demand recovers without introducing obviously incorrect side effects in other resources
 - no blanket vacancy workaround is required
 
@@ -423,10 +628,15 @@ The first real gameplay patch should be considered successful only if:
 - the efficiency-collapse chain is real
 - office resources already have some virtual handling
 - virtual handling is inconsistent across systems
+- `PropertyOnMarket` is a market-listing state, not a reliable vacancy state
+- occupied office properties can still remain on market and be counted as free office supply
+- commercial and residential demand counting are more defensive against stale market state than office or industrial demand counting
 
 ### Not yet fully confirmed
 
 - whether every shipped outside connection prefab excludes `software`
 - whether the inconsistency alone is sufficient to reproduce the full `No Office Demand` bug in all cases
+- whether the stale `PropertyOnMarket` issue reproduces outside `SignatureOffice`
+- whether the cleanest fix belongs in listing lifecycle cleanup or in demand-count hardening
 
 Those points may require either runtime inspection, logging, or prefab data inspection beyond the decompiled C# sources.
