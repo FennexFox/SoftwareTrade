@@ -1,98 +1,94 @@
-# Phantom Vacancy Patch Plan
+# No Office Demand Fix Patch Plan
 
-## Goal
+## Summary
 
-Keep the current `Phantom Vacancy` fix narrow, verified, and easy to extend only if new evidence appears.
+The project still has two active tracks:
 
-The current plan is no longer an investigation split across multiple unrelated tracks.
-It is now specifically about the confirmed stale market-state problem on occupied `Signature` office and industrial properties.
+- `Track A`: office-resource / `software` trade and storage consistency
+- `Track B`: `Phantom Vacancy`
 
-## Implemented Patch
+The important current status difference is:
 
-The current implementation adds `SignaturePropertyMarketGuardSystem`.
+- `Phantom Vacancy` is the current shipped fix
+- `software` remains the main unresolved gameplay track
 
-It is registered so that it runs:
+## Current Patch Status
 
-- after `PropertyProcessingSystem`
-- after `RentAdjustSystem`
-- after `CompanyMoveAwaySystem`
-- before `IndustrialFindPropertySystem`
-- before `IndustrialDemandSystem`
+The current version ships `SignaturePropertyMarketGuardSystem`.
 
-The system checks:
+Shipped status:
 
-- `Signature`
-- `OfficeProperty` or `IndustrialProperty`
-- `PropertyOnMarket` or `PropertyToBeOnMarket`
+- it runs after the known market-state writers and before office or industrial property search and demand evaluation
+- it removes stale `PropertyOnMarket` and `PropertyToBeOnMarket` from occupied `Signature` office or industrial properties
+- it fixed the confirmed reproduced symptom in the current save
 
-Excluded states:
+Current confirmed result:
 
-- `Abandoned`
-- `Destroyed`
-- `Deleted`
-- `Temp`
-- `Condemned`
-
-Correction rule:
-
-- if the property itself already has an active company renter, remove `PropertyOnMarket`
-- if the property itself already has an active company renter, remove `PropertyToBeOnMarket`
-
-This is an invariant guard, not a replacement lifecycle.
-
-## Current Validation Status
-
-The confirmed reproduced save now shows:
-
-- `EE_OfficeSignature01` and `EE_OfficeSignature02` corrected from stale `PropertyOnMarket`
-- three occupied `SignatureIndustrial` properties corrected from stale market state
-- `guardCorrections=5` on the first diagnostic pass after load
-- zero remaining phantom vacancy counters on the next diagnostic samples
-- `officeBuildingDemand` recovering to a non-zero value
-
-Current status summary:
-
+- `SignatureOffice` phantom vacancy was corrected
+- `SignatureIndustrial` phantom vacancy was also corrected
 - the inaccurate `Unoccupied Buildings` style symptom is resolved in the reproduced save
-- the confirmed problem is not currently visible on non-signature office or industrial properties
 
-## What To Keep Watching
+Current monitoring result:
 
-The current diagnostics should remain focused on these questions:
+- no confirmed non-signature phantom-vacancy reproduction has appeared yet
 
-- does `nonSignatureOccupiedOnMarketOffice` ever become non-zero
-- does `nonSignatureOccupiedOnMarketIndustrial` ever become non-zero
-- do new `Signature` corrections happen only immediately after load, or also later during normal gameplay
-- does `signatureOccupiedToBeOnMarket` reappear during long-running simulation
+## Track A: Software / Office-Resource Next Work
 
-These answers determine whether the next step should remain a narrow `Signature` fix or be widened.
+The `software` track remains an active future work stream.
 
-## Next Actions If New Evidence Appears
+Next steps:
 
-If new `Signature` corrections continue to appear during normal gameplay:
+1. validate whether the current prefab augmentation materially improves software availability in gameplay
+2. patch import seller discovery directly if office-resource imports are still blocked there
+3. patch provider visibility directly if office-resource sellers are still hidden there
+4. patch storage-transfer or storage-company logic only if evidence still shows blocked office-resource buffering
 
-- instrument the most recent writer path more aggressively
-- distinguish deserialize-driven cases from runtime relisting cases
+Recommended validation signals:
 
-If non-signature phantom vacancy is observed:
+- software production and demand counters
+- software office `propertyless` counts
+- `efficiencyZero` and `lackResourcesZero` counts for software offices
+- whether long-running saves still show sustained software starvation with the trade patch enabled
 
-- keep the current `Signature` fix in place
-- add a separate analysis pass before widening behavior
-- do not widen the guard blindly without a concrete reproduced case
+Current interpretation:
 
-## Not Planned Right Now
+- the trade patch remains useful
+- it is still a mitigation or validation experiment, not a confirmed complete solution
 
-These changes are intentionally out of scope for the current patch:
+## Track B: Phantom Vacancy Next Work
 
-- widening the guard to all office or industrial properties without evidence
-- patching `IndustrialDemandSystem` to harden free-property counting for every case
-- patching `RequiredComponentSystem` or `ApplyObjectsSystem` directly
-- mixing the phantom vacancy documentation back together with unrelated office-resource topics
+The `Phantom Vacancy` track is now in monitor-and-extend mode rather than first-fix mode.
 
-## Definition Of Done
+Next steps:
 
-For the current patch stage, the work is considered complete when:
+1. monitor non-signature office and industrial reproduction through diagnostics
+2. determine whether new `Signature` corrections happen only after load or also later during simulation
+3. distinguish deserialize-driven relisting from runtime object-apply relisting if new cases appear
+4. widen the phantom-vacancy fix only if concrete non-signature evidence appears
 
-- occupied `Signature` office or industrial properties no longer remain on market in the reproduced save
-- diagnostics stay at zero for `Signature` phantom vacancy counters after the initial corrections
-- non-signature counters remain under observation instead of being assumed safe
-- documentation clearly states that `Signature` phantom vacancy is confirmed, while non-signature reproduction is still unconfirmed
+Current guidance:
+
+- keep the current narrow `Signature` fix in place
+- do not widen the guard blindly
+- do not claim non-signature safety until a reproduced case set is broader
+
+## Decision Note
+
+The current release should be understood as:
+
+- `Phantom Vacancy` is the currently shipped and confirmed fix track
+- `software` remains the main next unresolved gameplay track
+
+That means future gameplay work should prioritize:
+
+1. keeping phantom-vacancy monitoring active
+2. using the next iteration primarily to reduce uncertainty in the `software` trade and storage path
+
+## Definition Of Done For The Next Stage
+
+The next stage should be considered successful only if:
+
+- the current `Signature` phantom-vacancy fix remains stable
+- non-signature phantom-vacancy counters remain monitored and explicitly documented as confirmed or unconfirmed
+- the `software` track has clearer evidence about whether prefab augmentation is enough
+- any new runtime trade or storage patch is justified by direct evidence rather than guesswork

@@ -1,18 +1,80 @@
-# Phantom Vacancy Analysis
+# No Office Demand Fix Analysis
 
 ## Scope
 
-This document summarizes the currently confirmed `Phantom Vacancy` issue in `Cities: Skylines II`.
+This document summarizes the current state of the `No Office Demand Fix` investigation in `Cities: Skylines II`.
 
-This revision is intentionally scoped to:
+The project currently covers two tracks:
 
-- stale `PropertyOnMarket` or `PropertyToBeOnMarket` state on occupied office or industrial properties
-- the currently confirmed `Signature` building cases
-- the observed effect on office-demand and "unoccupied buildings" style diagnostics
+- office-resource / `software` instability
+- `Phantom Vacancy`
 
-This revision intentionally does **not** cover the separate office-resource or `software` supply track.
+The goal of this document is to separate:
 
-## Confirmed Live Observation
+- what is confirmed by code
+- what is confirmed by live diagnostics
+- what is solved in the current version
+- what is still open
+
+## Track A: Office-Resource / `software` Instability
+
+### Confirmed causal chain
+
+The broad office-resource failure chain is still supported by code.
+
+1. `software` is an office resource.
+2. office companies depend on resource supply to keep the `LackResources` efficiency factor above `0`.
+3. `ProcessingCompanySystem` can set `LackResources` to `0`.
+4. `BuildingUtils` multiplies efficiency factors together, so `LackResources == 0` can collapse total efficiency to `0`.
+5. if an office company's efficiency becomes `0`, production also becomes `0`.
+6. office demand is derived from company production and resource demand counters, so a sustained `software` supply failure can collapse office demand indirectly.
+
+### Confirmed special handling
+
+The base game already contains partial virtual handling for office resources.
+
+Confirmed examples from decompiled code:
+
+- `TradeSystem` special-cases office resources even when they are not present in `StorageCompanyData.m_StoredResources`
+- `ResourceBuyerSystem` supports virtual purchase behavior for zero-weight goods
+- `ResourceExporterSystem` supports virtual export behavior
+- company-side virtual storage behavior exists for office resources
+
+This means the base game does appear to intend office-resource trade or buffering to work through partial exceptions.
+
+### Where the implementation is still inconsistent
+
+The office-resource path still appears inconsistent across systems.
+
+The strongest current mismatches are:
+
+- import seller discovery can still be gated by normal `m_StoredResources` checks
+- provider visibility can still be gated by normal storage membership
+- storage-company logic can still assume normal stored-resource participation
+- storage-transfer flow can still assume office resources belong to ordinary storage membership rules
+
+Current best interpretation:
+
+- office resources were intended to work through special handling
+- that handling is incomplete or inconsistently applied
+- the current `software` issue is therefore still a plausible independent bug track
+
+### Current status of the trade patch
+
+The current prefab-level trade patch:
+
+- augments outside connection and cargo station storage definitions with office resources
+- remains useful as a mitigation or validation experiment
+- is **not** yet a confirmed full fix for the `software` track
+
+Current conclusion for Track A:
+
+- `software` instability remains open
+- current version does not claim to have solved it
+
+## Track B: Phantom Vacancy
+
+### Confirmed live observation
 
 The currently reproduced save had occupied `Signature` properties that were still treated as market listings.
 
@@ -24,7 +86,7 @@ Confirmed corrected entities from the mod log on March 8, 2026:
 - `IndustrialManufacturingSignature06`
 - `IndustrialManufacturingSignature07`
 
-Observed corrections:
+Observed stale state:
 
 - 4 occupied `Signature` properties still had `PropertyOnMarket`
 - 1 occupied `Signature` industrial property still had `PropertyToBeOnMarket`
@@ -38,10 +100,10 @@ After the guard patch removed those stale market components, diagnostics reporte
 Current interpretation:
 
 - the inaccurate `Unoccupied Buildings` symptom in the reproduced save was caused by stale market state on occupied `Signature` properties
-- the patch fixed that reproduced symptom
-- no non-signature phantom vacancy case has been observed yet in current logs
+- the current patch fixed that reproduced symptom
+- no non-signature phantom-vacancy case has been observed yet in current logs
 
-## What The Components Mean
+### What the components mean
 
 `PropertyOnMarket` is a market-listing component.
 
@@ -53,9 +115,9 @@ Current interpretation:
 - it marks a property to be converted into `PropertyOnMarket`
 - if it survives on an already occupied property, it can recreate the stale listing on the next property-processing pass
 
-## Code-Backed Causal Chain
+### Code-backed phantom-vacancy chain
 
-The currently confirmed phantom vacancy path is:
+The currently confirmed phantom-vacancy path is:
 
 1. a `Signature` office or industrial property regains `PropertyToBeOnMarket` or keeps `PropertyOnMarket`
 2. `PropertyProcessingSystem` converts `PropertyToBeOnMarket` into `PropertyOnMarket`
@@ -63,46 +125,37 @@ The currently confirmed phantom vacancy path is:
 4. `IndustrialDemandSystem` counts the on-market office or industrial property as free supply anyway
 5. office demand or industrial demand can be suppressed by vacancy that does not actually exist
 
-## Relevant Decompiled Code
+### Relevant decompiled code
 
-### `PropertyOnMarket` is listing state, not vacancy state
+`PropertyOnMarket` is listing state, not vacancy state:
 
 - `Game/Buildings/PropertyOnMarket.cs`
 
-### Occupied properties are not truly rentable
+Occupied properties are not truly rentable:
 
 - `Game/Buildings/PropertyUtils.cs`
 - company property search checks the renter buffer and skips candidates that already have a company renter
 
-### Office and industrial demand counting trust on-market state too much
+Office and industrial demand counting trust on-market state too much:
 
 - `Game/Simulation/IndustrialDemandSystem.cs`
 - the free-property counting loop increments office or industrial free supply from `PropertyOnMarket`
 - it does not apply the same renter guard that property search uses
 
-### `Signature` buildings already use a separate property lifecycle
+`Signature` buildings already use a separate property lifecycle:
 
 - `Game/Simulation/PropertyRenterSystem.cs`
 - normal automatic relisting explicitly excludes `Signature` chunks with `!chunk.Has<Signature>()`
 
-This means the base game already intended `Signature` buildings to be handled differently from normal properties.
-
-### `Signature`-specific relisting paths can recreate stale market state
+`Signature`-specific relisting paths can recreate stale market state:
 
 - `Game/Serialization/RequiredComponentSystem.cs`
-- `m_OldSignatureBuildingQuery` adds `PropertyToBeOnMarket` to old `Signature` buildings during deserialize
-- that path does not check whether the property is already occupied
+- `m_OldSignatureBuildingQuery` adds `PropertyToBeOnMarket` to old `Signature` buildings during deserialize without checking occupancy
 
 - `Game/Tools/ApplyObjectsSystem.cs`
-- when applying object changes, `Signature` buildings can also regain `PropertyToBeOnMarket`
-- that path also does not check current occupancy before re-adding market state
+- `Signature` buildings can also regain `PropertyToBeOnMarket` there without checking current occupancy
 
-### `PropertyProcessingSystem` turns staging state into live market state
-
-- `Game/Simulation/PropertyProcessingSystem.cs`
-- if a property has `PropertyToBeOnMarket`, the system can convert it to `PropertyOnMarket`
-
-## Why This Looks Like A Bug, Not Intended Gameplay
+### Why this still looks like a bug
 
 The code strongly suggests that `Signature` buildings were intentionally given special handling.
 
@@ -114,18 +167,16 @@ What does **not** look deliberate is the final outcome:
 - actual company property search still rejects it
 - demand systems still count it as free supply
 
-That combination gives the game no useful behavior.
-
-It does not create real availability.
+That combination does not create real availability.
 It only creates false vacancy.
 
 The most defensible interpretation is:
 
 - `Signature`-specific lifecycle handling was intentional
-- the occupancy invariant was not consistently enforced across all `Signature` relisting paths
+- occupancy invariant enforcement was incomplete across all `Signature` relisting paths
 - the stale listing state is therefore more likely an implementation gap than a design goal
 
-## Current Patch Interpretation
+### Current patch interpretation
 
 The implemented fix does not replace the base-game `Signature` lifecycle.
 
@@ -136,25 +187,25 @@ Instead it enforces one invariant after the known writers and before office or i
 
 This is a narrow safety correction, not a new market system.
 
-## Current Confidence
+## Current Best Interpretation
 
-High confidence:
+The two tracks are not equivalent in current release status.
 
-- the reproduced `SignatureOffice` phantom vacancy issue was real
-- the same stale state also appeared on `SignatureIndustrial`
-- removing stale market state resolved the inaccurate vacancy symptom in the reproduced save
-- no non-signature phantom vacancy case has appeared in current diagnostics
+Current ranking:
 
-Not yet fully confirmed:
+1. the current version successfully addresses the confirmed `Phantom Vacancy` case on occupied `Signature` office and industrial properties
+2. `software` remains a plausible independent office-demand failure mode that is still unresolved
+3. non-signature phantom-vacancy reproduction remains unconfirmed rather than disproven
 
-- whether non-signature office properties can enter the same stale state
-- whether non-signature industrial properties can enter the same stale state
-- whether deserialize is the dominant source in all saves, or whether runtime object-apply paths matter just as often
+## What Is Solved vs What Is Still Open
 
-## Practical Conclusion
+Solved in the current version:
 
-Current best conclusion:
+- reproduced `Signature` phantom vacancy on occupied office and industrial properties
 
-- `Phantom Vacancy` is confirmed for occupied `Signature` office and industrial properties
-- the observed symptom is caused by stale market-listing state, not true vacancy
-- the current patch fixes the confirmed `Signature` cases without widening behavior to non-signature properties that have not yet been observed
+Still open:
+
+- whether non-signature office properties can enter the same stale market state
+- whether non-signature industrial properties can enter the same stale market state
+- whether `software` trade or storage consistency is sufficient to resolve its track without additional runtime patches
+- whether the prefab-level trade patch is enough or whether runtime trade/provider/storage patches are still needed
