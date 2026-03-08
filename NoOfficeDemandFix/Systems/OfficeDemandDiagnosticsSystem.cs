@@ -77,6 +77,8 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_ToBeOnMarketPropertyQuery;
         private EntityQuery m_OfficeCompanyQuery;
         private int m_LastLoggedDay = int.MinValue;
+        private bool m_LastDiagnosticsEnabled;
+        private bool m_LastVerboseLoggingEnabled;
 
         [Preserve]
         protected override void OnCreate()
@@ -135,18 +137,32 @@ namespace NoOfficeDemandFix.Systems
         {
             base.OnGamePreload(purpose, mode);
             m_LastLoggedDay = int.MinValue;
+            m_LastDiagnosticsEnabled = false;
+            m_LastVerboseLoggingEnabled = false;
         }
 
         protected override void OnGameLoaded(Context serializationContext)
         {
             base.OnGameLoaded(serializationContext);
             m_LastLoggedDay = int.MinValue;
+            m_LastDiagnosticsEnabled = false;
+            m_LastVerboseLoggingEnabled = false;
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
-            if (!IsDiagnosticsEnabled())
+            bool diagnosticsEnabled = IsDiagnosticsEnabled();
+            bool verboseLoggingEnabled = IsVerboseLoggingEnabled();
+            if (diagnosticsEnabled && (!m_LastDiagnosticsEnabled || (verboseLoggingEnabled && !m_LastVerboseLoggingEnabled)))
+            {
+                m_LastLoggedDay = int.MinValue;
+            }
+
+            m_LastDiagnosticsEnabled = diagnosticsEnabled;
+            m_LastVerboseLoggingEnabled = verboseLoggingEnabled;
+
+            if (!diagnosticsEnabled)
             {
                 return;
             }
@@ -510,6 +526,11 @@ namespace NoOfficeDemandFix.Systems
         private static bool IsDiagnosticsEnabled()
         {
             return Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
+        }
+
+        private static bool IsVerboseLoggingEnabled()
+        {
+            return Mod.Settings != null && Mod.Settings.VerboseLogging;
         }
 
         private static bool ShouldLog(DiagnosticSnapshot snapshot)

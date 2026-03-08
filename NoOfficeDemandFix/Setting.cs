@@ -64,13 +64,13 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableTradePatch)), "Adds office resources to outside connection and cargo station storage definitions so software can pass existing import and storage gates. Restart or reload after changing this option." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Enable phantom vacancy fix" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Removes PropertyOnMarket and PropertyToBeOnMarket from occupied signature office and industrial properties before demand and property search evaluate them. Reload after changing this option." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Applies immediately to future simulation ticks by removing PropertyOnMarket and PropertyToBeOnMarket from occupied signature office and industrial properties before demand and property search evaluate them. Disabling it stops future corrections but does not restore already cleaned-up market state." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Logs office demand factors, free office properties, phantom vacancy counters, and software office efficiency whenever the office demand state looks suspicious." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Takes effect immediately and logs office demand factors, free office properties, phantom vacancy counters, and software office efficiency whenever the office demand state looks suspicious." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.VerboseLogging)), "Verbose logging" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Logs every prefab updated by the office resource storage patch, every phantom vacancy correction, and forces daily office diagnostics output while diagnostics are enabled." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom vacancy corrections, and forces daily office diagnostics output while diagnostics are enabled. It does not replay one-shot prefab patch logs that already happened earlier in the session." },
             };
         }
 
