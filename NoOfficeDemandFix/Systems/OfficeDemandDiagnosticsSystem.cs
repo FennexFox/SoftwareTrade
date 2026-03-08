@@ -47,6 +47,12 @@ namespace NoOfficeDemandFix.Systems
             public int ActivelyVacantOfficeProperties;
             public int OccupiedOnMarketOfficeProperties;
             public int StaleRenterOnMarketOfficeProperties;
+            public int SignatureOccupiedOnMarketOffice;
+            public int SignatureOccupiedOnMarketIndustrial;
+            public int SignatureOccupiedToBeOnMarket;
+            public int NonSignatureOccupiedOnMarketOffice;
+            public int NonSignatureOccupiedOnMarketIndustrial;
+            public int GuardCorrections;
             public int SoftwareProduction;
             public int SoftwareDemand;
             public int SoftwareProductionCompanies;
@@ -63,10 +69,12 @@ namespace NoOfficeDemandFix.Systems
         private SimulationSystem m_SimulationSystem;
         private IndustrialDemandSystem m_IndustrialDemandSystem;
         private CountCompanyDataSystem m_CountCompanyDataSystem;
+        private SignaturePropertyMarketGuardSystem m_SignaturePropertyMarketGuardSystem;
         private PrefabSystem m_PrefabSystem;
         private EntityQuery m_TimeDataQuery;
         private EntityQuery m_FreeOfficePropertyQuery;
-        private EntityQuery m_OnMarketOfficeBuildingQuery;
+        private EntityQuery m_OnMarketPropertyQuery;
+        private EntityQuery m_ToBeOnMarketPropertyQuery;
         private EntityQuery m_OfficeCompanyQuery;
         private int m_LastLoggedDay = int.MinValue;
 
@@ -77,6 +85,7 @@ namespace NoOfficeDemandFix.Systems
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_IndustrialDemandSystem = World.GetOrCreateSystemManaged<IndustrialDemandSystem>();
             m_CountCompanyDataSystem = World.GetOrCreateSystemManaged<CountCompanyDataSystem>();
+            m_SignaturePropertyMarketGuardSystem = World.GetOrCreateSystemManaged<SignaturePropertyMarketGuardSystem>();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
             m_TimeDataQuery = GetEntityQuery(ComponentType.ReadOnly<TimeData>());
             m_FreeOfficePropertyQuery = GetEntityQuery(
@@ -88,8 +97,16 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>(),
                 ComponentType.Exclude<Condemned>());
-            m_OnMarketOfficeBuildingQuery = GetEntityQuery(
+            m_OnMarketPropertyQuery = GetEntityQuery(
                 ComponentType.ReadOnly<PropertyOnMarket>(),
+                ComponentType.ReadOnly<PrefabRef>(),
+                ComponentType.Exclude<Abandoned>(),
+                ComponentType.Exclude<Destroyed>(),
+                ComponentType.Exclude<Deleted>(),
+                ComponentType.Exclude<Temp>(),
+                ComponentType.Exclude<Condemned>());
+            m_ToBeOnMarketPropertyQuery = GetEntityQuery(
+                ComponentType.ReadOnly<PropertyToBeOnMarket>(),
                 ComponentType.ReadOnly<PrefabRef>(),
                 ComponentType.Exclude<Abandoned>(),
                 ComponentType.Exclude<Destroyed>(),
@@ -153,6 +170,7 @@ namespace NoOfficeDemandFix.Systems
                 $"Office demand diagnostics day {snapshot.Day}: demand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
                 $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
                 $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
+                $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
                 $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
                 $"softwareOffices(total={snapshot.SoftwareOfficeCompanies}, propertyless={snapshot.SoftwareOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareOfficeLackResourcesZero}); " +
                 $"topFactors=[{snapshot.TopFactors}]");
@@ -190,11 +208,13 @@ namespace NoOfficeDemandFix.Systems
                 SoftwareDemand = industrialCompanyDatas.m_Demand[softwareIndex],
                 SoftwareProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[softwareIndex],
                 SoftwarePropertylessCompanies = industrialCompanyDatas.m_ProductionPropertyless[softwareIndex],
+                GuardCorrections = m_SignaturePropertyMarketGuardSystem.ConsumeCorrectionCount(),
                 TopFactors = FormatTopFactors(officeFactors)
             };
 
             CountFreeOfficeProperties(ref snapshot);
-            CountOnMarketOfficeBuildings(ref snapshot);
+            CountOnMarketProperties(ref snapshot);
+            CountToBeOnMarketProperties(ref snapshot);
             CountSoftwareOffices(ref snapshot);
 
             return snapshot;
@@ -244,45 +264,85 @@ namespace NoOfficeDemandFix.Systems
             snapshot.FreeSoftwareOfficePropertyDetails = details.ToString();
         }
 
-        private void CountOnMarketOfficeBuildings(ref DiagnosticSnapshot snapshot)
+        private void CountOnMarketProperties(ref DiagnosticSnapshot snapshot)
         {
             StringBuilder details = new StringBuilder();
             int detailCount = 0;
-            using NativeArray<Entity> buildings = m_OnMarketOfficeBuildingQuery.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < buildings.Length; i++)
+            using NativeArray<Entity> properties = m_OnMarketPropertyQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < properties.Length; i++)
             {
-                Entity building = buildings[i];
-                if (!EntityManager.HasComponent<PrefabRef>(building))
+                Entity property = properties[i];
+                if (!TryGetTrackedPropertyType(property, out bool isOfficeProperty, out bool isIndustrialProperty))
                 {
                     continue;
                 }
 
-                PrefabRef prefabRef = EntityManager.GetComponentData<PrefabRef>(building);
-                if (!IsOfficeBuildingPrefab(prefabRef.m_Prefab))
+                int activeCompanyRenters = GetActiveCompanyRenterCount(property);
+                int companyRenters = GetCompanyRenterCount(property);
+                bool isSignature = EntityManager.HasComponent<Signature>(property);
+                if (isOfficeProperty)
                 {
-                    continue;
-                }
-
-                snapshot.OnMarketOfficeProperties++;
-                int activeCompanyRenters = GetActiveCompanyRenterCount(building);
-                int companyRenters = GetCompanyRenterCount(building);
-                if (activeCompanyRenters > 0)
-                {
-                    snapshot.OccupiedOnMarketOfficeProperties++;
-                }
-                else
-                {
-                    snapshot.ActivelyVacantOfficeProperties++;
-                    if (companyRenters > 0)
+                    snapshot.OnMarketOfficeProperties++;
+                    if (activeCompanyRenters > 0)
                     {
-                        snapshot.StaleRenterOnMarketOfficeProperties++;
+                        snapshot.OccupiedOnMarketOfficeProperties++;
+                    }
+                    else
+                    {
+                        snapshot.ActivelyVacantOfficeProperties++;
+                        if (companyRenters > 0)
+                        {
+                            snapshot.StaleRenterOnMarketOfficeProperties++;
+                        }
+                    }
+
+                    if (activeCompanyRenters > 0)
+                    {
+                        if (isSignature)
+                        {
+                            snapshot.SignatureOccupiedOnMarketOffice++;
+                        }
+                        else
+                        {
+                            snapshot.NonSignatureOccupiedOnMarketOffice++;
+                        }
+                    }
+
+                    AppendDetail(details, ref detailCount, DescribeProperty(property));
+                }
+
+                if (isIndustrialProperty && activeCompanyRenters > 0)
+                {
+                    if (isSignature)
+                    {
+                        snapshot.SignatureOccupiedOnMarketIndustrial++;
+                    }
+                    else
+                    {
+                        snapshot.NonSignatureOccupiedOnMarketIndustrial++;
                     }
                 }
-
-                AppendDetail(details, ref detailCount, DescribeProperty(building));
             }
 
             snapshot.OnMarketOfficePropertyDetails = details.ToString();
+        }
+
+        private void CountToBeOnMarketProperties(ref DiagnosticSnapshot snapshot)
+        {
+            using NativeArray<Entity> properties = m_ToBeOnMarketPropertyQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < properties.Length; i++)
+            {
+                Entity property = properties[i];
+                if (!EntityManager.HasComponent<Signature>(property) || !TryGetTrackedPropertyType(property, out _, out _))
+                {
+                    continue;
+                }
+
+                if (GetActiveCompanyRenterCount(property) > 0)
+                {
+                    snapshot.SignatureOccupiedToBeOnMarket++;
+                }
+            }
         }
 
         private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot)
@@ -389,21 +449,11 @@ namespace NoOfficeDemandFix.Systems
             return count;
         }
 
-        private bool IsOfficeBuildingPrefab(Entity prefab)
+        private bool TryGetTrackedPropertyType(Entity entity, out bool isOfficeProperty, out bool isIndustrialProperty)
         {
-            if (!EntityManager.HasComponent<SpawnableBuildingData>(prefab))
-            {
-                return false;
-            }
-
-            SpawnableBuildingData spawnableBuildingData = EntityManager.GetComponentData<SpawnableBuildingData>(prefab);
-            if (!EntityManager.HasComponent<ZoneData>(spawnableBuildingData.m_ZonePrefab))
-            {
-                return false;
-            }
-
-            ZoneData zoneData = EntityManager.GetComponentData<ZoneData>(spawnableBuildingData.m_ZonePrefab);
-            return zoneData.m_AreaType == AreaType.Industrial && zoneData.IsOffice();
+            isOfficeProperty = EntityManager.HasComponent<OfficeProperty>(entity);
+            isIndustrialProperty = EntityManager.HasComponent<IndustrialProperty>(entity) && !isOfficeProperty;
+            return isOfficeProperty || isIndustrialProperty;
         }
 
         private static string FormatTopFactors(NativeArray<int> factors)
@@ -468,6 +518,12 @@ namespace NoOfficeDemandFix.Systems
                    snapshot.EmptyBuildingsFactor != 0 ||
                    snapshot.FreeOfficePropertiesInOccupiedBuildings > 0 ||
                    snapshot.StaleRenterOnMarketOfficeProperties > 0 ||
+                   snapshot.SignatureOccupiedOnMarketOffice > 0 ||
+                   snapshot.SignatureOccupiedOnMarketIndustrial > 0 ||
+                   snapshot.SignatureOccupiedToBeOnMarket > 0 ||
+                   snapshot.NonSignatureOccupiedOnMarketOffice > 0 ||
+                   snapshot.NonSignatureOccupiedOnMarketIndustrial > 0 ||
+                   snapshot.GuardCorrections > 0 ||
                    snapshot.SoftwarePropertylessCompanies > 0 ||
                    snapshot.SoftwareOfficeEfficiencyZero > 0 ||
                    snapshot.SoftwareOfficeLackResourcesZero > 0 ||
@@ -532,6 +588,20 @@ namespace NoOfficeDemandFix.Systems
             }
 
             builder.Append(", toBeOnMarket=").Append(EntityManager.HasComponent<PropertyToBeOnMarket>(entity));
+            builder.Append(", signature=").Append(EntityManager.HasComponent<Signature>(entity));
+            builder.Append(", propertyType=");
+            if (EntityManager.HasComponent<OfficeProperty>(entity))
+            {
+                builder.Append("office");
+            }
+            else if (EntityManager.HasComponent<IndustrialProperty>(entity))
+            {
+                builder.Append("industrial");
+            }
+            else
+            {
+                builder.Append("other");
+            }
             return builder.ToString();
         }
 

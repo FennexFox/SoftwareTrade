@@ -26,6 +26,11 @@ namespace NoOfficeDemandFix
             }
 
             updateSystem.UpdateAfter<OfficeResourceStoragePatchSystem, PrefabSystem>(SystemUpdatePhase.MainLoop);
+            updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, PropertyProcessingSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, RentAdjustSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, CompanyMoveAwaySystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialFindPropertySystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
 
             m_Setting = new Setting(this);
