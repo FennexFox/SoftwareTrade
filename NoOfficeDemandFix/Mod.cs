@@ -4,13 +4,14 @@ using Game;
 using Game.Modding;
 using Game.Prefabs;
 using Game.SceneFlow;
-using SoftwareTrade.Systems;
+using Game.Simulation;
+using NoOfficeDemandFix.Systems;
 
-namespace SoftwareTrade
+namespace NoOfficeDemandFix
 {
     public class Mod : IMod
     {
-        public static ILog log = LogManager.GetLogger($"{nameof(SoftwareTrade)}.{nameof(Mod)}").SetShowsErrorsInUI(false);
+        public static ILog log = LogManager.GetLogger($"{nameof(NoOfficeDemandFix)}.{nameof(Mod)}").SetShowsErrorsInUI(false);
         public static Setting Settings { get; private set; }
 
         private Setting m_Setting;
@@ -25,13 +26,19 @@ namespace SoftwareTrade
             }
 
             updateSystem.UpdateAfter<OfficeResourceStoragePatchSystem, PrefabSystem>(SystemUpdatePhase.MainLoop);
+            updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, PropertyProcessingSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, RentAdjustSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, CompanyMoveAwaySystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialFindPropertySystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
 
             m_Setting = new Setting(this);
             m_Setting.RegisterInOptionsUI();
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
             Settings = m_Setting;
 
-            AssetDatabase.global.LoadSettings(nameof(SoftwareTrade), m_Setting, new Setting(this));
+            AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
         }
 
         public void OnDispose()

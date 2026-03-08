@@ -2,6 +2,8 @@
 
 	<PropertyGroup>
 		<Configurations>Debug;Release</Configurations>
+		<AssemblyName>NoOfficeDemandFix</AssemblyName>
+		<RootNamespace>NoOfficeDemandFix</RootNamespace>
 	
 		<!--The file where mod information which is required for publishing mod on PDX mods are stored-->
 		<PublishConfigurationPath>Properties\PublishConfiguration.xml</PublishConfigurationPath>
@@ -68,6 +70,10 @@
 	<ItemGroup>
 		<None Include="$(ModPropsFile)" Link="Properties\Mod.props" />
 		<None Include="$(ModTargetsFile)" Link="Properties\Mod.targets" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="Lib.Harmony" Version="2.2.2" />
 	</ItemGroup>
 
 </Project>

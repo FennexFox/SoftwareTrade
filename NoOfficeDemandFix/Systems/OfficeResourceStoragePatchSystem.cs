@@ -7,7 +7,7 @@ using Unity.Collections;
 using Unity.Entities;
 using UnityEngine.Scripting;
 
-namespace SoftwareTrade.Systems
+namespace NoOfficeDemandFix.Systems
 {
     [Preserve]
     public partial class OfficeResourceStoragePatchSystem : GameSystemBase
