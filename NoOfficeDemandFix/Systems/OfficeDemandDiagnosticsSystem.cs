@@ -18,7 +18,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using UnityEngine.Scripting;
 
-namespace SoftwareTrade.Systems
+namespace NoOfficeDemandFix.Systems
 {
     [Preserve]
     public partial class OfficeDemandDiagnosticsSystem : GameSystemBase

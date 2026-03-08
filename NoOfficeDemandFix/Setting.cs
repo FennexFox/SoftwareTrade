@@ -5,9 +5,9 @@ using Game.Modding;
 using Game.Settings;
 using Game.UI;
 
-namespace SoftwareTrade
+namespace NoOfficeDemandFix
 {
-    [FileLocation(nameof(SoftwareTrade))]
+    [FileLocation(nameof(NoOfficeDemandFix))]
     [SettingsUIGroupOrder(kGeneralGroup, kDiagnosticsGroup)]
     [SettingsUIShowGroupName(kGeneralGroup, kDiagnosticsGroup)]
     public class Setting : ModSetting
@@ -50,7 +50,7 @@ namespace SoftwareTrade
         {
             return new Dictionary<string, string>
             {
-                { m_Setting.GetSettingsLocaleID(), "SoftwareTrade" },
+                { m_Setting.GetSettingsLocaleID(), "No Office Demand Fix" },
                 { m_Setting.GetOptionTabLocaleID(Setting.kSection), "Main" },
 
                 { m_Setting.GetOptionGroupLocaleID(Setting.kGeneralGroup), "General" },

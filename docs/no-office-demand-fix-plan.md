@@ -1,4 +1,4 @@
-# SoftwareTrade Patch Plan
+# No Office Demand Fix Patch Plan
 
 ## Goal
 
@@ -9,7 +9,7 @@ The current investigation no longer assumes that `software` trade is the only pr
 - Track A: office-resource trade and storage consistency
 - Track B: stale `PropertyOnMarket` on occupied office or industrial properties
 
-This plan is based on the findings in [softwaretrade-analysis.md](./softwaretrade-analysis.md).
+This plan is based on the findings in [no-office-demand-fix-analysis.md](./no-office-demand-fix-analysis.md).
 
 ## Current Diagnosis
 
@@ -240,7 +240,7 @@ The trade patch should then be treated as a separate mitigation for software sta
 
 ## Definition Of Done
 
-The next usable version of `SoftwareTrade` is ready only when all of the following are true:
+The next usable version of `No Office Demand Fix` is ready only when all of the following are true:
 
 - documentation and diagnostics clearly separate the software-supply bug track from the stale `PropertyOnMarket` bug track
 - the mod can tell whether the current save is blocked mainly by supply failure, stale market listings, or both

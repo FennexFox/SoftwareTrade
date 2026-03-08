@@ -1,6 +1,6 @@
-# SoftwareTrade
+# No Office Demand Fix
 
-`SoftwareTrade` is a Cities: Skylines II mod project focused on investigating and fixing the office-demand collapse commonly described as the `No Office Demand` bug.
+`No Office Demand Fix` is a Cities: Skylines II mod project focused on investigating and fixing the office-demand collapse commonly described as the `No Office Demand` bug.
 
 ## Problem Statement
 
@@ -93,17 +93,17 @@ The work is now split into two tracks.
 
 ## Docs
 
-- [Analysis](./docs/softwaretrade-analysis.md)
-- [Patch Plan](./docs/patch-plan.md)
+- [Analysis](./docs/no-office-demand-fix-analysis.md)
+- [Patch Plan](./docs/no-office-demand-fix-plan.md)
 
 ## Project Layout
 
-- [SoftwareTrade/Mod.cs](./SoftwareTrade/Mod.cs): mod entry point
-- [SoftwareTrade/Setting.cs](./SoftwareTrade/Setting.cs): settings and localization
-- [SoftwareTrade/Systems/OfficeResourceStoragePatchSystem.cs](./SoftwareTrade/Systems/OfficeResourceStoragePatchSystem.cs): one-shot prefab storage patch
-- [SoftwareTrade/Systems/OfficeDemandDiagnosticsSystem.cs](./SoftwareTrade/Systems/OfficeDemandDiagnosticsSystem.cs): office demand and property-market diagnostics
-- [docs/softwaretrade-analysis.md](./docs/softwaretrade-analysis.md): code-backed diagnosis
-- [docs/patch-plan.md](./docs/patch-plan.md): implementation plan
+- [NoOfficeDemandFix/Mod.cs](./NoOfficeDemandFix/Mod.cs): mod entry point
+- [NoOfficeDemandFix/Setting.cs](./NoOfficeDemandFix/Setting.cs): settings and localization
+- [NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs](./NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs): one-shot prefab storage patch
+- [NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs): office demand and property-market diagnostics
+- [docs/no-office-demand-fix-analysis.md](./docs/no-office-demand-fix-analysis.md): code-backed diagnosis
+- [docs/no-office-demand-fix-plan.md](./docs/no-office-demand-fix-plan.md): implementation plan
 
 ## Non-Goals For The First Version
 

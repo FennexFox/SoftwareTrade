@@ -1,4 +1,4 @@
-# SoftwareTrade Analysis
+# No Office Demand Fix Analysis
 
 ## Scope
 
@@ -237,7 +237,7 @@ The earlier conclusion should be refined as follows:
 
 ## Modding Implications
 
-For `SoftwareTrade`, the highest-value next investigation and patch area is not just "make software tradable" in a generic sense.
+For `No Office Demand Fix`, the highest-value next investigation and patch area is not just "make software tradable" in a generic sense.
 
 It is specifically:
 
@@ -561,7 +561,7 @@ The current best-supported explanation for the visible office-demand collapse is
 - the same structural bug may also affect industrial demand
 - office is where it is currently most visible because the current live examples are office properties and because office demand UI highlights the effect clearly
 
-This also means the current observed office-demand failure appears largely independent from the prefab-level `SoftwareTrade` patch.
+This also means the current observed office-demand failure appears largely independent from the prefab-level `No Office Demand Fix` trade patch.
 
 The trade patch may still matter for software starvation, but it is not the strongest explanation for the currently observed `officeBuildingDemand = 0` state.
 
