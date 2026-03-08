@@ -452,7 +452,7 @@ namespace NoOfficeDemandFix.Systems
         private bool TryGetTrackedPropertyType(Entity entity, out bool isOfficeProperty, out bool isIndustrialProperty)
         {
             isOfficeProperty = EntityManager.HasComponent<OfficeProperty>(entity);
-            isIndustrialProperty = EntityManager.HasComponent<IndustrialProperty>(entity) && !isOfficeProperty;
+            isIndustrialProperty = EntityManager.HasComponent<IndustrialProperty>(entity);
             return isOfficeProperty || isIndustrialProperty;
         }
 

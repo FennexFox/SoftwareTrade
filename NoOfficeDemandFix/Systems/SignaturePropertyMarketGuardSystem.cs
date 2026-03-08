@@ -101,7 +101,7 @@ namespace NoOfficeDemandFix.Systems
                     removedComponents.Add(nameof(PropertyToBeOnMarket));
                 }
 
-                if (removedComponents == null || removedComponents.Count == 0)
+                if (removedComponents == null)
                 {
                     continue;
                 }
