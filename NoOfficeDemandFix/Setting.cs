@@ -34,9 +34,9 @@ namespace NoOfficeDemandFix
 
         public override void SetDefaults()
         {
-            EnableTradePatch = true;
+            EnableTradePatch = false;
             EnablePhantomVacancyFix = true;
-            EnableDemandDiagnostics = true;
+            EnableDemandDiagnostics = false;
             VerboseLogging = false;
         }
     }
