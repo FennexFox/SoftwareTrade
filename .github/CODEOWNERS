@@ -1,0 +1,15 @@
+# Default owner
+* @FennexFox
+
+# Repository metadata and automation
+/.github/ @FennexFox
+
+# Runtime code
+/NoOfficeDemandFix/ @FennexFox
+/NoOfficeDemandFix/Systems/ @FennexFox
+
+# Documentation and release support
+/docs/ @FennexFox
+/scripts/ @FennexFox
+/README.md @FennexFox
+/CONTRIBUTING.md @FennexFox
