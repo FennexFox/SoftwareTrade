@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and usage help
+    url: https://github.com/FennexFox/NoOfficeDemandFix/discussions/categories/q-a
+    about: Ask questions in Discussions instead of Issues.
+  - name: Ideas and research notes
+    url: https://github.com/FennexFox/NoOfficeDemandFix/discussions/categories/ideas
+    about: Use Discussions for open-ended ideas and early investigation notes.

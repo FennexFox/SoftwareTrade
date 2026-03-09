@@ -1,0 +1,49 @@
+name: Investigation
+description: Track a hypothesis, unclear symptom, or evidence-gathering task.
+title: "[Investigation] "
+labels: ["investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for unresolved theories, suspicious patterns, or evidence collection.
+  - type: input
+    id: question
+    attributes:
+      label: Core question
+      placeholder: What exactly are we trying to verify?
+    validations:
+      required: true
+  - type: textarea
+    id: current-evidence
+    attributes:
+      label: Current evidence
+      description: What points toward this being real?
+    validations:
+      required: true
+  - type: textarea
+    id: counterpoints
+    attributes:
+      label: Counterpoints / alternative explanations
+  - type: textarea
+    id: next-steps
+    attributes:
+      label: Next steps
+      placeholder: |
+        - collect logs
+        - reproduce on another save
+        - compare with diagnostics
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - phantom-vacancy
+        - software-track
+        - diagnostics
+        - trade-patch
+        - repo-meta
+    validations:
+      required: true
