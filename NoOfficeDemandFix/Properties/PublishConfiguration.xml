@@ -26,12 +26,13 @@ Current release status:
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="https://forum.paradoxplaza.com/forum/threads/no-office-demand-fix-discussion-thread.1906822/" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.1" />
+	<ModVersion Value="0.1.1" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-- Initial release with Phantom Vacancy fix and software track diagnostics.
+- 0.1.1: Added diagnostics for non-signature phantom vacancy cases, and an optional office-resource patch to mitigate the software supply issue that can also cause office efficiency to collapse.
+- 0.1.0: Initial release with the confirmed fix for the signature phantom vacancy case.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
