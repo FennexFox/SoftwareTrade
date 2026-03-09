@@ -89,16 +89,10 @@ try {
     Assert-Command -Name "git"
     Assert-Command -Name "dotnet"
 
-    $requiredSdk = ((Get-Content -LiteralPath (Join-Path $repoRoot "global.json") -Raw) | ConvertFrom-Json).sdk.version
     $selectedSdkOutput = & dotnet --version
     $selectedSdk = ([string]($selectedSdkOutput | Select-Object -Last 1)).Trim()
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($selectedSdk)) {
         throw "dotnet is not available on PATH."
-    }
-
-    if ($selectedSdk -ne $requiredSdk) {
-        $installedSdks = (& dotnet --list-sdks) | ForEach-Object { $_.Trim() }
-        throw "Expected .NET SDK $requiredSdk via global.json, but selected $selectedSdk. Installed SDKs:`n$($installedSdks -join [Environment]::NewLine)"
     }
 
     if (-not $SkipGitChecks) {
