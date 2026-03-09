@@ -1,0 +1,173 @@
+name: Software evidence
+description: Record a software-track observation in a comparable format.
+title: "[Software Evidence] "
+labels: ["investigation", "area: software-track"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only for `software`-track bounded runs that are worth keeping as reusable evidence.
+        Do not open one issue per raw log sample. Raw logs, temporary notes, and unpromoted observations can stay in local artifacts or in the umbrella software investigation issue.
+        Keep the report factual and scoped to one observation window that can stand on its own later.
+        Canonical schema: `.github/software-evidence-schema.md`
+        If you have current mod logs, prefer copying values directly from `softwareEvidenceDiagnostics`.
+  - type: input
+    id: game-version
+    attributes:
+      label: Game version
+      placeholder: 1.3.xf1
+    validations:
+      required: true
+  - type: input
+    id: mod-version
+    attributes:
+      label: Mod version
+      placeholder: 0.1.1 or unreleased
+    validations:
+      required: true
+  - type: input
+    id: mod-ref
+    attributes:
+      label: Mod ref
+      description: Branch and commit SHA, or another exact source reference.
+      placeholder: track/software-instability @ abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: Copy only the `settings=...` portion from `environment(settings=..., patch_state=...)` when available.
+      placeholder: |
+        EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,CaptureStableEvidence:False,VerboseLogging:False
+    validations:
+      required: true
+  - type: input
+    id: patch-state
+    attributes:
+      label: Patch state
+      description: Copy `patch_state=...` from diagnostics when available. If runtime logs `unknown`, replace it only if you know the exact local deviations for this run.
+      placeholder: unknown or debug-build
+    validations:
+      required: true
+  - type: textarea
+    id: platform-notes
+    attributes:
+      label: Platform notes
+      description: Optional platform, install-layout, or environment notes that may matter for comparison.
+  - type: textarea
+    id: other-mods
+    attributes:
+      label: Other mods
+      description: Optional list of other mods only if they may affect office demand, trade, property, or company behavior.
+  - type: input
+    id: scenario-label
+    attributes:
+      label: Scenario label
+      placeholder: Save name, city name, or a stable test label
+    validations:
+      required: true
+  - type: dropdown
+    id: scenario-type
+    attributes:
+      label: Scenario type
+      options:
+        - existing save
+        - fresh city
+        - reproduced test case
+        - synthetic diagnostic run
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-conditions
+    attributes:
+      label: Reproduction conditions
+      description: What state the city was in, or what you did before collecting evidence.
+    validations:
+      required: true
+  - type: input
+    id: observation-window
+    attributes:
+      label: Observation window
+      description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, then expand if you need more narrative context.
+      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, sample_day=419, sample_count=8, trigger=capture_stable_evidence
+    validations:
+      required: true
+  - type: textarea
+    id: comparison-baseline
+    attributes:
+      label: Comparison baseline
+      description: Optional save, version, patch state, or prior evidence entry that should be referenced later from the umbrella investigation issue.
+  - type: dropdown
+    id: symptom-classification
+    attributes:
+      label: Symptom classification
+      options:
+        - software_office_propertyless
+        - software_office_efficiency_zero
+        - software_office_lack_resources_zero
+        - software_demand_mismatch
+        - software_track_unclear
+        - other
+    validations:
+      required: true
+  - type: input
+    id: custom-symptom-classification
+    attributes:
+      label: Custom symptom classification
+      description: Fill this only if you selected `other`. Use a short stable label, not a prose sentence.
+      placeholder: custom_short_label
+  - type: textarea
+    id: diagnostic-counters
+    attributes:
+      label: Diagnostic counters
+      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing.
+      placeholder: |
+        officeDemand(building=..., company=..., emptyBuildings=..., buildingDemand=...)
+        freeOfficeProperties(total=..., software=..., inOccupiedBuildings=..., softwareInOccupiedBuildings=...)
+        onMarketOfficeProperties(total=..., activelyVacant=..., occupied=..., staleRenterOnly=...)
+        phantomVacancy(signatureOccupiedOnMarketOffice=..., signatureOccupiedOnMarketIndustrial=..., signatureOccupiedToBeOnMarket=..., nonSignatureOccupiedOnMarketOffice=..., nonSignatureOccupiedOnMarketIndustrial=..., guardCorrections=...)
+        software(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
+        softwareOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
+    validations:
+      required: true
+  - type: textarea
+    id: log-excerpt
+    attributes:
+      label: Log excerpt
+      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry.
+  - type: textarea
+    id: evidence-summary
+    attributes:
+      label: Evidence summary
+      description: One short factual summary of what happened.
+    validations:
+      required: true
+  - type: dropdown
+    id: confidence
+    attributes:
+      label: Confidence
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: textarea
+    id: confounders
+    attributes:
+      label: Confounders
+      description: Known uncertainties or alternative explanations. Use `none known` if none stand out.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Artifacts
+      description: Logs, saves, screenshots, or other references. Include `softwareEvidenceDiagnostics detail(...)` lines here when relevant.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Extra context that does not fit the structured fields.

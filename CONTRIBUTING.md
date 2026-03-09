@@ -1,5 +1,9 @@
 # Contributing
 
+Use this document for contributor-facing workflow and expectations.
+Maintainers operating releases or investigation workflows should start with
+[MAINTAINING.md](./MAINTAINING.md).
+
 ## Scope
 
 This repository is a Cities: Skylines II mod for investigating and mitigating
@@ -67,7 +71,6 @@ If you could not test something, state that explicitly in the PR.
 
 ## Releases
 
-Maintainer releases are driven locally by
-[`scripts/release.ps1`](./scripts/release.ps1). If a change affects release
-packaging, versioning, or release notes, use the `Release checklist` issue
-template before tagging a release.
+If a change affects release packaging, versioning, or release notes, use the
+`Release checklist` issue template and follow [MAINTAINING.md](./MAINTAINING.md)
+for release operations.

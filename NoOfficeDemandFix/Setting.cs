@@ -30,6 +30,9 @@ namespace NoOfficeDemandFix
         public bool EnableDemandDiagnostics { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
+        public bool CaptureStableEvidence { get; set; }
+
+        [SettingsUISection(kSection, kDiagnosticsGroup)]
         public bool VerboseLogging { get; set; }
 
         public override void SetDefaults()
@@ -37,6 +40,7 @@ namespace NoOfficeDemandFix
             EnableTradePatch = false;
             EnablePhantomVacancyFix = true;
             EnableDemandDiagnostics = false;
+            CaptureStableEvidence = false;
             VerboseLogging = false;
         }
     }
@@ -69,8 +73,11 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Takes effect immediately and logs office demand factors, free office properties, phantom vacancy counters, and software office efficiency whenever the office demand state looks suspicious." },
 
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.CaptureStableEvidence)), "Capture stable evidence windows" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.CaptureStableEvidence)), "Keeps daily softwareEvidenceDiagnostics observation windows flowing while diagnostics are enabled, even when no suspicious signal is currently present. Use it to collect baseline or no-symptom evidence without turning on full verbose logging." },
+
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.VerboseLogging)), "Verbose logging" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom vacancy corrections, and forces daily office diagnostics output while diagnostics are enabled. It does not replay one-shot prefab patch logs that already happened earlier in the session." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom vacancy corrections, forces daily office diagnostics output while diagnostics are enabled, and adds the noisier correction and patch traces. It does not replay one-shot prefab patch logs that already happened earlier in the session." },
             };
         }
 

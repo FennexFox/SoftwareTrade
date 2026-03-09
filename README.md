@@ -30,18 +30,14 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Reload or restart after changing it. |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Reload after changing it. |
 | `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` diagnostics when the state looks suspicious. |
-| `VerboseLogging` | `false` | Logs every prefab patched, every phantom-vacancy correction, and forces daily diagnostics while diagnostics are enabled. |
+| `CaptureStableEvidence` | `false` | Keeps daily bounded `softwareEvidenceDiagnostics` windows flowing while diagnostics are enabled, even when the city looks stable. Use it for baseline or no-symptom evidence. |
+| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces daily diagnostics while diagnostics are enabled. |
 
 ## Implementation
 
-The runtime behavior maps directly to three systems:
-
-1. [OfficeResourceStoragePatchSystem](./NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs)
-   Patches outside connection and cargo station `StorageCompanyData` to include office resources such as `Software`, `Telecom`, `Financial`, and `Media`.
-2. [SignaturePropertyMarketGuardSystem](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
-   Removes stale market-listing components from occupied `Signature` office and industrial properties.
-3. [OfficeDemandDiagnosticsSystem](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
-   Logs demand factors, on-market and occupied property counts, phantom-vacancy counters, guard corrections, and `software` office efficiency signals.
+- `Signature` phantom-vacancy fix: [SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
+- optional trade patch: [OfficeResourceStoragePatchSystem.cs](./NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs)
+- diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
 
 ## Current Interpretation
 
@@ -56,28 +52,17 @@ That means the safest way to describe this release is:
 - optional `software` trade patch
 - built-in diagnostics for follow-up investigation
 
-## Maintainer Notes
-
-Maintainer releases are driven locally by [scripts/release.ps1](./scripts/release.ps1). The script validates the local CSL2 toolchain, builds the mod, publishes to Paradox, and only then pushes the `v*` tag.
-
-GitHub Actions is intentionally minimal now: [`.github/workflows/release.yml`](./.github/workflows/release.yml) only turns a pushed `v*` tag into a GitHub Release with generated notes. No self-hosted runner is required for that workflow.
-
-Example:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Version 0.1.1
-```
-
-## Project Layout
-
-- [NoOfficeDemandFix/Mod.cs](./NoOfficeDemandFix/Mod.cs): mod entry point and system registration
-- [NoOfficeDemandFix/Setting.cs](./NoOfficeDemandFix/Setting.cs): settings and localization
-- [NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs](./NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs): optional office-resource trade patch
-- [NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs): shipped `Signature` phantom-vacancy fix
-- [NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs): office-demand, phantom-vacancy, and `software` diagnostics
-
 ## Non-Goals
 
 - faking office demand directly
 - blanket vacancy overrides across every property type
 - claiming the `software` track is solved without stronger evidence
+
+## Docs for Contributors and Maintainers
+
+- Contributors: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Maintainers and operators: [MAINTAINING.md](./MAINTAINING.md)
+- Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
+- Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
+- Software evidence form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
+- Software investigation umbrella form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)
