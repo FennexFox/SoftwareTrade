@@ -25,6 +25,7 @@ namespace NoOfficeDemandFix.Systems
     {
         private const int kTopFactorCount = 5;
         private const int kMaxDetailEntries = 5;
+        private const string kNoLocalPatchState = "no-local-diagnostics-deviations";
 
         private struct FactorEntry
         {
@@ -183,22 +184,26 @@ namespace NoOfficeDemandFix.Systems
             }
 
             Mod.log.Info(
-                $"Office demand diagnostics day {snapshot.Day}: demand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
+                $"softwareEvidenceDiagnostics observation_window(day={snapshot.Day}); " +
+                $"environment(settings={FormatSettingsSnapshot()}, patch_state={kNoLocalPatchState}); " +
+                $"diagnostic_counters(" +
+                $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
                 $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
                 $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
                 $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
                 $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
-                $"softwareOffices(total={snapshot.SoftwareOfficeCompanies}, propertyless={snapshot.SoftwareOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareOfficeLackResourcesZero}); " +
-                $"topFactors=[{snapshot.TopFactors}]");
+                $"softwareOffices(total={snapshot.SoftwareOfficeCompanies}, propertyless={snapshot.SoftwareOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareOfficeLackResourcesZero})" +
+                $"); " +
+                $"diagnostic_context(topFactors=[{snapshot.TopFactors}])");
 
             if (!string.IsNullOrEmpty(snapshot.FreeSoftwareOfficePropertyDetails))
             {
-                Mod.log.Info($"Office demand diagnostics free software properties day {snapshot.Day}: {snapshot.FreeSoftwareOfficePropertyDetails}");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(observation_window_day={snapshot.Day}, detail_type=freeSoftwareOfficeProperties, values={snapshot.FreeSoftwareOfficePropertyDetails})");
             }
 
             if (!string.IsNullOrEmpty(snapshot.OnMarketOfficePropertyDetails))
             {
-                Mod.log.Info($"Office demand diagnostics on-market office properties day {snapshot.Day}: {snapshot.OnMarketOfficePropertyDetails}");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(observation_window_day={snapshot.Day}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
             }
         }
 
@@ -549,6 +554,19 @@ namespace NoOfficeDemandFix.Systems
                    snapshot.SoftwareOfficeEfficiencyZero > 0 ||
                    snapshot.SoftwareOfficeLackResourcesZero > 0 ||
                    (Mod.Settings != null && Mod.Settings.VerboseLogging);
+        }
+
+        private static string FormatSettingsSnapshot()
+        {
+            if (Mod.Settings == null)
+            {
+                return "unavailable";
+            }
+
+            return $"EnableTradePatch:{Mod.Settings.EnableTradePatch}," +
+                   $"EnablePhantomVacancyFix:{Mod.Settings.EnablePhantomVacancyFix}," +
+                   $"EnableDemandDiagnostics:{Mod.Settings.EnableDemandDiagnostics}," +
+                   $"VerboseLogging:{Mod.Settings.VerboseLogging}";
         }
 
         private void AppendDetail(StringBuilder builder, ref int count, string detail)

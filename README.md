@@ -62,6 +62,8 @@ Maintainer releases are driven locally by [scripts/release.ps1](./scripts/releas
 
 GitHub Actions is intentionally minimal now: [`.github/workflows/release.yml`](./.github/workflows/release.yml) only turns a pushed `v*` tag into a GitHub Release with generated notes. No self-hosted runner is required for that workflow.
 
+`software`-track evidence should follow the canonical schema in [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md), the matching GitHub issue form, and the `softwareEvidenceDiagnostics` log vocabulary emitted by diagnostics.
+
 Example:
 
 ```powershell
