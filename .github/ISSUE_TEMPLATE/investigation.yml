@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         Use this for unresolved theories, suspicious patterns, or evidence collection.
+        For a `software`-track umbrella investigation, use `.github/ISSUE_TEMPLATE/software_investigation.yml` instead.
   - type: input
     id: question
     attributes:

@@ -1,28 +1,52 @@
 # Software Investigation Workflow
 
-This document defines the operational workflow for collecting, comparing, classifying, and summarizing `software`-track evidence.
+This document defines the practical maintainer workflow for collecting, promoting, comparing, and summarizing `software`-track evidence without flooding the issue tracker.
 
-It is the maintainer-facing companion to [`.github/software-evidence-schema.md`](./software-evidence-schema.md). The schema defines what a normalized evidence entry must contain. This workflow defines how that evidence should be captured, compared, interpreted, and summarized.
+It is the maintainer-facing companion to [`.github/software-evidence-schema.md`](./software-evidence-schema.md). The schema defines what a normalized evidence entry must contain. This workflow defines when to keep something as raw data, when to promote it into a reusable evidence issue, and where comparisons and conclusions should live.
 
 ## Inputs
 
 The workflow uses four inputs:
 
-- a normalized evidence entry that follows [`.github/software-evidence-schema.md`](./software-evidence-schema.md)
-- `softwareEvidenceDiagnostics` logs emitted by diagnostics
+- raw `softwareEvidenceDiagnostics` logs emitted by diagnostics
+- local artifacts such as logs, saves, screenshots, or videos
 - the reusable evidence issue form at [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./ISSUE_TEMPLATE/software_evidence.yml)
-- the reusable comparison issue form at [`.github/ISSUE_TEMPLATE/software_comparison.yml`](./ISSUE_TEMPLATE/software_comparison.yml)
+- the reusable umbrella investigation issue form at [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./ISSUE_TEMPLATE/software_investigation.yml)
+
+## Working Levels
+
+Treat the investigation as three levels of material:
+
+1. Raw capture
+   Diagnostics logs, temporary notes, saves, screenshots, and ad hoc observations. Do not create a new issue for every raw capture.
+
+2. Promoted evidence entry
+   A bounded observation window that is worth reusing later. This is when you open a `software evidence` issue.
+
+3. Umbrella investigation
+   The tracker for one hypothesis or investigation line. This is where evidence issues are linked, checkpoint comparisons are summarized, and the current conclusion is maintained.
+
+## When To Open A Software Evidence Issue
+
+Open a `software evidence` issue only when the run is evidence-worthy:
+
+- the observation window is bounded and specific
+- the run has enough context to stand on its own later
+- the run is likely to be reused in a later comparison
+- the run is more than a temporary note or raw sample
+
+If those conditions are not met, keep the material in local artifacts or summarize it in the umbrella investigation issue instead of opening a new evidence issue.
 
 ## Log-To-Evidence Capture
 
-When current diagnostics logs are available:
+When promoting a run into a `software evidence` issue:
 
 1. copy `softwareEvidenceDiagnostics observation_window(...)`
 2. copy `settings=...`
 3. copy `patch_state=...`
 4. copy `diagnostic_counters(...)`
 5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level state matters
-6. keep interpretation separate from capture as much as practical
+6. add only the minimum investigator-written context needed to make the run reusable
 
 Capture guidance:
 
@@ -102,18 +126,29 @@ The current diagnostics vocabulary is:
 - primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`, `diagnostic_context(topFactors=...)` when relevant
 - invalid comparison cases: windows too loose to attribute the change to one transition, or evidence mostly anecdotal rather than diagnostics-backed
 
-## Minimal Comparison Result Shape
+## Canonical Comparison Summary Shape
 
-Comparison outputs should use a small reusable shape so results can be referenced across issues and release planning:
+Comparison summaries should use this small reusable shape inside the umbrella investigation issue body or a follow-up comment:
 
 - `checkpoint`: which standard checkpoint was used
 - `baseline_ref`: the baseline evidence entry or run reference
 - `comparison_ref`: the comparison evidence entry or run reference
 - `invariant_status`: whether the required invariants held, and if not, what broke comparability
 - `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
+- `outcome`: `supportive`, `contradictory`, `no material change`, or `invalid comparison`
 - `notes`: any narrow context that matters for later reuse
 
-Use [`.github/ISSUE_TEMPLATE/software_comparison.yml`](./ISSUE_TEMPLATE/software_comparison.yml) when you want a reusable issue-backed record for that shape.
+Example:
+
+```md
+- checkpoint: trade_patch_toggle_same_save
+  baseline_ref: #21
+  comparison_ref: #22
+  invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
+  observed_deltas: softwareOffices.lackResourcesZero dropped from 18 to 4, but efficiencyZero persisted
+  outcome: mitigated but not solved
+  notes: compared after one reload boundary
+```
 
 ## Decision Model
 
@@ -176,20 +211,20 @@ Use these phrasing examples when release notes, README text, or issue summaries 
 1. Choose or reproduce a scenario.
    Select the save, city state, or bounded test condition that will be observed.
 
-2. Capture a normalized evidence entry.
-   Use the canonical schema, the reusable evidence issue form, and the `softwareEvidenceDiagnostics` log vocabulary to record the observation.
+2. Capture raw material.
+   Keep logs, saves, screenshots, and temporary notes without opening new issues for every sample.
 
-3. Run the standard comparison checkpoints.
-   Apply the relevant checkpoint definitions, keeping required invariants and variables under test explicit.
+3. Promote evidence-worthy runs.
+   Open a `software evidence` issue only for bounded runs that are reusable later.
 
-4. Record a minimal comparison result for each checkpoint used.
-   Each comparison result should record the checkpoint, baseline reference, comparison reference, invariant status, observed deltas, and notes. Prefer the reusable comparison issue form when the result needs to be referenced later.
+4. Link evidence under one umbrella investigation.
+   Use a `software investigation` issue as the tracker for one hypothesis or investigation line.
 
-5. Classify each comparison result.
-   Apply the per-comparison outcome labels: `supportive`, `contradictory`, `no material change`, or `invalid comparison`.
+5. Record checkpoint comparisons in the umbrella issue.
+   Summarize comparisons in the umbrella issue body or follow-up comments using the canonical comparison shape.
 
-6. Derive an overall conclusion.
-   Apply the precedence rules to classify the overall result as `not reproduced`, `inconclusive`, `plausible but weakly supported`, `strongly supported`, `mitigated but not solved`, or `contradicted by evidence`.
+6. Derive and update the current conclusion.
+   Apply the precedence rules in the umbrella issue as evidence accumulates.
 
 7. Record the repo-facing implication.
    Use the wording map so issue summaries, README language, and release-facing interpretation stay aligned with the underlying evidence category.

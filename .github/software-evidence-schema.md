@@ -18,7 +18,7 @@ It exists one layer above the logs:
 - an evidence entry combines those counters with scenario metadata and a bounded observation window
 - comparison and conclusion rules operate on evidence entries, not on isolated log lines
 
-That means this file defines the normalized structure used for comparison, not every possible field that may appear in future diagnostics output.
+That means this file defines the normalized structure used for promoted evidence entries that are worth comparing later, not every possible field that may appear in future diagnostics output.
 
 ## Field Groups
 

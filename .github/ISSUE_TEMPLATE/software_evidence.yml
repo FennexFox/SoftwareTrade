@@ -6,8 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        Use this form for `software`-track evidence entries.
-        Keep the report factual and scoped to one observation window.
+        Use this form only for `software`-track bounded runs that are worth keeping as reusable evidence.
+        Do not open one issue per raw log sample. Raw logs, temporary notes, and unpromoted observations can stay in local artifacts or in the umbrella software investigation issue.
+        Keep the report factual and scoped to one observation window that can stand on its own later.
         Canonical schema: `.github/software-evidence-schema.md`
         If you have current mod logs, prefer copying values directly from `softwareEvidenceDiagnostics`.
   - type: input
@@ -97,7 +98,7 @@ body:
     id: comparison-baseline
     attributes:
       label: Comparison baseline
-      description: Optional save, version, patch state, or prior evidence entry that should be used as the baseline for later comparison.
+      description: Optional save, version, patch state, or prior evidence entry that should be referenced later from the umbrella investigation issue.
   - type: dropdown
     id: symptom-classification
     attributes:

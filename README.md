@@ -65,4 +65,4 @@ That means the safest way to describe this release is:
 - Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
 - Software evidence form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
-- Software comparison form: [`.github/ISSUE_TEMPLATE/software_comparison.yml`](./.github/ISSUE_TEMPLATE/software_comparison.yml)
+- Software investigation umbrella form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)

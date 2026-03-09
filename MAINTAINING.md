@@ -22,7 +22,7 @@ For `software`-track investigation work, use these documents together:
 - evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
 - evidence entry form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
-- comparison result form: [`.github/ISSUE_TEMPLATE/software_comparison.yml`](./.github/ISSUE_TEMPLATE/software_comparison.yml)
+- umbrella investigation form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)
 
 Runtime investigation logs use the `softwareEvidenceDiagnostics` vocabulary.
 
@@ -32,7 +32,8 @@ Recommended operating flow:
 - baseline or no-symptom collection: turn on `CaptureStableEvidence` to emit daily bounded observation windows without the extra verbose trace noise
 - escalation: turn on `VerboseLogging` only when you also need the noisier correction and patch traces
 - if diagnostics emit `patch_state=unknown`, keep that in the evidence entry unless you can name the exact local deviations for that run
-- store normalized runs in the software evidence form and checkpoint comparisons in the software comparison form
+- promote only reusable bounded runs into the software evidence form
+- keep one software investigation umbrella issue per hypothesis or investigation line, and record comparison summaries there
 
 ## Contributor Process
 
