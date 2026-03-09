@@ -38,7 +38,7 @@ body:
       label: Settings and patch state
       description: Copy the `environment(settings=..., patch_state=...)` portion from `softwareEvidenceDiagnostics` when available, then add any missing context.
       placeholder: |
-        settings=EnableTradePatch:false,EnablePhantomVacancyFix:true,EnableDemandDiagnostics:true,VerboseLogging:false
+        settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,VerboseLogging:False
         patch_state=no-local-diagnostics-deviations
     validations:
       required: true
