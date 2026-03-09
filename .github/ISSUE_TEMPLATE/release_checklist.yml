@@ -1,0 +1,34 @@
+name: Release checklist
+description: Prepare and verify a release.
+title: "[Release] "
+labels: ["release"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Target version
+      placeholder: e.g. v0.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: changes
+    attributes:
+      label: Included changes
+      description: Summarize the user-facing changes.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: README updated
+          required: true
+        - label: Diagnostics wording reviewed
+          required: true
+        - label: Tag/version confirmed
+          required: true
+        - label: Release notes reviewed
+          required: true
+        - label: Local release script verified
+          required: true
