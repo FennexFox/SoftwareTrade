@@ -58,7 +58,7 @@ That means the safest way to describe this release is:
 
 ## Maintainer Notes
 
-Maintainer releases are driven locally by [scripts/release.ps1](./scripts/release.ps1). The script validates the local CSL2 toolchain, builds the mod, publishes to Paradox, packages a zip into `artifacts/`, and only then pushes the `v*` tag.
+Maintainer releases are driven locally by [scripts/release.ps1](./scripts/release.ps1). The script validates the local CSL2 toolchain, builds the mod, publishes to Paradox, and only then pushes the `v*` tag.
 
 GitHub Actions is intentionally minimal now: [`.github/workflows/release.yml`](./.github/workflows/release.yml) only turns a pushed `v*` tag into a GitHub Release with generated notes. No self-hosted runner is required for that workflow.
 

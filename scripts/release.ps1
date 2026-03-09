@@ -79,7 +79,6 @@ function Convert-SecureStringToPlainText {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $repoRoot "NoOfficeDemandFix/NoOfficeDemandFix.csproj"
 $publishConfigurationPath = Join-Path $repoRoot "NoOfficeDemandFix/Properties/PublishConfiguration.xml"
-$artifactsDir = Join-Path $repoRoot "artifacts"
 $normalizedVersion = if ($Version.StartsWith("v")) { $Version.Substring(1) } else { $Version }
 $tag = "v$normalizedVersion"
 $modName = "NoOfficeDemandFix"
@@ -212,18 +211,6 @@ try {
         Write-Host "Skipping Paradox publish."
     }
 
-    if (-not (Test-Path -LiteralPath $artifactsDir -PathType Container)) {
-        $null = New-Item -ItemType Directory -Path $artifactsDir
-    }
-
-    $assetPath = Join-Path $artifactsDir ("{0}-{1}.zip" -f $modName, $tag)
-    if (Test-Path -LiteralPath $assetPath) {
-        Remove-Item -LiteralPath $assetPath -Force
-    }
-
-    Write-Host "Packaging artifact to $assetPath..."
-    Compress-Archive -Path $deployDir -DestinationPath $assetPath
-
     if (-not $SkipGitTag) {
         Write-Host "Creating and pushing tag $tag..."
         & git tag -a $tag -m $tag
@@ -244,7 +231,6 @@ try {
 
     Write-Host ""
     Write-Host "Release preparation complete."
-    Write-Host "Artifact: $assetPath"
 }
 finally {
     Pop-Location
