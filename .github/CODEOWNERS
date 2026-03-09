@@ -9,7 +9,6 @@
 /NoOfficeDemandFix/Systems/ @FennexFox
 
 # Documentation and release support
-/docs/ @FennexFox
 /scripts/ @FennexFox
 /README.md @FennexFox
 /CONTRIBUTING.md @FennexFox

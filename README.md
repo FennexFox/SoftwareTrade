@@ -58,8 +58,8 @@ That means the safest way to describe this release is:
 
 ## Documentation
 
-- [Analysis](./docs/no-office-demand-fix-analysis.md)
-- [Patch Plan](./docs/no-office-demand-fix-plan.md)
+- [Investigation analysis snapshot](https://github.com/FennexFox/NoOfficeDemandFix/issues/9)
+- [Patch plan snapshot](https://github.com/FennexFox/NoOfficeDemandFix/issues/10)
 
 ## Maintainer Notes
 
