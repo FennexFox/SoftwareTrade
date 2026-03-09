@@ -63,7 +63,15 @@ That means the safest way to describe this release is:
 
 ## Maintainer Notes
 
-This repository uses a local self-hosted runner for release automation. See `actions-runner/README.md`.
+Maintainer releases are driven locally by [scripts/release.ps1](./scripts/release.ps1). The script validates the local CSL2 toolchain, builds the mod, publishes to Paradox, packages a zip into `artifacts/`, and only then pushes the `v*` tag.
+
+GitHub Actions is intentionally minimal now: [`.github/workflows/release.yml`](./.github/workflows/release.yml) only turns a pushed `v*` tag into a GitHub Release with generated notes. No self-hosted runner is required for that workflow.
+
+Example:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\release.ps1 -Version 0.1.1
+```
 
 ## Project Layout
 
