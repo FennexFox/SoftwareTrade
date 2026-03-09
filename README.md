@@ -61,6 +61,10 @@ That means the safest way to describe this release is:
 - [Analysis](./docs/no-office-demand-fix-analysis.md)
 - [Patch Plan](./docs/no-office-demand-fix-plan.md)
 
+## Maintainer Notes
+
+This repository uses a local self-hosted runner for release automation. See `actions-runner/README.md`.
+
 ## Project Layout
 
 - [NoOfficeDemandFix/Mod.cs](./NoOfficeDemandFix/Mod.cs): mod entry point and system registration
