@@ -32,11 +32,11 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` diagnostics when the state looks suspicious. |
 | `VerboseLogging` | `false` | Logs every prefab patched, every phantom-vacancy correction, and forces daily diagnostics while diagnostics are enabled. |
 
-## Short Implementation Summary
+## Implementation
 
-- shipped phantom-vacancy fix for the reproduced `Signature` office and industrial stale-market-state case
-- optional office-resource trade patch for outside connections and cargo stations
-- built-in diagnostics for office demand, phantom vacancy, and `software` office health
+- `Signature` phantom-vacancy fix: [SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
+- optional trade patch: [OfficeResourceStoragePatchSystem.cs](./NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs)
+- diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
 
 ## Current Interpretation
 
