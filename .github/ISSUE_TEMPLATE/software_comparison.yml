@@ -1,0 +1,101 @@
+name: Software comparison
+description: Record a software-track checkpoint comparison or conclusion roll-up.
+title: "[Software Comparison] "
+labels: ["investigation", "area: software-track"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a checkpoint comparison or a small comparison set summary.
+        Canonical workflow: `.github/software-investigation-workflow.md`
+        Prefer referencing normalized software evidence entries rather than raw logs directly.
+  - type: dropdown
+    id: checkpoint
+    attributes:
+      label: Checkpoint
+      options:
+        - trade_patch_toggle_same_save
+        - short_run_vs_long_run
+        - session_boundary_same_save
+        - outside_connection_availability
+        - starvation_or_recovery_transition
+        - other
+    validations:
+      required: true
+  - type: input
+    id: custom-checkpoint
+    attributes:
+      label: Custom checkpoint
+      description: Fill this only if you selected `other`.
+      placeholder: short_stable_checkpoint_label
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis under test
+      description: Optional short statement of the claim this comparison is testing.
+  - type: input
+    id: baseline-ref
+    attributes:
+      label: Baseline reference
+      description: Issue number, evidence entry title, commit, or another stable reference for the baseline side.
+      placeholder: "#21"
+    validations:
+      required: true
+  - type: input
+    id: comparison-ref
+    attributes:
+      label: Comparison reference
+      description: Issue number, evidence entry title, commit, or another stable reference for the comparison side.
+      placeholder: "#22"
+    validations:
+      required: true
+  - type: textarea
+    id: invariant-status
+    attributes:
+      label: Invariant status
+      description: State whether the required invariants held. If not, name the specific comparability break.
+      placeholder: Same game version, same mod ref, same save lineage, same settings except EnableTradePatch.
+    validations:
+      required: true
+  - type: textarea
+    id: observed-deltas
+    attributes:
+      label: Observed deltas
+      description: Summarize the relevant changes in symptom classification, diagnostic counters, and any detail lines that matter.
+    validations:
+      required: true
+  - type: dropdown
+    id: comparison-outcome
+    attributes:
+      label: Comparison outcome
+      options:
+        - supportive
+        - contradictory
+        - no material change
+        - invalid comparison
+    validations:
+      required: true
+  - type: dropdown
+    id: overall-conclusion
+    attributes:
+      label: Overall conclusion
+      description: Use this when the issue is also acting as a small roll-up for the comparison set.
+      options:
+        - not assessed yet
+        - not reproduced
+        - inconclusive
+        - plausible but weakly supported
+        - strongly supported
+        - mitigated but not solved
+        - contradicted by evidence
+  - type: textarea
+    id: repo-facing-implication
+    attributes:
+      label: Repo-facing implication
+      description: Optional wording for README, release notes, or issue summaries.
+      placeholder: plausible but weakly supported by current evidence
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Extra narrow context, caveats, or follow-up links.

@@ -30,7 +30,8 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Reload or restart after changing it. |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Reload after changing it. |
 | `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` diagnostics when the state looks suspicious. |
-| `VerboseLogging` | `false` | Logs every prefab patched, every phantom-vacancy correction, and forces daily diagnostics while diagnostics are enabled. |
+| `CaptureStableEvidence` | `false` | Keeps daily bounded `softwareEvidenceDiagnostics` windows flowing while diagnostics are enabled, even when the city looks stable. Use it for baseline or no-symptom evidence. |
+| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces daily diagnostics while diagnostics are enabled. |
 
 ## Implementation
 
@@ -63,3 +64,5 @@ That means the safest way to describe this release is:
 - Maintainers and operators: [MAINTAINING.md](./MAINTAINING.md)
 - Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
+- Software evidence form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
+- Software comparison form: [`.github/ISSUE_TEMPLATE/software_comparison.yml`](./.github/ISSUE_TEMPLATE/software_comparison.yml)

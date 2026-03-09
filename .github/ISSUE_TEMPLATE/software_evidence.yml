@@ -35,13 +35,30 @@ body:
   - type: textarea
     id: settings
     attributes:
-      label: Settings and patch state
-      description: Copy the `environment(settings=..., patch_state=...)` portion from `softwareEvidenceDiagnostics` when available, then add any missing context.
+      label: Settings
+      description: Copy only the `settings=...` portion from `environment(settings=..., patch_state=...)` when available.
       placeholder: |
-        settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,VerboseLogging:False
-        patch_state=no-local-diagnostics-deviations
+        EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,CaptureStableEvidence:False,VerboseLogging:False
     validations:
       required: true
+  - type: input
+    id: patch-state
+    attributes:
+      label: Patch state
+      description: Copy `patch_state=...` from diagnostics when available. If runtime logs `unknown`, replace it only if you know the exact local deviations for this run.
+      placeholder: unknown or debug-build
+    validations:
+      required: true
+  - type: textarea
+    id: platform-notes
+    attributes:
+      label: Platform notes
+      description: Optional platform, install-layout, or environment notes that may matter for comparison.
+  - type: textarea
+    id: other-mods
+    attributes:
+      label: Other mods
+      description: Optional list of other mods only if they may affect office demand, trade, property, or company behavior.
   - type: input
     id: scenario-label
     attributes:
@@ -72,10 +89,15 @@ body:
     id: observation-window
     attributes:
       label: Observation window
-      description: Prefer the window used in `softwareEvidenceDiagnostics observation_window(...)`, then expand if needed.
-      placeholder: day=419, or days 412-419 for a bounded run
+      description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, then expand if you need more narrative context.
+      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, sample_day=419, sample_count=8, trigger=capture_stable_evidence
     validations:
       required: true
+  - type: textarea
+    id: comparison-baseline
+    attributes:
+      label: Comparison baseline
+      description: Optional save, version, patch state, or prior evidence entry that should be used as the baseline for later comparison.
   - type: dropdown
     id: symptom-classification
     attributes:
@@ -89,6 +111,12 @@ body:
         - other
     validations:
       required: true
+  - type: input
+    id: custom-symptom-classification
+    attributes:
+      label: Custom symptom classification
+      description: Fill this only if you selected `other`. Use a short stable label, not a prose sentence.
+      placeholder: custom_short_label
   - type: textarea
     id: diagnostic-counters
     attributes:
@@ -103,6 +131,11 @@ body:
         softwareOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
     validations:
       required: true
+  - type: textarea
+    id: log-excerpt
+    attributes:
+      label: Log excerpt
+      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry.
   - type: textarea
     id: evidence-summary
     attributes:

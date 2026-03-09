@@ -31,8 +31,8 @@ Required:
 - `game_version`: Cities: Skylines II game version
 - `mod_version`: released mod version, or `unreleased`
 - `mod_ref`: branch name and commit SHA, or another exact source reference
-- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, and `VerboseLogging`
-- `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems
+- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `CaptureStableEvidence`, and `VerboseLogging`
+- `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems; use `unknown` when the runtime cannot determine them reliably
 
 Optional:
 
@@ -48,7 +48,7 @@ Required:
 - `scenario_label`: save identity, test city name, or a stable scenario label
 - `scenario_type`: existing save, fresh city, reproduced test case, or another short classification
 - `reproduction_conditions`: what the tester did or what state the city was already in
-- `observation_window`: the time span observed, such as in-game days or a bounded reproduction session
+- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available
 
 Optional:
 
@@ -80,7 +80,7 @@ The following fields are expected to come from raw diagnostics with little or no
 - `diagnostic_counters`
 - `log_excerpt`
 - `settings`
-- parts of `patch_state` when local code or logging differs from the normal build
+- parts of `patch_state` when local code or logging differs from the normal build, or the literal `unknown` when the runtime cannot name those deviations
 
 The following fields usually require explicit investigator input:
 
@@ -89,6 +89,7 @@ The following fields usually require explicit investigator input:
 - `reproduction_conditions`
 - `observation_window`
 - `confounders`
+- `patch_state` when the runtime emitted `unknown` but the maintainer knows the exact local deviations
 
 The following fields should stay normalized and constrained even when they are chosen by a maintainer:
 

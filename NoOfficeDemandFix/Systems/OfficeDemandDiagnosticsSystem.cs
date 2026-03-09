@@ -25,7 +25,6 @@ namespace NoOfficeDemandFix.Systems
     {
         private const int kTopFactorCount = 5;
         private const int kMaxDetailEntries = 5;
-        private const string kNoLocalPatchState = "no-local-diagnostics-deviations";
 
         private struct FactorEntry
         {
@@ -79,7 +78,11 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OfficeCompanyQuery;
         private int m_LastLoggedDay = int.MinValue;
         private bool m_LastDiagnosticsEnabled;
-        private bool m_LastVerboseLoggingEnabled;
+        private string m_SessionId = CreateSessionId();
+        private int m_RunSequence;
+        private int m_RunStartDay = int.MinValue;
+        private string m_LastSettingsSnapshot = string.Empty;
+        private string m_LastPatchState = string.Empty;
 
         [Preserve]
         protected override void OnCreate()
@@ -121,6 +124,7 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.ReadOnly<PrefabRef>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
+            ResetEvidenceSession();
             RequireForUpdate(m_TimeDataQuery);
         }
 
@@ -137,39 +141,42 @@ namespace NoOfficeDemandFix.Systems
         protected override void OnGamePreload(Purpose purpose, GameMode mode)
         {
             base.OnGamePreload(purpose, mode);
-            m_LastLoggedDay = int.MinValue;
-            m_LastDiagnosticsEnabled = false;
-            m_LastVerboseLoggingEnabled = false;
+            ResetEvidenceSession();
         }
 
         protected override void OnGameLoaded(Context serializationContext)
         {
             base.OnGameLoaded(serializationContext);
-            m_LastLoggedDay = int.MinValue;
-            m_LastDiagnosticsEnabled = false;
-            m_LastVerboseLoggingEnabled = false;
+            ResetEvidenceSession();
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
             bool diagnosticsEnabled = IsDiagnosticsEnabled();
-            bool verboseLoggingEnabled = IsVerboseLoggingEnabled();
-            if (diagnosticsEnabled && (!m_LastDiagnosticsEnabled || (verboseLoggingEnabled && !m_LastVerboseLoggingEnabled)))
-            {
-                m_LastLoggedDay = int.MinValue;
-            }
-
-            m_LastDiagnosticsEnabled = diagnosticsEnabled;
-            m_LastVerboseLoggingEnabled = verboseLoggingEnabled;
+            string settingsSnapshot = FormatSettingsSnapshot();
+            string patchState = FormatPatchState();
 
             if (!diagnosticsEnabled)
             {
+                m_LastDiagnosticsEnabled = false;
+                m_LastSettingsSnapshot = settingsSnapshot;
+                m_LastPatchState = patchState;
                 return;
             }
 
             TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
             int day = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
+            bool runStateChanged = !m_LastDiagnosticsEnabled ||
+                                   settingsSnapshot != m_LastSettingsSnapshot ||
+                                   patchState != m_LastPatchState;
+            if (runStateChanged)
+            {
+                BeginNewRun(day, settingsSnapshot, patchState);
+                m_LastLoggedDay = int.MinValue;
+            }
+
+            m_LastDiagnosticsEnabled = true;
             if (day == m_LastLoggedDay)
             {
                 return;
@@ -178,14 +185,14 @@ namespace NoOfficeDemandFix.Systems
             DiagnosticSnapshot snapshot = CaptureSnapshot(day);
             m_LastLoggedDay = day;
 
-            if (!ShouldLog(snapshot))
+            if (!TryGetObservationTrigger(snapshot, out string trigger))
             {
                 return;
             }
 
             Mod.log.Info(
-                $"softwareEvidenceDiagnostics observation_window(day={snapshot.Day}); " +
-                $"environment(settings={FormatSettingsSnapshot()}, patch_state={kNoLocalPatchState}); " +
+                $"softwareEvidenceDiagnostics observation_window(session_id={m_SessionId}, run_id={m_RunSequence}, start_day={m_RunStartDay}, end_day={snapshot.Day}, sample_day={snapshot.Day}, sample_count={GetObservationSampleCount(snapshot.Day)}, trigger={trigger}); " +
+                $"environment(settings={settingsSnapshot}, patch_state={patchState}); " +
                 $"diagnostic_counters(" +
                 $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
                 $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
@@ -198,12 +205,12 @@ namespace NoOfficeDemandFix.Systems
 
             if (!string.IsNullOrEmpty(snapshot.FreeSoftwareOfficePropertyDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(observation_window_day={snapshot.Day}, detail_type=freeSoftwareOfficeProperties, values={snapshot.FreeSoftwareOfficePropertyDetails})");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=freeSoftwareOfficeProperties, values={snapshot.FreeSoftwareOfficePropertyDetails})");
             }
 
             if (!string.IsNullOrEmpty(snapshot.OnMarketOfficePropertyDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(observation_window_day={snapshot.Day}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
             }
         }
 
@@ -538,7 +545,12 @@ namespace NoOfficeDemandFix.Systems
             return Mod.Settings != null && Mod.Settings.VerboseLogging;
         }
 
-        private static bool ShouldLog(DiagnosticSnapshot snapshot)
+        private static bool IsStableEvidenceCaptureEnabled()
+        {
+            return Mod.Settings != null && Mod.Settings.CaptureStableEvidence;
+        }
+
+        private static bool HasSuspiciousSignals(DiagnosticSnapshot snapshot)
         {
             return snapshot.OfficeBuildingDemand == 0 ||
                    snapshot.EmptyBuildingsFactor != 0 ||
@@ -552,8 +564,7 @@ namespace NoOfficeDemandFix.Systems
                    snapshot.GuardCorrections > 0 ||
                    snapshot.SoftwarePropertylessCompanies > 0 ||
                    snapshot.SoftwareOfficeEfficiencyZero > 0 ||
-                   snapshot.SoftwareOfficeLackResourcesZero > 0 ||
-                   (Mod.Settings != null && Mod.Settings.VerboseLogging);
+                   snapshot.SoftwareOfficeLackResourcesZero > 0;
         }
 
         private static string FormatSettingsSnapshot()
@@ -566,7 +577,70 @@ namespace NoOfficeDemandFix.Systems
             return $"EnableTradePatch:{Mod.Settings.EnableTradePatch}," +
                    $"EnablePhantomVacancyFix:{Mod.Settings.EnablePhantomVacancyFix}," +
                    $"EnableDemandDiagnostics:{Mod.Settings.EnableDemandDiagnostics}," +
+                   $"CaptureStableEvidence:{Mod.Settings.CaptureStableEvidence}," +
                    $"VerboseLogging:{Mod.Settings.VerboseLogging}";
+        }
+
+        private static string FormatPatchState()
+        {
+#if DEBUG
+            return "debug-build";
+#else
+            return "unknown";
+#endif
+        }
+
+        private bool TryGetObservationTrigger(DiagnosticSnapshot snapshot, out string trigger)
+        {
+            if (HasSuspiciousSignals(snapshot))
+            {
+                trigger = "suspicious_state";
+                return true;
+            }
+
+            if (IsStableEvidenceCaptureEnabled())
+            {
+                trigger = "capture_stable_evidence";
+                return true;
+            }
+
+            if (IsVerboseLoggingEnabled())
+            {
+                trigger = "verbose_logging";
+                return true;
+            }
+
+            trigger = null;
+            return false;
+        }
+
+        private void ResetEvidenceSession()
+        {
+            m_SessionId = CreateSessionId();
+            m_RunSequence = 0;
+            m_RunStartDay = int.MinValue;
+            m_LastLoggedDay = int.MinValue;
+            m_LastDiagnosticsEnabled = false;
+            m_LastSettingsSnapshot = string.Empty;
+            m_LastPatchState = string.Empty;
+        }
+
+        private static string CreateSessionId()
+        {
+            return DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'");
+        }
+
+        private void BeginNewRun(int day, string settingsSnapshot, string patchState)
+        {
+            m_RunSequence++;
+            m_RunStartDay = day;
+            m_LastSettingsSnapshot = settingsSnapshot;
+            m_LastPatchState = patchState;
+        }
+
+        private int GetObservationSampleCount(int endDay)
+        {
+            return Math.Max(1, endDay - m_RunStartDay + 1);
         }
 
         private void AppendDetail(StringBuilder builder, ref int count, string detail)
