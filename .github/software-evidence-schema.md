@@ -20,31 +20,6 @@ It exists one layer above the logs:
 
 That means this file defines the normalized structure used for comparison, not every possible field that may appear in future diagnostics output.
 
-## How Logs Map Into This Schema
-
-The intended flow is:
-
-1. collect raw diagnostics from the mod logs
-2. copy or normalize the relevant counters from `softwareEvidenceDiagnostics` into `diagnostic_counters`
-3. attach the required environment and scenario metadata
-4. keep interpretation separate from capture as much as practical
-
-To minimize non-quantitative judgment:
-
-- prefer copying counters directly from logs rather than paraphrasing them
-- treat `diagnostic_counters` as factual capture
-- keep `evidence_summary` short and descriptive, not argumentative
-- use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
-- do not treat `symptom_classification` as proof of root cause
-
-The current diagnostics vocabulary is:
-
-- `softwareEvidenceDiagnostics observation_window(...)`
-- `environment(settings=..., patch_state=...)`
-- `diagnostic_counters(...)`
-- `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`
-
 ## Field Groups
 
 ### 1. Environment
@@ -98,21 +73,6 @@ Optional:
 - `artifacts`: links or filenames for logs, saves, screenshots, or videos
 - `notes`: anything useful that does not fit the structured fields
 
-## Current Diagnostic Counter Set
-
-When available, `diagnostic_counters` should be taken directly from the current diagnostics output and named consistently with the logged concepts:
-
-- office demand
-- free office properties
-- on-market office properties
-- phantom vacancy counters
-- software production and demand
-- software office company counters
-
-Entries do not need every counter, but missing counters should be explicit.
-
-`diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
-
 ## Raw Versus Normalized Fields
 
 The following fields are expected to come from raw diagnostics with little or no interpretation:
@@ -136,6 +96,8 @@ The following fields should stay normalized and constrained even when they are c
 - `confidence`
 
 Those fields should use stable labels rather than free-form prose wherever possible.
+
+This schema intentionally does not define the full raw diagnostics vocabulary or the end-to-end investigation process. Those operational details belong in the investigation workflow document.
 
 ## Comparability Rules
 
@@ -161,8 +123,7 @@ Use short stable labels instead of free-form titles where possible. Current exam
 
 These labels are working categories, not proof of root cause.
 
-## Workflow
+## Related Documents
 
-- canonical schema lives in this file
-- evidence intake should follow the matching issue form under `.github/ISSUE_TEMPLATE/`
-- diagnostics and log work should reuse the same field names where practical
+- [`.github/software-investigation-workflow.md`](./software-investigation-workflow.md): log capture, comparison checkpoints, decision rules, and stage workflow
+- [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./ISSUE_TEMPLATE/software_evidence.yml): reusable evidence entry form
