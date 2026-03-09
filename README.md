@@ -56,11 +56,6 @@ That means the safest way to describe this release is:
 - optional `software` trade patch
 - built-in diagnostics for follow-up investigation
 
-## Documentation
-
-- [Investigation analysis snapshot](https://github.com/FennexFox/NoOfficeDemandFix/issues/9)
-- [Patch plan snapshot](https://github.com/FennexFox/NoOfficeDemandFix/issues/10)
-
 ## Maintainer Notes
 
 Maintainer releases are driven locally by [scripts/release.ps1](./scripts/release.ps1). The script validates the local CSL2 toolchain, builds the mod, publishes to Paradox, packages a zip into `artifacts/`, and only then pushes the `v*` tag.
