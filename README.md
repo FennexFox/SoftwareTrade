@@ -58,7 +58,7 @@ That means the safest way to describe this release is:
 - blanket vacancy overrides across every property type
 - claiming the `software` track is solved without stronger evidence
 
-## Docs For Contributors And Maintainers
+## Docs for Contributors and Maintainers
 
 - Contributors: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Maintainers and operators: [MAINTAINING.md](./MAINTAINING.md)
