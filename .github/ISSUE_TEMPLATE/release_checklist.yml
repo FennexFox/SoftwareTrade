@@ -23,12 +23,7 @@ body:
       label: Checklist
       options:
         - label: README updated
-          required: true
         - label: Diagnostics wording reviewed
-          required: true
         - label: Tag/version confirmed
-          required: true
         - label: Release notes reviewed
-          required: true
         - label: Local release script verified
-          required: true
