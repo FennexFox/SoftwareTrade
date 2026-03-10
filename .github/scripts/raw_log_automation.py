@@ -716,8 +716,14 @@ def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
         - Do not invent numeric counters or quote counters that are not present in the provided facts.
         - Use only the provided structured facts and excerpts.
         - Leave fields empty rather than guessing when confidence is low.
+        - `evidence_summary` must stay factual and observational. Keep it to 2-4 short sentences about what the provided diagnostics showed.
+        - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
+        - Do not use `evidence_summary` for causal claims, recommendations, or likely explanations.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
+        - Only include confounders that could materially affect interpretation. Do not list routine diagnostics settings unless they materially changed behavior or evidence capture.
         - Do not repeat deterministic confounders unless you are adding a distinct residual concern.
+        - `notes` may add extra factual context or excerpt observations, but do not speculate about root cause, misconfiguration, ownership problems, or likely explanations.
+        - Put label-selection rationale and interpretation only in `reasoning_summary`.
         - `lackResourcesZero` is a diagnostic counter name for offices where `lackResources=0`; it does not mean "zero resources" or "no resources."
         - `softwareInputZero` is an office-state/input condition for software consumers; do not generalize it into an overall citywide demand or shortage conclusion without explicit facts.
         - If the facts show `efficiency=0` and `lackResources=0`, describe that conservatively as `efficiency=0 while lackResources=0` or equivalent.

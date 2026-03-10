@@ -365,6 +365,9 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertIn("lackResourcesZero", payload["messages"][0]["content"])
         self.assertIn("zero resources", payload["messages"][0]["content"])
+        self.assertIn("Do not mention the chosen symptom label", payload["messages"][0]["content"])
+        self.assertIn("Put label-selection rationale and interpretation only in `reasoning_summary`", payload["messages"][0]["content"])
+        self.assertIn("do not speculate about root cause", payload["messages"][0]["content"])
 
     def test_build_llm_context_excludes_raw_log_and_caps_excerpt(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
