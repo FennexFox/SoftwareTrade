@@ -801,48 +801,48 @@ def render_managed_comment(
     deterministic_reasoning = deterministic_draft.get("reasoning_summary", "not available")
     llm_reasoning = (llm_draft or {}).get("reasoning_summary", "")
 
-    body = textwrap.dedent(
-        f"""
-        {MANAGED_COMMENT_MARKER}
-        Raw log triage draft for #{issue_number}. Edit only the `maintainer_overrides` block, then add the `promote: evidence` label when the required maintainer fields are ready.
-
-        ## Normalized draft
-        - Latest observation window: `{latest_observation_raw}`
-        - Deterministic symptom suggestion: `{deterministic_draft.get("symptom_classification", "") or "not available"}`
-        - LLM status: `{llm_state}`
-        - Missing before promote: `{", ".join(combined_missing) if combined_missing else "none"}`
-        - Raw log source: `{log_source["mode"]}`
-        - Latest patch summary: `{latest_patch_summary}`
-        - Latest softwareOfficeStates excerpt: `{latest_detail_preview}`
-        - Redaction notes: `{redaction_summary}`
-
-        ### Suggested evidence fields
-        - `scenario_label`: `{deterministic_draft.get("scenario_label", "")}`
-        - `scenario_type`: `{deterministic_draft.get("scenario_type", "")}`
-        - `evidence_summary`: `{truncate_text((llm_draft or {}).get("evidence_summary", "") or deterministic_draft.get("evidence_summary", ""), 600)}`
-        - `confounders`: `{truncate_text((llm_draft or {}).get("confounders", "") or deterministic_draft.get("confounders", ""), 600)}`
-        - `notes`: `{truncate_text((llm_draft or {}).get("notes", "") or deterministic_draft.get("notes", ""), 600)}`
-
-        ### Draft provenance
-        - Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`
-        - LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else "not used"}`
-
-        ### Maintainer overrides
-        Edit only this YAML block before adding `promote: evidence`.
-        {OVERRIDES_START_MARKER}
-        ```yaml
-        {dump_override_yaml(overrides)}
-        ```
-        {OVERRIDES_END_MARKER}
-
-        ### Machine payload
-        Do not edit this block manually.
-        {PAYLOAD_START_MARKER}
-        ```json
-        {json.dumps(payload, ensure_ascii=True, indent=2)}
-        ```
-        {PAYLOAD_END_MARKER}
-        """
+    body = "\n".join(
+        [
+            MANAGED_COMMENT_MARKER,
+            f"Raw log triage draft for #{issue_number}. Edit only the `maintainer_overrides` block, then add the `promote: evidence` label when the required maintainer fields are ready.",
+            "",
+            "## Normalized draft",
+            f"- Latest observation window: `{latest_observation_raw}`",
+            f"- Deterministic symptom suggestion: `{deterministic_draft.get('symptom_classification', '') or 'not available'}`",
+            f"- LLM status: `{llm_state}`",
+            f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
+            f"- Raw log source: `{log_source['mode']}`",
+            f"- Latest patch summary: `{latest_patch_summary}`",
+            f"- Latest softwareOfficeStates excerpt: `{latest_detail_preview}`",
+            f"- Redaction notes: `{redaction_summary}`",
+            "",
+            "### Suggested evidence fields",
+            f"- `scenario_label`: `{deterministic_draft.get('scenario_label', '')}`",
+            f"- `scenario_type`: `{deterministic_draft.get('scenario_type', '')}`",
+            f"- `evidence_summary`: `{truncate_text((llm_draft or {}).get('evidence_summary', '') or deterministic_draft.get('evidence_summary', ''), 600)}`",
+            f"- `confounders`: `{truncate_text((llm_draft or {}).get('confounders', '') or deterministic_draft.get('confounders', ''), 600)}`",
+            f"- `notes`: `{truncate_text((llm_draft or {}).get('notes', '') or deterministic_draft.get('notes', ''), 600)}`",
+            "",
+            "### Draft provenance",
+            f"- Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`",
+            f"- LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else 'not used'}`",
+            "",
+            "### Maintainer overrides",
+            "Edit only this YAML block before adding `promote: evidence`.",
+            OVERRIDES_START_MARKER,
+            "```yaml",
+            dump_override_yaml(overrides),
+            "```",
+            OVERRIDES_END_MARKER,
+            "",
+            "### Machine payload",
+            "Do not edit this block manually.",
+            PAYLOAD_START_MARKER,
+            "```json",
+            json.dumps(payload, ensure_ascii=True, indent=2),
+            "```",
+            PAYLOAD_END_MARKER,
+        ]
     ).strip()
 
     if len(body) > COMMENT_BODY_LIMIT:
@@ -852,31 +852,31 @@ def render_managed_comment(
         compact_parsed["patch_summaries"] = compact_parsed["patch_summaries"][-3:]
         compact_parsed["phantom_corrections"] = compact_parsed["phantom_corrections"][-3:]
         compact_payload["parsed_log"] = compact_parsed
-        body = textwrap.dedent(
-            f"""
-            {MANAGED_COMMENT_MARKER}
-            Raw log triage draft for #{issue_number}. Edit only the `maintainer_overrides` block, then add the `promote: evidence` label when the required maintainer fields are ready.
-
-            ## Normalized draft
-            - Latest observation window: `{latest_observation_raw}`
-            - Deterministic symptom suggestion: `{deterministic_draft.get("symptom_classification", "") or "not available"}`
-            - LLM status: `{llm_state}`
-            - Missing before promote: `{", ".join(combined_missing) if combined_missing else "none"}`
-
-            ### Maintainer overrides
-            {OVERRIDES_START_MARKER}
-            ```yaml
-            {dump_override_yaml(overrides)}
-            ```
-            {OVERRIDES_END_MARKER}
-
-            ### Machine payload
-            {PAYLOAD_START_MARKER}
-            ```json
-            {json.dumps(compact_payload, ensure_ascii=True, indent=2)}
-            ```
-            {PAYLOAD_END_MARKER}
-            """
+        body = "\n".join(
+            [
+                MANAGED_COMMENT_MARKER,
+                f"Raw log triage draft for #{issue_number}. Edit only the `maintainer_overrides` block, then add the `promote: evidence` label when the required maintainer fields are ready.",
+                "",
+                "## Normalized draft",
+                f"- Latest observation window: `{latest_observation_raw}`",
+                f"- Deterministic symptom suggestion: `{deterministic_draft.get('symptom_classification', '') or 'not available'}`",
+                f"- LLM status: `{llm_state}`",
+                f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
+                "",
+                "### Maintainer overrides",
+                OVERRIDES_START_MARKER,
+                "```yaml",
+                dump_override_yaml(overrides),
+                "```",
+                OVERRIDES_END_MARKER,
+                "",
+                "### Machine payload",
+                PAYLOAD_START_MARKER,
+                "```json",
+                json.dumps(compact_payload, ensure_ascii=True, indent=2),
+                "```",
+                PAYLOAD_END_MARKER,
+            ]
         ).strip()
         payload = compact_payload
 

@@ -149,6 +149,36 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(parsed["overrides"]["mod_ref"], "track/software-instability @ abc1234")
         self.assertIn("Maintainer note line 2", parsed["overrides"]["notes"])
 
+    def test_render_managed_comment_formats_markdown_at_column_zero(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        body, _ = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            {
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": "software_office_propertyless",
+                "evidence_summary": "summary",
+                "confounders": "none known",
+                "notes": "note",
+            },
+            [],
+        )
+        self.assertIn("\n## Normalized draft\n", body)
+        self.assertIn("\n### Maintainer overrides\n", body)
+        self.assertIn("\n```yaml\n", body)
+        self.assertNotIn("\n        ## Normalized draft\n", body)
+        self.assertNotIn("\n        ```yaml\n", body)
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
