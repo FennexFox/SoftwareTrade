@@ -1,0 +1,31 @@
+name: Promote Evidence
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  promote:
+    if: github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Promote raw log intake into software evidence
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/run_promote_evidence.py
