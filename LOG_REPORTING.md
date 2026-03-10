@@ -47,7 +47,9 @@ keeping as reusable evidence.
 
 Raw-log intake issues are not the final comparable record. Maintainers may
 promote one into a `Software evidence` issue after filling any missing
-maintainer-only fields.
+maintainer-only fields. When a `Software evidence` issue is created from raw-log
+promotion, its initial symptom classification should be treated as provisional
+until later evidence synthesis reviews the counters and excerpts together.
 
 ## After Submission
 

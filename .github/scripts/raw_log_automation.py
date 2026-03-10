@@ -294,6 +294,51 @@ def split_group_entries(raw: str) -> list[tuple[str, str]]:
     return entries
 
 
+def split_top_level_delimited(raw: str, delimiter: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    depth_round = 0
+    depth_square = 0
+    in_quotes = False
+    escaped = False
+
+    for char in raw:
+        if char == "\\" and in_quotes and not escaped:
+            escaped = True
+            current.append(char)
+            continue
+
+        if char == '"' and not escaped:
+            in_quotes = not in_quotes
+            current.append(char)
+            continue
+
+        escaped = False
+
+        if not in_quotes:
+            if char == "(":
+                depth_round += 1
+            elif char == ")":
+                depth_round = max(0, depth_round - 1)
+            elif char == "[":
+                depth_square += 1
+            elif char == "]":
+                depth_square = max(0, depth_square - 1)
+            elif char == delimiter and depth_round == 0 and depth_square == 0:
+                part = "".join(current).strip()
+                if part:
+                    parts.append(part)
+                current = []
+                continue
+
+        current.append(char)
+
+    tail = "".join(current).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
 def parse_scalar(value: str) -> Any:
     lowered = value.lower()
     if lowered == "true":
@@ -309,7 +354,7 @@ def parse_scalar(value: str) -> Any:
 
 def parse_key_value_text(raw: str, delimiter: str) -> dict[str, Any]:
     values: dict[str, Any] = {}
-    for part in [piece.strip() for piece in raw.split(",") if piece.strip()]:
+    for part in split_top_level_delimited(raw, ","):
         if delimiter not in part:
             continue
         key, value = part.split(delimiter, 1)
@@ -1424,7 +1469,13 @@ def render_evidence_issue_body(
 ) -> str:
     source_marker = SOURCE_RAW_ISSUE_MARKER.format(issue_number=raw_issue_number)
     comment_marker = SOURCE_RAW_COMMENT_MARKER.format(comment_id=draft_comment_id)
-    lines = [source_marker, comment_marker, ""]
+    lines = [
+        source_marker,
+        comment_marker,
+        "",
+        "> Promoted from raw-log intake. The symptom classification in this issue is provisional and may be revised during later synthesis.",
+        "",
+    ]
 
     ordered_sections = [
         ("Game version", fields["game-version"]),
@@ -1453,10 +1504,63 @@ def render_evidence_issue_body(
 
     for heading, value in ordered_sections:
         lines.append(f"### {heading}")
-        lines.append(value if value else "_No response_")
+        if not value:
+            lines.append("_No response_")
+        elif heading == "Observation window":
+            lines.extend(render_structured_text_block(value, format_observation_window_readable(value)))
+        elif heading == "Settings":
+            lines.extend(render_structured_text_block(value, format_settings_readable(value)))
+        elif heading == "Diagnostic counters":
+            lines.extend(render_structured_text_block(value, format_diagnostic_counters_readable(value)))
+        elif heading == "Log excerpt":
+            lines.extend(render_raw_text_block(value))
+        else:
+            lines.append(value)
         lines.append("")
 
     return "\n".join(lines).strip() + "\n"
+
+
+def render_structured_text_block(canonical_value: str, readable_value: str) -> list[str]:
+    lines = ["Readable view", "```text", readable_value or canonical_value, "```"]
+    if readable_value and normalize_multiline_value(readable_value) != normalize_multiline_value(canonical_value):
+        lines.extend(["Raw string", "```text", canonical_value, "```"])
+    return lines
+
+
+def render_raw_text_block(value: str) -> list[str]:
+    return ["Raw string", "```text", value, "```"]
+
+
+def format_observation_window_readable(raw: str) -> str:
+    parsed = parse_key_value_text(raw, "=")
+    if not parsed:
+        return raw
+    return "\n".join(f"{key}: {parsed[key]}" for key in parsed)
+
+
+def format_settings_readable(raw: str) -> str:
+    parsed = parse_key_value_text(raw, ":")
+    if not parsed:
+        return raw
+    return "\n".join(f"{key}: {parsed[key]}" for key in parsed)
+
+
+def format_diagnostic_counters_readable(raw: str) -> str:
+    groups = split_group_entries(raw)
+    if not groups:
+        return raw
+
+    lines: list[str] = []
+    for name, contents in groups:
+        lines.append(f"{name}:")
+        parsed = parse_key_value_text(contents, "=")
+        if not parsed:
+            lines.append(f"  {contents}")
+            continue
+        for key, value in parsed.items():
+            lines.append(f"  {key}: {value}")
+    return "\n".join(lines)
 
 
 def build_missing_fields_comment(missing_fields: list[str], *, via_label: bool = False) -> str:
