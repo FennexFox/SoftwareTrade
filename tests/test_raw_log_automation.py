@@ -288,6 +288,40 @@ class RawLogAutomationTests(unittest.TestCase):
             "raw_log_triage_suggestions",
         )
 
+    def test_build_llm_context_excludes_raw_log_and_caps_excerpt(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        issue_fields["raw_log"] = "X" * 5000
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        self.assertNotIn("raw_log", context["raw_issue"])
+        self.assertIn("latest_software_office_detail_excerpt", context)
+        self.assertLessEqual(
+            len(context["latest_software_office_detail_excerpt"]),
+            automation.LLM_DETAIL_EXCERPT_LIMIT,
+        )
+
+    def test_build_llm_context_size_stays_small_even_with_huge_raw_issue_body(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        issue_fields["raw_log"] = "Y" * 50000
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        serialized = automation.json.dumps(context, ensure_ascii=True)
+        self.assertLess(len(serialized), 12000)
+
     def test_generate_llm_suggestions_parses_github_models_response(self) -> None:
         response_payload = {
             "choices": [
@@ -380,6 +414,10 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(
             automation.sanitize_llm_detail("GitHub Models request failed (429): rate limited"),
             "http_429: rate limited",
+        )
+        self.assertEqual(
+            automation.sanitize_llm_detail("GitHub Models request failed (413): payload too large"),
+            "http_413: payload too large",
         )
         self.assertEqual(
             automation.sanitize_llm_detail("GitHub Models request failed (500): unexpected upstream error"),

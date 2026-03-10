@@ -25,6 +25,10 @@ GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/co
 DEFAULT_GITHUB_MODELS_MODEL = "openai/gpt-4.1-mini"
 COMMENT_BODY_LIMIT = 60000
 DETAIL_PREVIEW_LIMIT = 1800
+LLM_DETAIL_EXCERPT_LIMIT = 700
+LLM_SUMMARY_LINE_LIMIT = 220
+LLM_MAX_PATCH_SUMMARIES = 2
+LLM_MAX_PHANTOM_CORRECTIONS = 2
 
 RAW_LOG_FORM_LABELS = {
     "game version": "game_version",
@@ -603,6 +607,46 @@ def build_deterministic_draft(
     }
 
 
+def build_llm_context(
+    issue_fields: dict[str, str],
+    parsed_log: dict[str, Any],
+    deterministic_draft: dict[str, Any],
+    redaction_notes: list[str],
+) -> dict[str, Any]:
+    raw_issue_context = {
+        "game_version": issue_fields.get("game_version", ""),
+        "mod_version": issue_fields.get("mod_version", ""),
+        "save_or_city_label": issue_fields.get("save_or_city_label", ""),
+        "what_happened": truncate_text(issue_fields.get("what_happened", ""), 500),
+        "other_mods": truncate_text(issue_fields.get("other_mods", ""), 300),
+    }
+
+    latest_detail = parsed_log.get("latest_software_office_detail")
+    latest_detail_excerpt = ""
+    if latest_detail:
+        latest_detail_excerpt = truncate_text(latest_detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT)
+
+    return {
+        "raw_issue": raw_issue_context,
+        "latest_observation": parsed_log.get("latest_observation"),
+        "latest_software_office_detail_excerpt": latest_detail_excerpt,
+        "latest_patch_summary": truncate_text(
+            parsed_log.get("latest_patch_summary", ""),
+            LLM_SUMMARY_LINE_LIMIT,
+        ),
+        "recent_patch_summaries": [
+            truncate_text(item, LLM_SUMMARY_LINE_LIMIT)
+            for item in parsed_log.get("patch_summaries", [])[-LLM_MAX_PATCH_SUMMARIES:]
+        ],
+        "phantom_corrections": [
+            truncate_text(item, LLM_SUMMARY_LINE_LIMIT)
+            for item in parsed_log.get("phantom_corrections", [])[-LLM_MAX_PHANTOM_CORRECTIONS:]
+        ],
+        "deterministic_draft": deterministic_draft,
+        "redaction_notes": redaction_notes,
+    }
+
+
 def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
     schema = {
         "type": "object",
@@ -713,6 +757,8 @@ def sanitize_llm_detail(raw_detail: str) -> str:
 
     if "403" in detail and ("access" in detail or "models" in detail or "denied" in detail):
         return status_prefix + "models access denied"
+    if "413" in detail or "too large" in detail or "payload" in detail and "large" in detail:
+        return status_prefix + "payload too large"
     if "404" in detail or "model" in detail and "not found" in detail:
         return status_prefix + "model unavailable"
     if "429" in detail or "rate limit" in detail:

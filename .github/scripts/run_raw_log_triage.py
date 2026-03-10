@@ -5,6 +5,7 @@ from raw_log_automation import (
     AttachmentDownloadError,
     build_attachment_failure_comment,
     build_deterministic_draft,
+    build_llm_context,
     create_issue_comment,
     generate_llm_suggestions,
     is_raw_log_issue,
@@ -79,15 +80,12 @@ def main() -> None:
     if not github_token:
         llm_detail = "missing token"
     elif parsed_log.get("latest_observation"):
-        llm_context = {
-            "raw_issue": issue_fields,
-            "latest_observation": parsed_log["latest_observation"],
-            "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
-            "latest_patch_summary": parsed_log.get("latest_patch_summary", ""),
-            "phantom_corrections": parsed_log.get("phantom_corrections", []),
-            "deterministic_draft": deterministic_draft,
-            "redaction_notes": redaction_notes,
-        }
+        llm_context = build_llm_context(
+            issue_fields,
+            parsed_log,
+            deterministic_draft,
+            redaction_notes,
+        )
         try:
             llm_draft = generate_llm_suggestions(llm_context, github_token)
             llm_status = "enabled"
