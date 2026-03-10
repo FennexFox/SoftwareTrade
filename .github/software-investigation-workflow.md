@@ -54,9 +54,11 @@ Capture guidance:
 - keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, and sample-slot fields stay available for later comparisons
 - treat `diagnostic_counters` as factual capture
 - treat `diagnostic_counters` as the sampled end-of-window state unless you explicitly note a wider aggregation method
+- when the claim touches office-demand response, preserve `officeDemand(...)` alongside the software counters instead of summarizing demand behavior in prose only
 - keep `evidence_summary` short and descriptive, not argumentative
 - use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
 - do not treat `symptom_classification` as proof of root cause
+- use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
 - `sample_count` now counts configured per-day samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
@@ -67,9 +69,17 @@ The current diagnostics vocabulary is:
 - `environment(settings=..., patch_state=...)`
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may also include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues for software consumers
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
+
+## Analysis Source Guidance
+
+When code reading is part of the interpretation, keep the source of the claim explicit.
+
+- use vanilla decompiled game code for claims about the base-game trade lifecycle, virtual-resource handling, `TripNeeded` / `CurrentTrading` semantics, and company update behavior
+- use this mod's code for claims about emitted diagnostics, local patches, release defaults, and any deviations that belong in `patch_state`
+- if one conclusion depends on both, say so explicitly in `analysis_basis`, `notes`, or the umbrella investigation summary
 
 ## Interpretation Guidance
 
@@ -79,6 +89,8 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
 - persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
 - persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
+- widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
+- if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption rather than hand-waving it away
 - keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
 
 ## Observation Window Guidance
@@ -174,6 +186,16 @@ Comparability guidance:
 - interpretation guidance: use `notes` or the umbrella summary to record whether the comparison looks like `mitigated downstream shortage`, `upstream pressure still present`, or `no clear separation`
 - invalid comparison cases: upstream and downstream conditions changed together, office-level detail was needed but not preserved, or the windows are too loose to attribute the shift
 
+#### 7. Software consumer distress vs office-demand response
+
+- baseline entry: evidence entry from a run where `softwareConsumerOffices(...)` indicates clear consumer distress and `officeDemand(...)` was preserved
+- comparison entry: a matched evidence entry or later bounded window on the same save lineage where office-demand response was checked directly rather than inferred
+- required invariants: same game/mod/settings except the variable under test, comparable observation window, and no unrelated city change large enough to dominate office demand
+- variable under test: whether software-consumer distress aligns with lower office demand, no material demand shift, or rising demand
+- primary fields / counters: `diagnostic_counters.officeDemand(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- interpretation guidance: treat `softwareConsumerOffices` distress with flat or rising `officeDemand(...)` as contradictory to the original direct-demand assumption unless another direct demand mechanism is separately evidenced
+- invalid comparison cases: office-demand counters were not preserved, unrelated interventions dominated the city state, or the demand claim was inferred only from software counters
+
 ## Canonical Comparison Summary Shape
 
 Comparison summaries should use this small reusable shape inside the umbrella investigation issue body or a follow-up comment:
@@ -182,7 +204,7 @@ Comparison summaries should use this small reusable shape inside the umbrella in
 - `baseline_ref`: the baseline evidence entry or run reference
 - `comparison_ref`: the comparison evidence entry or run reference
 - `invariant_status`: whether the required invariants held, and if not, what broke comparability
-- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
+- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.officeDemand(...)` when demand response is part of the claim, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
 - `outcome`: `supportive`, `contradictory`, `no material change`, or `invalid comparison`
 - `notes`: any narrow context that matters for later reuse
 

@@ -35,6 +35,8 @@ Recommended operating flow:
 - if diagnostics emit `patch_state=unknown`, keep that in the evidence entry unless you can name the exact local deviations for that run
 - promote only reusable bounded runs into the software evidence form
 - keep one software investigation umbrella issue per hypothesis or investigation line, and record comparison summaries there
+- use vanilla decompiled game code for claims about base-game trade lifecycle, virtual-resource handling, and update behavior; use this mod's code for claims about diagnostics output, local patches, and release defaults
+- treat software-office distress and office-demand response as separate observed outcomes; do not infer falling office demand from `software` consumer efficiency collapse alone
 
 ## Contributor Process
 

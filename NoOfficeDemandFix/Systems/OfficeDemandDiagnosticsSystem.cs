@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using Colossal.Serialization.Entities;
+using CitizenTripNeeded = Game.Citizens.TripNeeded;
 using Game;
 using Game.Buildings;
 using Game.Common;
 using Game.Companies;
 using Game.Economy;
 using Game.Objects;
+using Game.Pathfind;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
@@ -554,6 +556,7 @@ namespace NoOfficeDemandFix.Systems
             if (isConsumer)
             {
                 builder.Append(", softwareInputZero=").Append(softwareInputZero);
+                AppendSoftwareConsumerTradeState(builder, company);
             }
 
             if (EntityManager.HasComponent<ResourceBuyer>(company))
@@ -601,9 +604,15 @@ namespace NoOfficeDemandFix.Systems
 
             builder.Append(", ").Append(label).Append('=').Append(resource);
             builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource));
-            if (TryGetCompanyBuyCost(company, resource, out float buyCost))
+            if (TryGetCompanyTradeCost(company, resource, out float buyCost, out bool hasTradeCostBuffer, out bool hasTradeCostEntry))
             {
+                builder.Append(", tradeCostBuffer=").Append(hasTradeCostBuffer);
+                builder.Append(", tradeCostEntry=").Append(hasTradeCostEntry);
                 builder.Append(", buyCost=").Append(buyCost.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                builder.Append(", tradeCostBuffer=false");
             }
 
             builder.Append(')');
@@ -620,16 +629,144 @@ namespace NoOfficeDemandFix.Systems
             return EconomyUtils.GetResources(resource, resources);
         }
 
-        private bool TryGetCompanyBuyCost(Entity company, Resource resource, out float buyCost)
+        private void AppendSoftwareConsumerTradeState(StringBuilder builder, Entity company)
+        {
+            bool softwareBuyerActive = TryGetActiveBuyer(company, Resource.Software, out int softwareBuyerAmount);
+            int softwareTripNeededCount = GetCompanyTripNeededAmount(company, Resource.Software, out int softwareTripNeededAmount);
+            int softwareCurrentTradingCount = GetCompanyCurrentTradingAmount(company, Resource.Software, out int softwareCurrentTradingAmount);
+
+            builder.Append(", softwareTrade(");
+            builder.Append("buyerActive=").Append(softwareBuyerActive);
+            if (softwareBuyerActive)
+            {
+                builder.Append(", buyerAmount=").Append(softwareBuyerAmount);
+            }
+
+            builder.Append(", tripNeededCount=").Append(softwareTripNeededCount);
+            builder.Append(", tripNeededAmount=").Append(softwareTripNeededAmount);
+            builder.Append(", currentTradingCount=").Append(softwareCurrentTradingCount);
+            builder.Append(", currentTradingAmount=").Append(softwareCurrentTradingAmount);
+
+            if (TryGetCompanyPathInformation(company, out PathInformation pathInformation))
+            {
+                builder.Append(", pathState=").Append(pathInformation.m_State);
+                builder.Append(", pathDestination=").Append(FormatEntity(pathInformation.m_Destination));
+                builder.Append(", pathMethods=").Append(pathInformation.m_Methods);
+                builder.Append(", pathDistance=").Append(pathInformation.m_Distance.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                builder.Append(", pathState=none");
+            }
+
+            builder.Append(')');
+        }
+
+        private bool TryGetCompanyTradeCost(Entity company, Resource resource, out float buyCost, out bool hasTradeCostBuffer, out bool hasTradeCostEntry)
         {
             buyCost = 0f;
+            hasTradeCostBuffer = false;
+            hasTradeCostEntry = false;
             if (resource == Resource.NoResource || !EntityManager.HasBuffer<TradeCost>(company))
             {
                 return false;
             }
 
+            hasTradeCostBuffer = true;
             DynamicBuffer<TradeCost> costs = EntityManager.GetBuffer<TradeCost>(company, isReadOnly: true);
-            buyCost = EconomyUtils.GetTradeCost(resource, costs).m_BuyCost;
+            for (int i = 0; i < costs.Length; i++)
+            {
+                TradeCost tradeCost = costs[i];
+                if (tradeCost.m_Resource != resource)
+                {
+                    continue;
+                }
+
+                hasTradeCostEntry = true;
+                buyCost = tradeCost.m_BuyCost;
+                return true;
+            }
+
+            return true;
+        }
+
+        private bool TryGetActiveBuyer(Entity company, Resource resource, out int amountNeeded)
+        {
+            amountNeeded = 0;
+            if (!EntityManager.HasComponent<ResourceBuyer>(company))
+            {
+                return false;
+            }
+
+            ResourceBuyer buyer = EntityManager.GetComponentData<ResourceBuyer>(company);
+            if (buyer.m_ResourceNeeded != resource)
+            {
+                return false;
+            }
+
+            amountNeeded = buyer.m_AmountNeeded;
+            return true;
+        }
+
+        private int GetCompanyTripNeededAmount(Entity company, Resource resource, out int tripCount)
+        {
+            tripCount = 0;
+            if (!EntityManager.HasBuffer<CitizenTripNeeded>(company))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DynamicBuffer<CitizenTripNeeded> trips = EntityManager.GetBuffer<CitizenTripNeeded>(company, isReadOnly: true);
+            for (int i = 0; i < trips.Length; i++)
+            {
+                CitizenTripNeeded trip = trips[i];
+                if (trip.m_Resource != resource)
+                {
+                    continue;
+                }
+
+                tripCount++;
+                amount += trip.m_Data;
+            }
+
+            return amount;
+        }
+
+        private int GetCompanyCurrentTradingAmount(Entity company, Resource resource, out int tradingCount)
+        {
+            tradingCount = 0;
+            if (!EntityManager.HasBuffer<CurrentTrading>(company))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DynamicBuffer<CurrentTrading> currentTrading = EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true);
+            for (int i = 0; i < currentTrading.Length; i++)
+            {
+                CurrentTrading trade = currentTrading[i];
+                if (trade.m_TradingResource != resource)
+                {
+                    continue;
+                }
+
+                tradingCount++;
+                amount += trade.m_TradingResourceAmount;
+            }
+
+            return amount;
+        }
+
+        private bool TryGetCompanyPathInformation(Entity company, out PathInformation pathInformation)
+        {
+            if (!EntityManager.HasComponent<PathInformation>(company))
+            {
+                pathInformation = default;
+                return false;
+            }
+
+            pathInformation = EntityManager.GetComponentData<PathInformation>(company);
             return true;
         }
 

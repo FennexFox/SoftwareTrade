@@ -9,6 +9,7 @@ body:
         Use this form only for `software`-track bounded runs that are worth keeping as reusable evidence.
         Do not open one issue per raw log sample. Raw logs, temporary notes, and unpromoted observations can stay in local artifacts or in the umbrella software investigation issue.
         Keep the report factual and scoped to one observation window that can stand on its own later.
+        If the claim is about office-demand response, keep `officeDemand(...)` in the copied counters instead of only summarizing demand behavior in prose.
         Canonical schema: `.github/software-evidence-schema.md`
         If you have current mod logs, prefer copying values directly from `softwareEvidenceDiagnostics`.
   - type: input
@@ -122,7 +123,7 @@ body:
     id: diagnostic-counters
     attributes:
       label: Diagnostic counters
-      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing. Include `electronics(...)` and the producer/consumer office counter groups when they matter for the hypothesis under test.
+      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing. Include `electronics(...)` and the producer/consumer office counter groups when they matter for the hypothesis under test. If the claim involves office-demand response, keep `officeDemand(...)` intact.
       placeholder: |
         officeDemand(building=..., company=..., emptyBuildings=..., buildingDemand=...)
         freeOfficeProperties(total=..., software=..., inOccupiedBuildings=..., softwareInOccupiedBuildings=...)
@@ -138,7 +139,7 @@ body:
     id: log-excerpt
     attributes:
       label: Log excerpt
-      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry. Include `detail_type=softwareOfficeStates` when producer-side or consumer-side office input state matters.
+      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry. Include `detail_type=softwareOfficeStates` when producer-side or consumer-side office input state matters, especially if consumer trade-state cues such as trade-cost entry, active buyer, trip-needed, current-trading, or path state matter.
   - type: textarea
     id: evidence-summary
     attributes:
@@ -164,12 +165,18 @@ body:
     validations:
       required: true
   - type: textarea
+    id: analysis-basis
+    attributes:
+      label: Analysis basis
+      description: Optional. If code reading informed the interpretation, say whether the relevant claim came from vanilla decompiled game code, this mod's code, or both.
+      placeholder: vanilla decompile for trade lifecycle and virtual-resource handling; mod code for diagnostics output and local patch behavior
+  - type: textarea
     id: artifacts
     attributes:
       label: Artifacts
-      description: Logs, saves, screenshots, or other references. Include relevant `softwareEvidenceDiagnostics detail(...)` lines here when useful, especially `detail_type=softwareOfficeStates` with role-aware producer/consumer detail.
+      description: Logs, saves, screenshots, or other references. Include relevant `softwareEvidenceDiagnostics detail(...)` lines here when useful, especially `detail_type=softwareOfficeStates` with role-aware producer/consumer detail and any trade-state cues needed for later analysis.
   - type: textarea
     id: notes
     attributes:
       label: Notes
-      description: Extra context that does not fit the structured fields.
+      description: Extra context that does not fit the structured fields. Use this to record office-demand mismatch context if software distress and demand counters point in different directions.

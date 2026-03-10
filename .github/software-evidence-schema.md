@@ -62,7 +62,7 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when present
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
 - `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
@@ -70,7 +70,8 @@ Required:
 Optional:
 
 - `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues
+- `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields
 
 ## Raw Versus Normalized Fields
@@ -85,6 +86,10 @@ The following fields are expected to come from raw diagnostics with little or no
 When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
 That usually means keeping `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and the shared `detail_type=softwareOfficeStates` lines with their role context.
 
+When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone.
+
+If the interpretation relies on code reading, separate what came from vanilla decompiled game code from what came from this mod's code. Vanilla decompile is the source of truth for base-game trade lifecycle and virtual-resource handling; mod code explains instrumentation, local patches, and any deviations that belong in `patch_state`.
+
 The following fields usually require explicit investigator input:
 
 - `scenario_label`
@@ -93,6 +98,7 @@ The following fields usually require explicit investigator input:
 - `observation_window`
 - `confounders`
 - `patch_state` when the runtime emitted `unknown` but the maintainer knows the exact local deviations
+- `analysis_basis` when code reading was part of the interpretation
 
 When diagnostics are sampled more than once per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_index`, `sample_slot`, `samples_per_day`, and the raw `sample_count` so later readers can tell same-day samples apart and interpret density correctly.
 
@@ -126,6 +132,8 @@ Use short stable labels instead of free-form titles where possible. Current exam
 - `software_office_lack_resources_zero`
 - `software_demand_mismatch`
 - `software_track_unclear`
+
+`software_demand_mismatch` is the preferred label when software-office distress is present but office-demand counters stay flat or rise, or when the expected software-to-demand relationship does not appear.
 
 These labels are working categories, not proof of root cause.
 Keep them symptom-based rather than cause-based. Do not introduce presumed root-cause labels such as `electronics_shortage`.
