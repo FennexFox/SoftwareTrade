@@ -69,6 +69,23 @@ The current diagnostics vocabulary is:
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
 
+## Observation Window Guidance
+
+Default minimum window guidance:
+
+- `3 days`: minimum reusable bounded window for a promoted evidence entry
+- `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
+- `7 days`: preferred when outside-connection state, persistence, or recovery is under review
+
+These day-count recommendations remain valid under time-scaling mods such as `RealisticTrips` / `Time2Work`.
+When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
+That makes the `3` / `5` / `7` day guidance more conservative rather than weaker.
+
+Comparability guidance:
+
+- evidence gathered with materially different time-scaling settings is weaker to compare directly, even if the observation window shows the same day count or `sample_count`
+- when a time-scaling mod is active, record the mod and any relevant factor in `other_mods`, `platform_notes`, or `notes`
+
 ## Capture Modes
 
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
