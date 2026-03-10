@@ -51,6 +51,7 @@ body:
         - baseline evidence: #21
         - trade patch comparison run: collect on same save with EnableTradePatch=True
         - reload check: collect before/after reload on same save lineage
+        - upstream-vs-downstream split: preserve electronics counters and software-office detail on the next matched run
     validations:
       required: true
   - type: textarea
@@ -64,6 +65,12 @@ body:
           comparison_ref: #22
           invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
           observed_deltas: softwareOffices.lackResourcesZero dropped but symptom persisted
+          outcome: mitigated but not solved
+        - checkpoint: upstream_input_vs_downstream_gating
+          baseline_ref: #22
+          comparison_ref: #23
+          invariant_status: same save lineage, comparable observation window, electronics counters and software office detail preserved in both runs
+          observed_deltas: electronics pressure persisted, softwareOffices.lackResourcesZero improved, softwareOfficeStates still showed input buyer pressure
           outcome: mitigated but not solved
     validations:
       required: true

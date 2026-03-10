@@ -122,13 +122,14 @@ body:
     id: diagnostic-counters
     attributes:
       label: Diagnostic counters
-      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing.
+      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing. Include `electronics(...)` too when it matters for the hypothesis under test.
       placeholder: |
         officeDemand(building=..., company=..., emptyBuildings=..., buildingDemand=...)
         freeOfficeProperties(total=..., software=..., inOccupiedBuildings=..., softwareInOccupiedBuildings=...)
         onMarketOfficeProperties(total=..., activelyVacant=..., occupied=..., staleRenterOnly=...)
         phantomVacancy(signatureOccupiedOnMarketOffice=..., signatureOccupiedOnMarketIndustrial=..., signatureOccupiedToBeOnMarket=..., nonSignatureOccupiedOnMarketOffice=..., nonSignatureOccupiedOnMarketIndustrial=..., guardCorrections=...)
         software(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
+        electronics(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
         softwareOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
     validations:
       required: true
@@ -136,7 +137,7 @@ body:
     id: log-excerpt
     attributes:
       label: Log excerpt
-      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry.
+      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry. Include `detail_type=softwareOfficeStates` when office-level input state matters.
   - type: textarea
     id: evidence-summary
     attributes:
@@ -158,14 +159,14 @@ body:
     id: confounders
     attributes:
       label: Confounders
-      description: Known uncertainties or alternative explanations. Use `none known` if none stand out.
+      description: Known uncertainties or alternative explanations, such as upstream input pressure, downstream trade or storage gating, or mixed interventions. Use `none known` if none stand out.
     validations:
       required: true
   - type: textarea
     id: artifacts
     attributes:
       label: Artifacts
-      description: Logs, saves, screenshots, or other references. Include `softwareEvidenceDiagnostics detail(...)` lines here when relevant.
+      description: Logs, saves, screenshots, or other references. Include relevant `softwareEvidenceDiagnostics detail(...)` lines here when useful, especially `detail_type=softwareOfficeStates`.
   - type: textarea
     id: notes
     attributes:

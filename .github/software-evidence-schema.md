@@ -62,15 +62,15 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter values captured during the observation window
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, and `softwareOffices(...)` when present
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
-- `confounders`: known uncertainties, competing explanations, or `none known`
+- `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
 
 Optional:
 
-- `log_excerpt`: only short excerpts or references to attached logs
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos
+- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`
 - `notes`: anything useful that does not fit the structured fields
 
 ## Raw Versus Normalized Fields
@@ -81,6 +81,8 @@ The following fields are expected to come from raw diagnostics with little or no
 - `log_excerpt`
 - `settings`
 - parts of `patch_state` when local code or logging differs from the normal build, or the literal `unknown` when the runtime cannot name those deviations
+
+When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
 
 The following fields usually require explicit investigator input:
 
@@ -123,6 +125,7 @@ Use short stable labels instead of free-form titles where possible. Current exam
 - `software_track_unclear`
 
 These labels are working categories, not proof of root cause.
+Keep them symptom-based rather than cause-based. Do not introduce presumed root-cause labels such as `electronics_shortage`.
 
 ## Related Documents
 

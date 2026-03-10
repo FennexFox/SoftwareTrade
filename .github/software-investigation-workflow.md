@@ -45,7 +45,7 @@ When promoting a run into a `software evidence` issue:
 2. copy `settings=...`
 3. copy `patch_state=...`
 4. copy `diagnostic_counters(...)`
-5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level state matters
+5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters
 6. add only the minimum investigator-written context needed to make the run reusable
 
 Capture guidance:
@@ -58,16 +58,26 @@ Capture guidance:
 - use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
 - do not treat `symptom_classification` as proof of root cause
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
+- when differentiating upstream input pressure from downstream office-resource trade or storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
 
 The current diagnostics vocabulary is:
 
 - `softwareEvidenceDiagnostics observation_window(...)`
 - `environment(settings=..., patch_state=...)`
-- `diagnostic_counters(...)`
+- `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, and `softwareOffices(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
+
+## Interpretation Guidance
+
+Mixed-cause interpretations are allowed and should be recorded explicitly rather than collapsed into one presumed root cause.
+
+- improvement after `EnableTradePatch` does not prove upstream input pressure was absent
+- a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
+- persistent bad office-level input stock, buy cost pressure, or buyer state in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
+- keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
 
 ## Observation Window Guidance
 
@@ -142,6 +152,16 @@ Comparability guidance:
 - variable under test: observed starvation/recovery transition
 - primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`, `diagnostic_context(topFactors=...)` when relevant
 - invalid comparison cases: windows too loose to attribute the change to one transition, or evidence mostly anecdotal rather than diagnostics-backed
+
+#### 6. Upstream input pressure vs downstream office-resource gating
+
+- baseline entry: evidence entry from a run where the `software` symptom is present and the relevant raw counters or detail lines were preserved
+- comparison entry: a matched evidence entry on the same save lineage or tightly controlled scenario where downstream office-resource availability changed enough to test separation, without intentionally changing the rest of the scenario more than necessary
+- required invariants: same game/mod/settings except the variable under test, comparable observation window, and no unrelated city change large enough to dominate the signal
+- variable under test: whether the observed shortage is better explained by upstream input pressure, downstream office-resource gating, or a mixed state
+- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.electronics(...)`, `diagnostic_counters.softwareOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- interpretation guidance: use `notes` or the umbrella summary to record whether the comparison looks like `mitigated downstream shortage`, `upstream pressure still present`, or `no clear separation`
+- invalid comparison cases: upstream and downstream conditions changed together, office-level detail was needed but not preserved, or the windows are too loose to attribute the shift
 
 ## Canonical Comparison Summary Shape
 

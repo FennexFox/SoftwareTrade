@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using Colossal.Serialization.Entities;
 using Game;
@@ -57,6 +58,10 @@ namespace NoOfficeDemandFix.Systems
             public int SoftwareDemand;
             public int SoftwareProductionCompanies;
             public int SoftwarePropertylessCompanies;
+            public int ElectronicsProduction;
+            public int ElectronicsDemand;
+            public int ElectronicsProductionCompanies;
+            public int ElectronicsPropertylessCompanies;
             public int SoftwareOfficeCompanies;
             public int SoftwareOfficePropertylessCompanies;
             public int SoftwareOfficeEfficiencyZero;
@@ -64,6 +69,7 @@ namespace NoOfficeDemandFix.Systems
             public string TopFactors;
             public string FreeSoftwareOfficePropertyDetails;
             public string OnMarketOfficePropertyDetails;
+            public string SoftwareOfficeDetails;
         }
 
         private SimulationSystem m_SimulationSystem;
@@ -199,6 +205,7 @@ namespace NoOfficeDemandFix.Systems
                 $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
                 $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
                 $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
+                $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
                 $"softwareOffices(total={snapshot.SoftwareOfficeCompanies}, propertyless={snapshot.SoftwareOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareOfficeLackResourcesZero})" +
                 $"); " +
                 $"diagnostic_context(topFactors=[{snapshot.TopFactors}])");
@@ -211,6 +218,11 @@ namespace NoOfficeDemandFix.Systems
             if (!string.IsNullOrEmpty(snapshot.OnMarketOfficePropertyDetails))
             {
                 Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
+            }
+
+            if (!string.IsNullOrEmpty(snapshot.SoftwareOfficeDetails))
+            {
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=softwareOfficeStates, values={snapshot.SoftwareOfficeDetails})");
             }
         }
 
@@ -225,6 +237,7 @@ namespace NoOfficeDemandFix.Systems
             companyDeps.Complete();
 
             int softwareIndex = EconomyUtils.GetResourceIndex(Resource.Software);
+            int electronicsIndex = EconomyUtils.GetResourceIndex(Resource.Electronics);
             DiagnosticSnapshot snapshot = new DiagnosticSnapshot
             {
                 Day = day,
@@ -236,6 +249,10 @@ namespace NoOfficeDemandFix.Systems
                 SoftwareDemand = industrialCompanyDatas.m_Demand[softwareIndex],
                 SoftwareProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[softwareIndex],
                 SoftwarePropertylessCompanies = industrialCompanyDatas.m_ProductionPropertyless[softwareIndex],
+                ElectronicsProduction = industrialCompanyDatas.m_Production[electronicsIndex],
+                ElectronicsDemand = industrialCompanyDatas.m_Demand[electronicsIndex],
+                ElectronicsProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[electronicsIndex],
+                ElectronicsPropertylessCompanies = industrialCompanyDatas.m_ProductionPropertyless[electronicsIndex],
                 GuardCorrections = m_SignaturePropertyMarketGuardSystem.ConsumeCorrectionCount(),
                 TopFactors = FormatTopFactors(officeFactors)
             };
@@ -375,6 +392,8 @@ namespace NoOfficeDemandFix.Systems
 
         private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot)
         {
+            StringBuilder details = new StringBuilder();
+            int detailCount = 0;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
             {
@@ -427,7 +446,80 @@ namespace NoOfficeDemandFix.Systems
                 {
                     snapshot.SoftwareOfficeLackResourcesZero++;
                 }
+
+                if (efficiency <= 0f || lackResources <= 0f)
+                {
+                    AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, efficiency, lackResources));
+                }
             }
+
+            snapshot.SoftwareOfficeDetails = details.ToString();
+        }
+
+        private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, float efficiency, float lackResources)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("company=").Append(FormatEntity(company));
+            builder.Append(", prefab=").Append(GetPrefabLabel(companyPrefab));
+            builder.Append(", property=").Append(FormatEntity(property));
+            builder.Append(", output=").Append(processData.m_Output.m_Resource);
+            builder.Append(", outputStock=").Append(GetCompanyResourceAmount(company, processData.m_Output.m_Resource));
+            AppendCompanyResourceState(builder, company, "input1", processData.m_Input1.m_Resource);
+            AppendCompanyResourceState(builder, company, "input2", processData.m_Input2.m_Resource);
+
+            if (EntityManager.HasComponent<ResourceBuyer>(company))
+            {
+                ResourceBuyer buyer = EntityManager.GetComponentData<ResourceBuyer>(company);
+                builder.Append(", activeBuyer(");
+                builder.Append("resource=").Append(buyer.m_ResourceNeeded);
+                builder.Append(", amount=").Append(buyer.m_AmountNeeded);
+                builder.Append(')');
+            }
+
+            builder.Append(", efficiency=").Append(efficiency.ToString("0.###", CultureInfo.InvariantCulture));
+            builder.Append(", lackResources=").Append(lackResources.ToString("0.###", CultureInfo.InvariantCulture));
+            return builder.ToString();
+        }
+
+        private void AppendCompanyResourceState(StringBuilder builder, Entity company, string label, Resource resource)
+        {
+            if (resource == Resource.NoResource)
+            {
+                return;
+            }
+
+            builder.Append(", ").Append(label).Append('=').Append(resource);
+            builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource));
+            if (TryGetCompanyBuyCost(company, resource, out float buyCost))
+            {
+                builder.Append(", buyCost=").Append(buyCost.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+
+            builder.Append(')');
+        }
+
+        private int GetCompanyResourceAmount(Entity company, Resource resource)
+        {
+            if (resource == Resource.NoResource || !EntityManager.HasBuffer<Resources>(company))
+            {
+                return 0;
+            }
+
+            DynamicBuffer<Resources> resources = EntityManager.GetBuffer<Resources>(company, isReadOnly: true);
+            return EconomyUtils.GetResources(resource, resources);
+        }
+
+        private bool TryGetCompanyBuyCost(Entity company, Resource resource, out float buyCost)
+        {
+            buyCost = 0f;
+            if (resource == Resource.NoResource || !EntityManager.HasBuffer<TradeCost>(company))
+            {
+                return false;
+            }
+
+            DynamicBuffer<TradeCost> costs = EntityManager.GetBuffer<TradeCost>(company, isReadOnly: true);
+            buyCost = EconomyUtils.GetTradeCost(resource, costs).m_BuyCost;
+            return true;
         }
 
         private int GetCompanyRenterCount(Entity entity)

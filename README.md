@@ -13,7 +13,7 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - includes an optional prefab-level office-resource trade patch for outside connections and cargo stations
-- includes diagnostics for office demand, phantom vacancy, and `software` office health
+- includes diagnostics for office demand, phantom vacancy, and `software` office health, including enough signal to help distinguish upstream input pressure from office-resource trade and storage issues
 
 What it does not claim:
 
@@ -45,6 +45,8 @@ Current evidence supports two distinct tracks:
 
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
 - `software` instability is still plausible, still tracked, and still best treated as experimental mitigation rather than solved
+
+Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream office-resource trade or storage bottlenecks, but the track remains investigational rather than proven.
 
 That means the safest way to describe this release is:
 
