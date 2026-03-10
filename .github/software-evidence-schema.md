@@ -31,7 +31,7 @@ Required:
 - `game_version`: Cities: Skylines II game version
 - `mod_version`: released mod version, or `unreleased`
 - `mod_ref`: branch name and commit SHA, or another exact source reference
-- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `CaptureStableEvidence`, and `VerboseLogging`
+- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`
 - `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems; use `unknown` when the runtime cannot determine them reliably
 
 Optional:
@@ -48,7 +48,7 @@ Required:
 - `scenario_label`: save identity, test city name, or a stable scenario label
 - `scenario_type`: existing save, fresh city, reproduced test case, or another short classification
 - `reproduction_conditions`: what the tester did or what state the city was already in
-- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available; keep `sample_index` fields when present because the current diagnostics cadence is twice per in-game day
+- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available; keep `sample_index` fields when present because the current diagnostics cadence is per displayed in-game day and configurable
 
 Optional:
 
@@ -94,7 +94,7 @@ The following fields usually require explicit investigator input:
 - `confounders`
 - `patch_state` when the runtime emitted `unknown` but the maintainer knows the exact local deviations
 
-When the current diagnostics cadence is twice per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_index`, and the raw `sample_count` so later readers can tell same-day samples apart.
+When diagnostics are sampled more than once per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_index`, `sample_slot`, `samples_per_day`, and the raw `sample_count` so later readers can tell same-day samples apart and interpret density correctly.
 
 The following fields should stay normalized and constrained even when they are chosen by a maintainer:
 

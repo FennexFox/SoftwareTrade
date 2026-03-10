@@ -51,7 +51,7 @@ When promoting a run into a `software evidence` issue:
 Capture guidance:
 
 - prefer copying counters directly from logs rather than paraphrasing them
-- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, and `sample_index` fields stay available for later comparisons
+- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, and sample-slot fields stay available for later comparisons
 - treat `diagnostic_counters` as factual capture
 - treat `diagnostic_counters` as the sampled end-of-window state unless you explicitly note a wider aggregation method
 - keep `evidence_summary` short and descriptive, not argumentative
@@ -59,7 +59,7 @@ Capture guidance:
 - do not treat `symptom_classification` as proof of root cause
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- `sample_count` now counts twice-daily samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
+- `sample_count` now counts configured per-day samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
 
 The current diagnostics vocabulary is:
 
@@ -89,17 +89,18 @@ Default minimum window guidance:
 - `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
 
-At the current twice-daily diagnostics cadence, those windows will usually yield roughly:
+At the default `DiagnosticsSamplesPerDay=2` cadence, those windows will usually yield roughly:
 
 - `3 days`: about `6` samples
 - `5 days`: about `10` samples
 - `7 days`: about `14` samples
 
-Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser evidence inside the same day-count window, not as a replacement for the day count itself.
+Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser evidence inside the same day-count window, not as a replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set differently, scale the expected `sample_count` accordingly.
 
 These day-count recommendations remain valid under time-scaling mods such as `RealisticTrips` / `Time2Work`.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
-That makes the `3` / `5` / `7` day guidance more conservative rather than weaker.
+The current sampling code follows the displayed in-game day via patched time-of-day state, so `DiagnosticsSamplesPerDay=2` still means roughly two samples per reported day rather than two samples per vanilla-length day.
+That keeps the `3` / `5` / `7` day guidance conservative rather than weaker.
 
 Comparability guidance:
 
@@ -109,7 +110,7 @@ Comparability guidance:
 ## Capture Modes
 
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
-- baseline capture: enable `CaptureStableEvidence=true` to emit twice-daily bounded observation windows even while the city looks stable
+- baseline capture: enable `CaptureStableEvidence=true` to emit bounded observation windows at the configured per-day cadence even while the city looks stable
 - escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction and patch traces beyond the normalized evidence lines
 
 ## Standard Comparison Checkpoints

@@ -26,8 +26,9 @@ namespace NoOfficeDemandFix.Systems
     {
         private const int kTopFactorCount = 5;
         private const int kMaxDetailEntries = 5;
-        private const int kSamplesPerDay = 2;
-        private const int kTicksPerSample = TimeSystem.kTicksPerDay / kSamplesPerDay;
+        private const int kDefaultDiagnosticsSamplesPerDay = 2;
+        private const int kMinDiagnosticsSamplesPerDay = 1;
+        private const int kMaxDiagnosticsSamplesPerDay = 8;
 
         private struct FactorEntry
         {
@@ -39,6 +40,8 @@ namespace NoOfficeDemandFix.Systems
         {
             public int Day;
             public int SampleIndex;
+            public int SampleSlot;
+            public int SamplesPerDay;
             public int OfficeBuildingDemand;
             public int OfficeCompanyDemand;
             public int EmptyBuildingsFactor;
@@ -81,11 +84,13 @@ namespace NoOfficeDemandFix.Systems
         }
 
         private SimulationSystem m_SimulationSystem;
+        private TimeSystem m_TimeSystem;
         private IndustrialDemandSystem m_IndustrialDemandSystem;
         private CountCompanyDataSystem m_CountCompanyDataSystem;
         private SignaturePropertyMarketGuardSystem m_SignaturePropertyMarketGuardSystem;
         private PrefabSystem m_PrefabSystem;
         private EntityQuery m_TimeDataQuery;
+        private EntityQuery m_TimeSettingsQuery;
         private EntityQuery m_FreeOfficePropertyQuery;
         private EntityQuery m_OnMarketPropertyQuery;
         private EntityQuery m_ToBeOnMarketPropertyQuery;
@@ -104,11 +109,13 @@ namespace NoOfficeDemandFix.Systems
         {
             base.OnCreate();
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
+            m_TimeSystem = World.GetOrCreateSystemManaged<TimeSystem>();
             m_IndustrialDemandSystem = World.GetOrCreateSystemManaged<IndustrialDemandSystem>();
             m_CountCompanyDataSystem = World.GetOrCreateSystemManaged<CountCompanyDataSystem>();
             m_SignaturePropertyMarketGuardSystem = World.GetOrCreateSystemManaged<SignaturePropertyMarketGuardSystem>();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
             m_TimeDataQuery = GetEntityQuery(ComponentType.ReadOnly<TimeData>());
+            m_TimeSettingsQuery = GetEntityQuery(ComponentType.ReadOnly<TimeSettingsData>());
             m_FreeOfficePropertyQuery = GetEntityQuery(
                 ComponentType.ReadOnly<OfficeProperty>(),
                 ComponentType.ReadOnly<PropertyOnMarket>(),
@@ -181,8 +188,11 @@ namespace NoOfficeDemandFix.Systems
             }
 
             TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
+            TimeSettingsData timeSettings = m_TimeSettingsQuery.GetSingleton<TimeSettingsData>();
             int day = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
-            int sampleIndex = GetSampleIndex(m_SimulationSystem.frameIndex, timeData);
+            int samplesPerDay = GetDiagnosticsSamplesPerDay();
+            int sampleSlot = GetSampleSlot(timeSettings, timeData, samplesPerDay);
+            int sampleIndex = GetSampleIndex(day, sampleSlot, samplesPerDay);
             bool runStateChanged = !m_LastDiagnosticsEnabled ||
                                    settingsSnapshot != m_LastSettingsSnapshot ||
                                    patchState != m_LastPatchState;
@@ -198,7 +208,7 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
-            DiagnosticSnapshot snapshot = CaptureSnapshot(day, sampleIndex);
+            DiagnosticSnapshot snapshot = CaptureSnapshot(day, sampleIndex, sampleSlot, samplesPerDay);
             m_LastLoggedSampleIndex = sampleIndex;
 
             if (!TryGetObservationTrigger(snapshot, out string trigger))
@@ -207,7 +217,7 @@ namespace NoOfficeDemandFix.Systems
             }
 
             Mod.log.Info(
-                $"softwareEvidenceDiagnostics observation_window(session_id={m_SessionId}, run_id={m_RunSequence}, start_day={m_RunStartDay}, end_day={snapshot.Day}, start_sample_index={m_RunStartSampleIndex}, end_sample_index={snapshot.SampleIndex}, sample_day={snapshot.Day}, sample_index={snapshot.SampleIndex}, sample_count={GetObservationSampleCount(snapshot.SampleIndex)}, trigger={trigger}); " +
+                $"softwareEvidenceDiagnostics observation_window(session_id={m_SessionId}, run_id={m_RunSequence}, start_day={m_RunStartDay}, end_day={snapshot.Day}, start_sample_index={m_RunStartSampleIndex}, end_sample_index={snapshot.SampleIndex}, sample_day={snapshot.Day}, sample_index={snapshot.SampleIndex}, sample_slot={snapshot.SampleSlot}, samples_per_day={snapshot.SamplesPerDay}, sample_count={GetObservationSampleCount(snapshot.SampleIndex)}, trigger={trigger}); " +
                 $"environment(settings={settingsSnapshot}, patch_state={patchState}); " +
                 $"diagnostic_counters(" +
                 $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
@@ -223,21 +233,21 @@ namespace NoOfficeDemandFix.Systems
 
             if (!string.IsNullOrEmpty(snapshot.FreeSoftwareOfficePropertyDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=freeSoftwareOfficeProperties, values={snapshot.FreeSoftwareOfficePropertyDetails})");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, observation_end_sample_index={snapshot.SampleIndex}, detail_type=freeSoftwareOfficeProperties, values={snapshot.FreeSoftwareOfficePropertyDetails})");
             }
 
             if (!string.IsNullOrEmpty(snapshot.OnMarketOfficePropertyDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, observation_end_sample_index={snapshot.SampleIndex}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
             }
 
             if (!string.IsNullOrEmpty(snapshot.SoftwareOfficeDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, detail_type=softwareOfficeStates, values={snapshot.SoftwareOfficeDetails})");
+                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, observation_end_sample_index={snapshot.SampleIndex}, detail_type=softwareOfficeStates, values={snapshot.SoftwareOfficeDetails})");
             }
         }
 
-        private DiagnosticSnapshot CaptureSnapshot(int day, int sampleIndex)
+        private DiagnosticSnapshot CaptureSnapshot(int day, int sampleIndex, int sampleSlot, int samplesPerDay)
         {
             JobHandle officeDeps;
             NativeArray<int> officeFactors = m_IndustrialDemandSystem.GetOfficeDemandFactors(out officeDeps);
@@ -253,6 +263,8 @@ namespace NoOfficeDemandFix.Systems
             {
                 Day = day,
                 SampleIndex = sampleIndex,
+                SampleSlot = sampleSlot,
+                SamplesPerDay = samplesPerDay,
                 OfficeBuildingDemand = m_IndustrialDemandSystem.officeBuildingDemand,
                 OfficeCompanyDemand = m_IndustrialDemandSystem.officeCompanyDemand,
                 EmptyBuildingsFactor = officeFactors[(int)DemandFactor.EmptyBuildings],
@@ -771,6 +783,7 @@ namespace NoOfficeDemandFix.Systems
             return $"EnableTradePatch:{Mod.Settings.EnableTradePatch}," +
                    $"EnablePhantomVacancyFix:{Mod.Settings.EnablePhantomVacancyFix}," +
                    $"EnableDemandDiagnostics:{Mod.Settings.EnableDemandDiagnostics}," +
+                   $"DiagnosticsSamplesPerDay:{GetDiagnosticsSamplesPerDay()}," +
                    $"CaptureStableEvidence:{Mod.Settings.CaptureStableEvidence}," +
                    $"VerboseLogging:{Mod.Settings.VerboseLogging}";
         }
@@ -839,9 +852,26 @@ namespace NoOfficeDemandFix.Systems
             return Math.Max(1, endSampleIndex - m_RunStartSampleIndex + 1);
         }
 
-        private static int GetSampleIndex(uint frameIndex, TimeData timeData)
+        private int GetSampleSlot(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
         {
-            return (int)Math.Floor((double)(frameIndex - timeData.m_FirstFrame) / kTicksPerSample + timeData.TimeOffset * kSamplesPerDay);
+            float normalizedTimeOfDay = m_TimeSystem.GetTimeOfDay(timeSettings, timeData, m_SimulationSystem.frameIndex);
+            int sampleSlot = (int)Math.Floor(normalizedTimeOfDay * samplesPerDay);
+            return Math.Max(0, Math.Min(samplesPerDay - 1, sampleSlot));
+        }
+
+        private static int GetSampleIndex(int day, int sampleSlot, int samplesPerDay)
+        {
+            return checked(day * samplesPerDay + sampleSlot);
+        }
+
+        private static int GetDiagnosticsSamplesPerDay()
+        {
+            if (Mod.Settings == null)
+            {
+                return kDefaultDiagnosticsSamplesPerDay;
+            }
+
+            return Math.Max(kMinDiagnosticsSamplesPerDay, Math.Min(kMaxDiagnosticsSamplesPerDay, Mod.Settings.DiagnosticsSamplesPerDay));
         }
 
         private void AppendDetail(StringBuilder builder, ref int count, string detail)

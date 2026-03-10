@@ -38,12 +38,6 @@ namespace NoOfficeDemandFix.Systems
             ResetPatchState();
         }
 
-        protected override void OnGameLoaded(Context serializationContext)
-        {
-            base.OnGameLoaded(serializationContext);
-            ResetPatchState();
-        }
-
         [Preserve]
         protected override void OnUpdate()
         {
@@ -76,7 +70,7 @@ namespace NoOfficeDemandFix.Systems
 
         private static bool IsPatchEnabled()
         {
-            return Mod.Settings == null || Mod.Settings.EnableTradePatch;
+            return Mod.Settings != null && Mod.Settings.EnableTradePatch;
         }
 
         private static bool IsVerboseLoggingEnabled()

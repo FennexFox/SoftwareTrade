@@ -39,7 +39,7 @@ body:
       label: Settings
       description: Copy only the `settings=...` portion from `environment(settings=..., patch_state=...)` when available.
       placeholder: |
-        EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,CaptureStableEvidence:False,VerboseLogging:False
+        EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:False,VerboseLogging:False
     validations:
       required: true
   - type: input
@@ -90,8 +90,8 @@ body:
     id: observation-window
     attributes:
       label: Observation window
-      description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, then expand if you need more narrative context.
-      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, start_sample_index=824, end_sample_index=839, sample_day=419, sample_index=839, sample_count=16, trigger=capture_stable_evidence
+      description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, including sample-slot fields when present, then expand if you need more narrative context.
+      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, start_sample_index=824, end_sample_index=839, sample_day=419, sample_index=839, sample_slot=1, samples_per_day=2, sample_count=16, trigger=capture_stable_evidence
     validations:
       required: true
   - type: textarea

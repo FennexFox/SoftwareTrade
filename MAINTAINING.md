@@ -28,8 +28,9 @@ Runtime investigation logs use the `softwareEvidenceDiagnostics` vocabulary.
 
 Recommended operating flow:
 
+- release defaults: keep `EnableTradePatch`, `EnableDemandDiagnostics`, `CaptureStableEvidence`, and `VerboseLogging` off unless you are deliberately collecting software-track evidence
 - default collection: enable `EnableDemandDiagnostics` and keep `CaptureStableEvidence` and `VerboseLogging` off when you only want suspicious-state evidence
-- baseline or no-symptom collection: turn on `CaptureStableEvidence` to emit daily bounded observation windows without the extra verbose trace noise
+- baseline or no-symptom collection: turn on `CaptureStableEvidence` to emit bounded observation windows at the configured per-day cadence without the extra verbose trace noise
 - escalation: turn on `VerboseLogging` only when you also need the noisier correction and patch traces
 - if diagnostics emit `patch_state=unknown`, keep that in the evidence entry unless you can name the exact local deviations for that run
 - promote only reusable bounded runs into the software evidence form

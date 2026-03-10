@@ -69,7 +69,7 @@ body:
         - checkpoint: upstream_input_vs_downstream_gating
           baseline_ref: #22
           comparison_ref: #23
-          invariant_status: same save lineage, comparable observation window, sample_index fields preserved, electronics counters and software office detail preserved in both runs
+          invariant_status: same save lineage, comparable observation window, same DiagnosticsSamplesPerDay, sample_index fields preserved, electronics counters and software office detail preserved in both runs
           observed_deltas: electronics pressure persisted, softwareConsumerOffices.softwareInputZero improved, softwareOfficeStates still showed producer-side input buyer pressure
           outcome: mitigated but not solved
     validations:
