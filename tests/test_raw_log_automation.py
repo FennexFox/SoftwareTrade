@@ -188,7 +188,7 @@ class RawLogAutomationTests(unittest.TestCase):
             },
             [],
             "failed",
-            "models access denied",
+            "http_403: models access denied",
         )
         self.assertIn("\n## Normalized draft\n", body)
         self.assertIn("\n### Maintainer reply template\n", body)
@@ -196,7 +196,7 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertNotIn("\n        ## Normalized draft\n", body)
         self.assertNotIn("\n        ```yaml\n", body)
         self.assertIn("- LLM status: `failed`", body)
-        self.assertIn("- LLM detail: `models access denied`", body)
+        self.assertIn("- LLM detail: `http_403: models access denied`", body)
         self.assertIn("/promote-evidence", body)
 
     def test_render_managed_comment_keeps_preview_short_but_reply_yaml_full(self) -> None:
@@ -375,11 +375,15 @@ class RawLogAutomationTests(unittest.TestCase):
     def test_sanitize_llm_detail_maps_common_failures(self) -> None:
         self.assertEqual(
             automation.sanitize_llm_detail("GitHub Models request failed (403): access denied"),
-            "models access denied",
+            "http_403: models access denied",
         )
         self.assertEqual(
             automation.sanitize_llm_detail("GitHub Models request failed (429): rate limited"),
-            "rate limited",
+            "http_429: rate limited",
+        )
+        self.assertEqual(
+            automation.sanitize_llm_detail("GitHub Models request failed (500): unexpected upstream error"),
+            "http_500: request failed",
         )
 
 

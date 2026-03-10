@@ -708,17 +708,20 @@ def generate_llm_suggestions(context: dict[str, Any], github_token: str | None) 
 
 def sanitize_llm_detail(raw_detail: str) -> str:
     detail = raw_detail.lower()
+    status_match = re.search(r"\((\d{3})\)", detail)
+    status_prefix = f"http_{status_match.group(1)}: " if status_match else ""
+
     if "403" in detail and ("access" in detail or "models" in detail or "denied" in detail):
-        return "models access denied"
+        return status_prefix + "models access denied"
     if "404" in detail or "model" in detail and "not found" in detail:
-        return "model unavailable"
+        return status_prefix + "model unavailable"
     if "429" in detail or "rate limit" in detail:
-        return "rate limited"
+        return status_prefix + "rate limited"
     if "no output text" in detail or "empty" in detail:
-        return "empty model response"
+        return status_prefix + "empty model response"
     if "token" in detail and "missing" in detail:
-        return "missing token"
-    return "request failed"
+        return status_prefix + "missing token"
+    return status_prefix + "request failed" if status_prefix else "request failed"
 
 
 def normalize_multiline_value(value: str) -> str:
