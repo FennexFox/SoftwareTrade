@@ -51,22 +51,23 @@ When promoting a run into a `software evidence` issue:
 Capture guidance:
 
 - prefer copying counters directly from logs rather than paraphrasing them
-- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, and `end_day` stay available for later comparisons
+- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, and `sample_index` fields stay available for later comparisons
 - treat `diagnostic_counters` as factual capture
 - treat `diagnostic_counters` as the sampled end-of-window state unless you explicitly note a wider aggregation method
 - keep `evidence_summary` short and descriptive, not argumentative
 - use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
 - do not treat `symptom_classification` as proof of root cause
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
-- when differentiating upstream input pressure from downstream office-resource trade or storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
+- when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
+- `sample_count` now counts twice-daily samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
 
 The current diagnostics vocabulary is:
 
 - `softwareEvidenceDiagnostics observation_window(...)`
 - `environment(settings=..., patch_state=...)`
-- `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, and `softwareOffices(...)` when those counter groups are emitted
+- `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
 
@@ -76,7 +77,8 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 
 - improvement after `EnableTradePatch` does not prove upstream input pressure was absent
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
-- persistent bad office-level input stock, buy cost pressure, or buyer state in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
+- persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
+- persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
 - keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
 
 ## Observation Window Guidance
@@ -86,6 +88,14 @@ Default minimum window guidance:
 - `3 days`: minimum reusable bounded window for a promoted evidence entry
 - `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
+
+At the current twice-daily diagnostics cadence, those windows will usually yield roughly:
+
+- `3 days`: about `6` samples
+- `5 days`: about `10` samples
+- `7 days`: about `14` samples
+
+Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser evidence inside the same day-count window, not as a replacement for the day count itself.
 
 These day-count recommendations remain valid under time-scaling mods such as `RealisticTrips` / `Time2Work`.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
@@ -99,7 +109,7 @@ Comparability guidance:
 ## Capture Modes
 
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
-- baseline capture: enable `CaptureStableEvidence=true` to emit daily bounded observation windows even while the city looks stable
+- baseline capture: enable `CaptureStableEvidence=true` to emit twice-daily bounded observation windows even while the city looks stable
 - escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction and patch traces beyond the normalized evidence lines
 
 ## Standard Comparison Checkpoints
@@ -112,7 +122,7 @@ Comparability guidance:
 - comparison entry: evidence entry from the same save lineage after switching to `EnableTradePatch=true`
 - required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window
 - variable under test: `EnableTradePatch`
-- primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`
+- primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`
 - invalid comparison cases: save changed in unrelated ways, multiple settings changed together, session-boundary effects mixed in without being noted
 
 #### 2. Short-run vs long-run observation window
@@ -121,7 +131,7 @@ Comparability guidance:
 - comparison entry: longer bounded observation window on the same save and settings
 - required invariants: same game version, same mod ref, same settings, same save/scenario lineage, no intentional patch changes between windows
 - variable under test: observation window duration
-- primary fields / counters: persistence or disappearance of `software(...)` and `softwareOffices(...)` counters, plus any repeated `symptom_classification`
+- primary fields / counters: persistence or disappearance of `software(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` counters, plus any repeated `symptom_classification`
 - invalid comparison cases: windows that include unrelated interventions, reloads, or major simulation changes not present in both windows
 
 ### Situational Checkpoints
@@ -132,7 +142,7 @@ Comparability guidance:
 - comparison entry: evidence entry from the same save after reload or restart with no intended behavior change
 - required invariants: same game version, same mod ref, same settings, same save/scenario lineage, comparable observation window
 - variable under test: session boundary transition
-- primary fields / counters: `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`, relevant `softwareEvidenceDiagnostics detail(...)` lines if property state changes matter
+- primary fields / counters: `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, relevant `softwareEvidenceDiagnostics detail(...)` lines if property state changes matter
 - invalid comparison cases: any patch toggle or code change between runs, or materially different city state before capture
 
 #### 4. Outside-connection availability state
@@ -141,7 +151,7 @@ Comparability guidance:
 - comparison entry: evidence entry under a materially different outside-connection state
 - required invariants: same save lineage, same game/mod/settings as far as possible, same general hypothesis under test
 - variable under test: outside-connection availability state
-- primary fields / counters: `diagnostic_counters.software(resourceProduction, resourceDemand, companies, propertyless)`, `diagnostic_counters.softwareOffices(... lackResourcesZero ...)`
+- primary fields / counters: `diagnostic_counters.software(resourceProduction, resourceDemand, companies, propertyless)`, `diagnostic_counters.softwareProducerOffices(... lackResourcesZero ...)`, `diagnostic_counters.softwareConsumerOffices(... softwareInputZero ...)`
 - invalid comparison cases: outside-connection change confounded with patch toggles or unrelated city growth
 
 #### 5. Starvation or recovery transition within a run
@@ -150,7 +160,7 @@ Comparability guidance:
 - comparison entry: bounded window after the change is visible in diagnostics
 - required invariants: same session or tightly bounded same-save sequence, same settings, same game/mod state
 - variable under test: observed starvation/recovery transition
-- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`, `diagnostic_context(topFactors=...)` when relevant
+- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_context(topFactors=...)` when relevant
 - invalid comparison cases: windows too loose to attribute the change to one transition, or evidence mostly anecdotal rather than diagnostics-backed
 
 #### 6. Upstream input pressure vs downstream office-resource gating
@@ -159,7 +169,7 @@ Comparability guidance:
 - comparison entry: a matched evidence entry on the same save lineage or tightly controlled scenario where downstream office-resource availability changed enough to test separation, without intentionally changing the rest of the scenario more than necessary
 - required invariants: same game/mod/settings except the variable under test, comparable observation window, and no unrelated city change large enough to dominate the signal
 - variable under test: whether the observed shortage is better explained by upstream input pressure, downstream office-resource gating, or a mixed state
-- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.electronics(...)`, `diagnostic_counters.softwareOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.electronics(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
 - interpretation guidance: use `notes` or the umbrella summary to record whether the comparison looks like `mitigated downstream shortage`, `upstream pressure still present`, or `no clear separation`
 - invalid comparison cases: upstream and downstream conditions changed together, office-level detail was needed but not preserved, or the windows are too loose to attribute the shift
 
@@ -171,7 +181,7 @@ Comparison summaries should use this small reusable shape inside the umbrella in
 - `baseline_ref`: the baseline evidence entry or run reference
 - `comparison_ref`: the comparison evidence entry or run reference
 - `invariant_status`: whether the required invariants held, and if not, what broke comparability
-- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareOffices(...)`, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
+- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
 - `outcome`: `supportive`, `contradictory`, `no material change`, or `invalid comparison`
 - `notes`: any narrow context that matters for later reuse
 
@@ -182,7 +192,7 @@ Example:
   baseline_ref: #21
   comparison_ref: #22
   invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
-  observed_deltas: softwareOffices.lackResourcesZero dropped from 18 to 4, but efficiencyZero persisted
+  observed_deltas: softwareConsumerOffices.softwareInputZero dropped from 18 to 4, but softwareProducerOffices.lackResourcesZero persisted
   outcome: mitigated but not solved
   notes: compared after one reload boundary
 ```

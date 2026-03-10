@@ -91,7 +91,7 @@ body:
     attributes:
       label: Observation window
       description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, then expand if you need more narrative context.
-      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, sample_day=419, sample_count=8, trigger=capture_stable_evidence
+      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, start_sample_index=824, end_sample_index=839, sample_day=419, sample_index=839, sample_count=16, trigger=capture_stable_evidence
     validations:
       required: true
   - type: textarea
@@ -122,7 +122,7 @@ body:
     id: diagnostic-counters
     attributes:
       label: Diagnostic counters
-      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing. Include `electronics(...)` too when it matters for the hypothesis under test.
+      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing. Include `electronics(...)` and the producer/consumer office counter groups when they matter for the hypothesis under test.
       placeholder: |
         officeDemand(building=..., company=..., emptyBuildings=..., buildingDemand=...)
         freeOfficeProperties(total=..., software=..., inOccupiedBuildings=..., softwareInOccupiedBuildings=...)
@@ -130,14 +130,15 @@ body:
         phantomVacancy(signatureOccupiedOnMarketOffice=..., signatureOccupiedOnMarketIndustrial=..., signatureOccupiedToBeOnMarket=..., nonSignatureOccupiedOnMarketOffice=..., nonSignatureOccupiedOnMarketIndustrial=..., guardCorrections=...)
         software(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
         electronics(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
-        softwareOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
+        softwareProducerOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
+        softwareConsumerOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=..., softwareInputZero=...)
     validations:
       required: true
   - type: textarea
     id: log-excerpt
     attributes:
       label: Log excerpt
-      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry. Include `detail_type=softwareOfficeStates` when office-level input state matters.
+      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry. Include `detail_type=softwareOfficeStates` when producer-side or consumer-side office input state matters.
   - type: textarea
     id: evidence-summary
     attributes:
@@ -166,7 +167,7 @@ body:
     id: artifacts
     attributes:
       label: Artifacts
-      description: Logs, saves, screenshots, or other references. Include relevant `softwareEvidenceDiagnostics detail(...)` lines here when useful, especially `detail_type=softwareOfficeStates`.
+      description: Logs, saves, screenshots, or other references. Include relevant `softwareEvidenceDiagnostics detail(...)` lines here when useful, especially `detail_type=softwareOfficeStates` with role-aware producer/consumer detail.
   - type: textarea
     id: notes
     attributes:

@@ -13,7 +13,7 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - includes an optional prefab-level office-resource trade patch for outside connections and cargo stations
-- includes diagnostics for office demand, phantom vacancy, and `software` office health, including enough signal to help distinguish upstream input pressure from office-resource trade and storage issues
+- includes diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including enough signal to help distinguish upstream input pressure from downstream office-resource shortage issues
 
 What it does not claim:
 
@@ -29,9 +29,9 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | --- | --- | --- |
 | `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Reload or restart after changing it. |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Reload after changing it. |
-| `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` diagnostics when the state looks suspicious. |
-| `CaptureStableEvidence` | `false` | Keeps daily bounded `softwareEvidenceDiagnostics` windows flowing while diagnostics are enabled, even when the city looks stable. Use it for baseline or no-symptom evidence. |
-| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces daily diagnostics while diagnostics are enabled. |
+| `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. |
+| `CaptureStableEvidence` | `false` | Keeps twice-daily bounded `softwareEvidenceDiagnostics` windows flowing while diagnostics are enabled, even when the city looks stable. Use it for baseline or no-symptom evidence. |
+| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces twice-daily diagnostics while diagnostics are enabled. |
 
 ## Implementation
 
@@ -46,7 +46,7 @@ Current evidence supports two distinct tracks:
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
 - `software` instability is still plausible, still tracked, and still best treated as experimental mitigation rather than solved
 
-Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream office-resource trade or storage bottlenecks, but the track remains investigational rather than proven.
+Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks, but the track remains investigational rather than proven.
 
 That means the safest way to describe this release is:
 

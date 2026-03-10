@@ -48,7 +48,7 @@ Required:
 - `scenario_label`: save identity, test city name, or a stable scenario label
 - `scenario_type`: existing save, fresh city, reproduced test case, or another short classification
 - `reproduction_conditions`: what the tester did or what state the city was already in
-- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available
+- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available; keep `sample_index` fields when present because the current diagnostics cadence is twice per in-game day
 
 Optional:
 
@@ -62,7 +62,7 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, and `softwareOffices(...)` when present
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when present
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
 - `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
@@ -70,7 +70,7 @@ Required:
 Optional:
 
 - `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states
 - `notes`: anything useful that does not fit the structured fields
 
 ## Raw Versus Normalized Fields
@@ -83,6 +83,7 @@ The following fields are expected to come from raw diagnostics with little or no
 - parts of `patch_state` when local code or logging differs from the normal build, or the literal `unknown` when the runtime cannot name those deviations
 
 When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
+That usually means keeping `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and the shared `detail_type=softwareOfficeStates` lines with their role context.
 
 The following fields usually require explicit investigator input:
 
@@ -92,6 +93,8 @@ The following fields usually require explicit investigator input:
 - `observation_window`
 - `confounders`
 - `patch_state` when the runtime emitted `unknown` but the maintainer knows the exact local deviations
+
+When the current diagnostics cadence is twice per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_index`, and the raw `sample_count` so later readers can tell same-day samples apart.
 
 The following fields should stay normalized and constrained even when they are chosen by a maintainer:
 
