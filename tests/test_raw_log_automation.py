@@ -229,6 +229,82 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn(f"`{'A' * 597}...`", body)
         self.assertIn(long_notes, body)
 
+    def test_render_managed_comment_shows_full_reasoning_and_plain_yaml_guidance(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        full_reasoning = "B" * 460
+        body, _ = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            {
+                "symptom_classification": "software_office_propertyless",
+                "evidence_summary": "summary",
+                "confounders": "none known",
+                "notes": "note",
+                "missing_user_input": ["mod_ref"],
+                "reasoning_summary": full_reasoning,
+            },
+            {
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": "software_office_propertyless",
+                "evidence_summary": "summary",
+                "confounders": "none known",
+                "notes": "note",
+            },
+            [],
+            "enabled",
+            automation.DEFAULT_GITHUB_MODELS_MODEL,
+        )
+        self.assertIn(full_reasoning, body)
+        self.assertIn("plain YAML is accepted", body)
+        self.assertIn("code fences are optional", body)
+
+    def test_render_managed_comment_compact_fallback_truncates_reasoning(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        long_reasoning = "C" * 450
+        with mock.patch.object(automation, "COMMENT_BODY_LIMIT", 2500):
+            body, _ = automation.render_managed_comment(
+                21,
+                issue_fields,
+                log_source,
+                parsed_log,
+                deterministic,
+                {
+                    "symptom_classification": "software_office_propertyless",
+                    "evidence_summary": "summary",
+                    "confounders": "none known",
+                    "notes": "note",
+                    "missing_user_input": ["mod_ref"],
+                    "reasoning_summary": long_reasoning,
+                },
+                {
+                    "scenario_label": "New Seoul",
+                    "scenario_type": "existing save",
+                    "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                    "mod_ref": "",
+                    "symptom_classification": "software_office_propertyless",
+                    "evidence_summary": "summary",
+                    "confounders": "none known",
+                    "notes": "note",
+                },
+                [],
+                "enabled",
+                automation.DEFAULT_GITHUB_MODELS_MODEL,
+            )
+        self.assertIn("### Draft provenance", body)
+        self.assertIn(f"`{'C' * 397}...`", body)
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
@@ -287,6 +363,8 @@ class RawLogAutomationTests(unittest.TestCase):
             payload["response_format"]["json_schema"]["name"],
             "raw_log_triage_suggestions",
         )
+        self.assertIn("lackResourcesZero", payload["messages"][0]["content"])
+        self.assertIn("zero resources", payload["messages"][0]["content"])
 
     def test_build_llm_context_excludes_raw_log_and_caps_excerpt(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -306,6 +384,8 @@ class RawLogAutomationTests(unittest.TestCase):
             len(context["latest_software_office_detail_excerpt"]),
             automation.LLM_DETAIL_EXCERPT_LIMIT,
         )
+        self.assertIn("semantic_facts", context)
+        self.assertTrue(any("lackResourcesZero" in fact for fact in context["semantic_facts"]))
 
     def test_build_llm_context_size_stays_small_even_with_huge_raw_issue_body(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -346,6 +426,30 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(suggestions["symptom_classification"], "software_track_unclear")
         self.assertEqual(request_mock.call_args.args[1], automation.GITHUB_MODELS_CHAT_COMPLETIONS_URL)
 
+    def test_generate_llm_suggestions_rewrites_unsupported_zero_resources_wording(self) -> None:
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"symptom_classification":"software_office_propertyless",'
+                            '"evidence_summary":"8 producer offices at zero efficiency and zero resources.",'
+                            '"confounders":"none","notes":"note","missing_user_input":["mod_ref"],'
+                            '"reasoning_summary":"reason"}'
+                        )
+                    }
+                }
+            ]
+        }
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(200, response_payload, ""),
+        ):
+            suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
+        self.assertNotIn("zero resources", suggestions["evidence_summary"].lower())
+        self.assertIn("lackResources=0", suggestions["evidence_summary"])
+
     def test_parse_reply_comment_and_command(self) -> None:
         comment_body = textwrap.dedent(
             """
@@ -374,6 +478,39 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertTrue(automation.comment_has_promote_command(comment_body))
         self.assertEqual(parsed["mod_ref"], "track/software-instability @ abc1234")
         self.assertIn("trade patch enabled", parsed["confounders"])
+
+    def test_parse_reply_comment_accepts_plain_copied_yaml(self) -> None:
+        comment_body = textwrap.dedent(
+            """
+            maintainer_reply:
+              scenario_label: "New Seoul"
+              scenario_type: "existing save"
+              reproduction_conditions: |
+                Loaded the same save.
+                Waited 3 in-game days.
+              mod_ref: "track/software-instability @ abc1234"
+              symptom_classification: "software_office_propertyless"
+              evidence_summary: "summary"
+              confounders: |
+                - patch_state=debug-build
+                - trade patch enabled during capture
+              notes: "note"
+
+            /promote-evidence
+            """
+        ).strip()
+        parsed = automation.parse_reply_comment(comment_body)
+        self.assertTrue(automation.comment_has_promote_command(comment_body))
+        self.assertEqual(parsed["mod_ref"], "track/software-instability @ abc1234")
+        self.assertIn("trade patch enabled", parsed["confounders"])
+
+    def test_parse_reply_comment_returns_blank_for_missing_or_malformed_yaml(self) -> None:
+        missing = automation.parse_reply_comment("/promote-evidence")
+        malformed = automation.parse_reply_comment(
+            "maintainer_reply:\nmod_ref: \"track/software-instability @ abc1234\"\n/promote-evidence"
+        )
+        self.assertFalse(automation.has_nonempty_reply_fields(missing))
+        self.assertFalse(automation.has_nonempty_reply_fields(malformed))
 
     def test_find_latest_reply_comment_ignores_bot_and_nonmaintainer(self) -> None:
         comments = [
@@ -405,6 +542,21 @@ class RawLogAutomationTests(unittest.TestCase):
         latest = automation.find_latest_reply_comment(comments)
         self.assertIsNotNone(latest)
         self.assertEqual(latest["id"], 3)
+
+    def test_find_latest_reply_comment_accepts_plain_yaml_reply(self) -> None:
+        comments = [
+            {
+                "id": 1,
+                "body": "maintainer_reply:\n  mod_ref: \"one\"\n\n/promote-evidence",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
+                "updated_at": "2026-03-10T09:00:00Z",
+                "created_at": "2026-03-10T09:00:00Z",
+            }
+        ]
+        latest = automation.find_latest_reply_comment(comments)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest["id"], 1)
 
     def test_sanitize_llm_detail_maps_common_failures(self) -> None:
         self.assertEqual(

@@ -10,7 +10,7 @@ from raw_log_automation import (
     create_issue,
     create_issue_comment,
     ensure_label,
-    extract_first_matching_fenced_block,
+    extract_first_named_yaml_block,
     extract_required_issue_fields,
     find_existing_promoted_issue,
     find_managed_comment,
@@ -76,7 +76,7 @@ def main() -> None:
         print(f"Comment #{comment['id']} does not request promotion. Skipping.")
         return
 
-    reply_yaml = extract_first_matching_fenced_block(comment_body, "maintainer_reply")
+    reply_yaml = extract_first_named_yaml_block(comment_body, "maintainer_reply")
     if not reply_yaml:
         create_issue_comment(repo, issue_number, build_missing_reply_comment(), github_token)
         return

@@ -53,7 +53,8 @@ maintainer-only fields.
 
 - a managed triage comment will be added or updated on the raw-log issue
 - maintainers should copy the `maintainer_reply` YAML block into a new comment,
-  edit it there, and include `/promote-evidence` in that same comment
+  paste the YAML directly or wrap it in fences, edit it there, and include
+  `/promote-evidence` in that same comment
 - `promote: evidence` still works as a backward-compatible fallback if a valid
   maintainer reply comment already exists
 - the automation creates a plain-Markdown `Software evidence` issue, links it

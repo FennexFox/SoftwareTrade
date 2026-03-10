@@ -626,6 +626,8 @@ def build_llm_context(
     if latest_detail:
         latest_detail_excerpt = truncate_text(latest_detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT)
 
+    semantic_facts = build_llm_semantic_facts(parsed_log)
+
     return {
         "raw_issue": raw_issue_context,
         "latest_observation": parsed_log.get("latest_observation"),
@@ -644,7 +646,42 @@ def build_llm_context(
         ],
         "deterministic_draft": deterministic_draft,
         "redaction_notes": redaction_notes,
+        "semantic_facts": semantic_facts,
     }
+
+
+def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    counter_groups = latest_observation.get("diagnostic_counters", {})
+    producers = counter_groups.get("softwareProducerOffices", {})
+    consumers = counter_groups.get("softwareConsumerOffices", {})
+    facts = [
+        "softwareProducerOffices.lackResourcesZero and softwareConsumerOffices.lackResourcesZero count offices where the diagnostic field lackResources=0.",
+        "lackResourcesZero does not mean the office had zero resources, no resources, or a confirmed input shortage.",
+        "softwareConsumerOffices.softwareInputZero counts consumer offices where the software input state was zero in diagnostics; it is not a citywide demand verdict by itself.",
+        "If the facts show efficiency=0 and lackResources=0, summarize that conservatively as 'efficiency=0 while lackResources=0'.",
+        "Do not use phrases like 'zero resources' or 'no resources' unless the provided facts literally support that wording.",
+    ]
+
+    producer_lack_resources_zero = safe_int(producers.get("lackResourcesZero"))
+    if producer_lack_resources_zero > 0:
+        facts.append(
+            f"Latest counters: softwareProducerOffices.lackResourcesZero={producer_lack_resources_zero} means {producer_lack_resources_zero} producer offices had lackResources=0 in the latest observation."
+        )
+
+    consumer_lack_resources_zero = safe_int(consumers.get("lackResourcesZero"))
+    if consumer_lack_resources_zero > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerOffices.lackResourcesZero={consumer_lack_resources_zero} means {consumer_lack_resources_zero} consumer offices had lackResources=0 in the latest observation."
+        )
+
+    software_input_zero = safe_int(consumers.get("softwareInputZero"))
+    if software_input_zero > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerOffices.softwareInputZero={software_input_zero} means {software_input_zero} consumer offices had softwareInputZero in the latest observation."
+        )
+
+    return facts
 
 
 def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
@@ -681,6 +718,11 @@ def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
         - Leave fields empty rather than guessing when confidence is low.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
         - Do not repeat deterministic confounders unless you are adding a distinct residual concern.
+        - `lackResourcesZero` is a diagnostic counter name for offices where `lackResources=0`; it does not mean "zero resources" or "no resources."
+        - `softwareInputZero` is an office-state/input condition for software consumers; do not generalize it into an overall citywide demand or shortage conclusion without explicit facts.
+        - If the facts show `efficiency=0` and `lackResources=0`, describe that conservatively as `efficiency=0 while lackResources=0` or equivalent.
+        - Do not translate diagnostic counter names into stronger plain-language shortage claims unless the provided facts explicitly support that claim.
+        - Avoid phrases like "zero resources" or "no resources" unless the provided facts literally support that wording.
         - Use one of these labels when possible:
           software_office_propertyless, software_office_efficiency_zero,
           software_office_lack_resources_zero, software_demand_mismatch,
@@ -747,7 +789,17 @@ def generate_llm_suggestions(context: dict[str, Any], github_token: str | None) 
     if not response_text:
         raise AutomationError("GitHub Models returned no output text.")
 
-    return json.loads(response_text)
+    suggestions = json.loads(response_text)
+    return apply_llm_wording_guards(suggestions)
+
+
+def apply_llm_wording_guards(suggestions: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(suggestions)
+    summary = str(normalized.get("evidence_summary", ""))
+    summary = re.sub(r"\bzero resources\b", "lackResources=0", summary, flags=re.IGNORECASE)
+    summary = re.sub(r"\bno resources\b", "lackResources=0", summary, flags=re.IGNORECASE)
+    normalized["evidence_summary"] = summary
+    return normalized
 
 
 def sanitize_llm_detail(raw_detail: str) -> str:
@@ -880,6 +932,39 @@ def extract_first_matching_fenced_block(body: str, root_key: str) -> str:
     return ""
 
 
+def extract_first_named_yaml_block(body: str, root_key: str) -> str:
+    fenced = extract_first_matching_fenced_block(body, root_key)
+    if fenced:
+        return fenced
+
+    lines = body.replace("\r\n", "\n").split("\n")
+    for start_index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped != f"{root_key}:":
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        candidate_lines = [f"{root_key}:"]
+        index = start_index + 1
+        while index < len(lines):
+            current_line = lines[index]
+            if current_line == "":
+                candidate_lines.append("")
+                index += 1
+                continue
+            if len(current_line) - len(current_line.lstrip(" ")) >= indent + 2:
+                candidate_lines.append(current_line[indent:])
+                index += 1
+                continue
+            break
+
+        candidate = "\n".join(candidate_lines).rstrip()
+        if any(value.strip() for value in parse_named_yaml_block(candidate, root_key).values()):
+            return candidate
+
+    return ""
+
+
 def comment_has_promote_command(comment_body: str) -> bool:
     return re.search(rf"(?mi)(?:^|\s){re.escape(PROMOTE_COMMAND)}(?:\s|$)", comment_body) is not None
 
@@ -895,7 +980,7 @@ def is_maintainer_comment(comment: dict[str, Any]) -> bool:
 
 
 def parse_reply_comment(comment_body: str) -> dict[str, str]:
-    reply_yaml = extract_first_matching_fenced_block(comment_body, "maintainer_reply")
+    reply_yaml = extract_first_named_yaml_block(comment_body, "maintainer_reply")
     return parse_reply_yaml(reply_yaml) if reply_yaml else {field_name: "" for field_name in OVERRIDE_FIELD_ORDER}
 
 
@@ -979,7 +1064,7 @@ def render_managed_comment(
     body = "\n".join(
         [
             MANAGED_COMMENT_MARKER,
-            f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` block into a new maintainer comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment when the evidence issue is ready.",
+            f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML below into a new maintainer comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment when the evidence issue is ready. Pasting the copied YAML directly is valid; code fences are optional.",
             "",
             "## Normalized draft",
             f"- Latest observation window: `{latest_observation_raw}`",
@@ -1000,11 +1085,11 @@ def render_managed_comment(
             f"- `notes`: `{truncate_text(reply_fields.get('notes', ''), 600)}`",
             "",
             "### Draft provenance",
-            f"- Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`",
-            f"- LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else 'not used'}`",
+            f"- Deterministic reasoning: `{deterministic_reasoning}`",
+            f"- LLM reasoning: `{llm_reasoning if llm_reasoning else 'not used'}`",
             "",
             "### Maintainer reply template",
-            f"Copy this YAML block into a new comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment.",
+            f"Copy this YAML into a new comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment. GitHub's code-block Copy button returns plain YAML text, and that plain YAML is accepted.",
             REPLY_TEMPLATE_START_MARKER,
             "```yaml",
             dump_reply_yaml(reply_fields),
@@ -1031,7 +1116,7 @@ def render_managed_comment(
         body = "\n".join(
             [
                 MANAGED_COMMENT_MARKER,
-                f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` block into a new maintainer comment and add `{PROMOTE_COMMAND}` there when ready.",
+                f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML into a new maintainer comment and add `{PROMOTE_COMMAND}` there when ready. Plain pasted YAML is accepted.",
                 "",
                 "## Normalized draft",
                 f"- Latest observation window: `{latest_observation_raw}`",
@@ -1039,6 +1124,10 @@ def render_managed_comment(
                 f"- LLM status: `{llm_status}`",
                 f"- LLM detail: `{llm_detail}`",
                 f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
+                "",
+                "### Draft provenance",
+                f"- Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`",
+                f"- LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else 'not used'}`",
                 "",
                 "### Maintainer reply template",
                 REPLY_TEMPLATE_START_MARKER,
@@ -1368,12 +1457,12 @@ def build_missing_fields_comment(missing_fields: list[str], *, via_label: bool =
     formatted = ", ".join(f"`{field_name}`" for field_name in missing_fields)
     if via_label:
         follow_up = (
-            "Post a maintainer reply comment that copies the `maintainer_reply` block, fill those fields, "
+            "Post a maintainer reply comment that copies the `maintainer_reply` block, paste the YAML directly or wrap it in fences, fill those fields, "
             "then re-add the `promote: evidence` label."
         )
     else:
         follow_up = (
-            f"Post a maintainer reply comment that copies the `maintainer_reply` block, fill those fields, "
+            f"Post a maintainer reply comment that copies the `maintainer_reply` block, paste the YAML directly or wrap it in fences, fill those fields, "
             f"and include `{PROMOTE_COMMAND}` in that same comment."
         )
     return (
@@ -1386,11 +1475,11 @@ def build_missing_reply_comment(*, via_label: bool = False) -> str:
     if via_label:
         return (
             "Promotion was blocked because no maintainer reply comment with a valid `maintainer_reply` YAML block was found. "
-            "Copy the template from the managed triage comment into a new maintainer comment, edit it, then re-add the `promote: evidence` label."
+            "Copy the template from the managed triage comment into a new maintainer comment, paste the YAML directly or wrap it in fences, edit it, then re-add the `promote: evidence` label."
         )
     return (
         "Promotion was blocked because the triggering comment did not include a valid `maintainer_reply` YAML block. "
-        "Copy the template from the managed triage comment into a new maintainer comment, edit it, and include "
+        "Copy the template from the managed triage comment into a new maintainer comment, paste the YAML directly or wrap it in fences, edit it, and include "
         f"`{PROMOTE_COMMAND}` in that same comment."
     )
 
@@ -1398,7 +1487,7 @@ def build_missing_reply_comment(*, via_label: bool = False) -> str:
 def build_invalid_reply_comment() -> str:
     return (
         "Promotion was blocked because the triggering comment did not contain any non-empty `maintainer_reply` fields. "
-        "Copy the template from the managed triage comment, edit at least the maintainer-owned fields, and try again."
+        "Copy the template from the managed triage comment, paste the YAML directly or wrap it in fences, edit at least the maintainer-owned fields, and try again."
     )
 
 
