@@ -604,15 +604,16 @@ namespace NoOfficeDemandFix.Systems
 
             builder.Append(", ").Append(label).Append('=').Append(resource);
             builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource));
-            if (TryGetCompanyTradeCost(company, resource, out float buyCost, out bool hasTradeCostBuffer, out bool hasTradeCostEntry))
+
+            bool hasTradeCostBuffer = EntityManager.HasBuffer<TradeCost>(company);
+            builder.Append(", tradeCostBuffer=").Append(hasTradeCostBuffer);
+
+            float buyCost = 0f;
+            bool hasTradeCostEntry = hasTradeCostBuffer && TryGetCompanyTradeCost(company, resource, out buyCost);
+            builder.Append(", tradeCostEntry=").Append(hasTradeCostEntry);
+            if (hasTradeCostEntry)
             {
-                builder.Append(", tradeCostBuffer=").Append(hasTradeCostBuffer);
-                builder.Append(", tradeCostEntry=").Append(hasTradeCostEntry);
                 builder.Append(", buyCost=").Append(buyCost.ToString("0.###", CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                builder.Append(", tradeCostBuffer=false");
             }
 
             builder.Append(')');
@@ -632,8 +633,8 @@ namespace NoOfficeDemandFix.Systems
         private void AppendSoftwareConsumerTradeState(StringBuilder builder, Entity company)
         {
             bool softwareBuyerActive = TryGetActiveBuyer(company, Resource.Software, out int softwareBuyerAmount);
-            int softwareTripNeededCount = GetCompanyTripNeededAmount(company, Resource.Software, out int softwareTripNeededAmount);
-            int softwareCurrentTradingCount = GetCompanyCurrentTradingAmount(company, Resource.Software, out int softwareCurrentTradingAmount);
+            int softwareTripNeededAmount = GetCompanyTripNeededAmount(company, Resource.Software, out int softwareTripNeededCount);
+            int softwareCurrentTradingAmount = GetCompanyCurrentTradingAmount(company, Resource.Software, out int softwareCurrentTradingCount);
 
             builder.Append(", softwareTrade(");
             builder.Append("buyerActive=").Append(softwareBuyerActive);
@@ -662,17 +663,14 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(')');
         }
 
-        private bool TryGetCompanyTradeCost(Entity company, Resource resource, out float buyCost, out bool hasTradeCostBuffer, out bool hasTradeCostEntry)
+        private bool TryGetCompanyTradeCost(Entity company, Resource resource, out float buyCost)
         {
             buyCost = 0f;
-            hasTradeCostBuffer = false;
-            hasTradeCostEntry = false;
             if (resource == Resource.NoResource || !EntityManager.HasBuffer<TradeCost>(company))
             {
                 return false;
             }
 
-            hasTradeCostBuffer = true;
             DynamicBuffer<TradeCost> costs = EntityManager.GetBuffer<TradeCost>(company, isReadOnly: true);
             for (int i = 0; i < costs.Length; i++)
             {
@@ -682,12 +680,11 @@ namespace NoOfficeDemandFix.Systems
                     continue;
                 }
 
-                hasTradeCostEntry = true;
                 buyCost = tradeCost.m_BuyCost;
                 return true;
             }
 
-            return true;
+            return false;
         }
 
         private bool TryGetActiveBuyer(Entity company, Resource resource, out int amountNeeded)
@@ -998,7 +995,7 @@ namespace NoOfficeDemandFix.Systems
 
         private static int GetSampleIndex(int day, int sampleSlot, int samplesPerDay)
         {
-            return checked(day * samplesPerDay + sampleSlot);
+            return unchecked(day * samplesPerDay + sampleSlot);
         }
 
         private static int GetDiagnosticsSamplesPerDay()
