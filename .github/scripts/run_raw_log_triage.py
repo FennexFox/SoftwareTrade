@@ -6,22 +6,22 @@ from raw_log_automation import (
     build_attachment_failure_comment,
     build_deterministic_draft,
     create_issue_comment,
-    find_managed_comment,
     generate_llm_suggestions,
-    get_issue_comments,
     is_raw_log_issue,
+    join_unique_lines,
     load_event_payload,
     parse_issue_form_sections,
     parse_log,
-    parse_managed_comment,
     redact_log_text,
     render_managed_comment,
+    sanitize_llm_detail,
     select_raw_log_source,
     upsert_managed_comment,
+    DEFAULT_GITHUB_MODELS_MODEL,
 )
 
 
-def build_default_overrides(
+def build_default_reply_fields(
     issue_fields: dict[str, str],
     deterministic_draft: dict[str, str],
     llm_draft: dict[str, str] | None,
@@ -35,7 +35,10 @@ def build_default_overrides(
         or deterministic_draft.get("symptom_classification", ""),
         "evidence_summary": (llm_draft or {}).get("evidence_summary", "")
         or deterministic_draft.get("evidence_summary", ""),
-        "confounders": (llm_draft or {}).get("confounders", "")
+        "confounders": join_unique_lines(
+            deterministic_draft.get("confounders", ""),
+            (llm_draft or {}).get("confounders", ""),
+        )
         or deterministic_draft.get("confounders", ""),
         "notes": (llm_draft or {}).get("notes", "") or deterministic_draft.get("notes", ""),
     }
@@ -71,7 +74,11 @@ def main() -> None:
     )
 
     llm_draft = None
-    if github_token and parsed_log.get("latest_observation"):
+    llm_status = "skipped"
+    llm_detail = "no eligible observation"
+    if not github_token:
+        llm_detail = "missing token"
+    elif parsed_log.get("latest_observation"):
         llm_context = {
             "raw_issue": issue_fields,
             "latest_observation": parsed_log["latest_observation"],
@@ -83,15 +90,13 @@ def main() -> None:
         }
         try:
             llm_draft = generate_llm_suggestions(llm_context, github_token)
+            llm_status = "enabled"
+            llm_detail = DEFAULT_GITHUB_MODELS_MODEL
         except AutomationError as error:
+            llm_status = "failed"
+            llm_detail = sanitize_llm_detail(str(error))
             print(f"LLM draft generation failed for issue #{issue_number}: {error}")
-
-    comments = get_issue_comments(repo, issue_number, github_token)
-    managed_comment = find_managed_comment(comments)
-    if managed_comment:
-        overrides = parse_managed_comment(managed_comment.get("body", ""))["overrides"]
-    else:
-        overrides = build_default_overrides(issue_fields, deterministic_draft, llm_draft)
+    reply_fields = build_default_reply_fields(issue_fields, deterministic_draft, llm_draft)
 
     comment_body, _ = render_managed_comment(
         issue_number,
@@ -100,8 +105,10 @@ def main() -> None:
         parsed_log,
         deterministic_draft,
         llm_draft,
-        overrides,
+        reply_fields,
         redaction_notes,
+        llm_status,
+        llm_detail,
     )
     updated_comment = upsert_managed_comment(repo, issue_number, comment_body, github_token)
     print(f"Managed triage comment upserted for issue #{issue_number}: {updated_comment.get('html_url', '')}")

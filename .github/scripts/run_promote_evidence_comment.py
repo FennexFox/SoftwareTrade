@@ -3,28 +3,31 @@ import os
 from raw_log_automation import (
     MANAGED_COMMENT_MARKER,
     build_existing_evidence_comment,
+    build_invalid_reply_comment,
     build_missing_fields_comment,
     build_missing_reply_comment,
+    comment_has_promote_command,
     create_issue,
     create_issue_comment,
     ensure_label,
+    extract_first_matching_fenced_block,
     extract_required_issue_fields,
     find_existing_promoted_issue,
     find_managed_comment,
-    find_latest_reply_comment,
     get_issue_comments,
+    has_nonempty_reply_fields,
+    is_bot_comment,
+    is_maintainer_comment,
     is_raw_log_issue,
     load_event_payload,
     merge_evidence_fields,
     parse_managed_comment,
     parse_reply_comment,
-    remove_label,
     render_evidence_issue_body,
     update_issue_state,
 )
 
 
-PROMOTE_LABEL = "promote: evidence"
 PROMOTED_SOURCE_LABEL = "source: raw-log-promoted"
 
 
@@ -42,18 +45,45 @@ def main() -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     github_token = os.environ["GITHUB_TOKEN"]
 
-    label = event.get("label", {}).get("name", "")
     issue = event["issue"]
+    if "pull_request" in issue:
+        print("Issue comment event is for a pull request. Skipping.")
+        return
+
+    comment = event["comment"]
+    comment_body = comment.get("body", "")
     issue_number = int(issue["number"])
     issue_title = issue.get("title", "")
     issue_body = issue.get("body", "")
 
-    if label != PROMOTE_LABEL:
-        print(f"Label `{label}` is not the promote label. Skipping.")
+    if issue.get("state") != "open":
+        print(f"Issue #{issue_number} is not open. Skipping.")
+        return
+
+    if is_bot_comment(comment):
+        print(f"Comment #{comment['id']} is bot-authored. Skipping.")
+        return
+
+    if not is_maintainer_comment(comment):
+        print(f"Comment #{comment['id']} is not maintainer-authored. Skipping.")
         return
 
     if not is_raw_log_issue(issue_body, issue_title):
         print(f"Issue #{issue_number} is not a raw-log intake issue. Skipping.")
+        return
+
+    if not comment_has_promote_command(comment_body):
+        print(f"Comment #{comment['id']} does not request promotion. Skipping.")
+        return
+
+    reply_yaml = extract_first_matching_fenced_block(comment_body, "maintainer_reply")
+    if not reply_yaml:
+        create_issue_comment(repo, issue_number, build_missing_reply_comment(), github_token)
+        return
+
+    overrides = parse_reply_comment(comment_body)
+    if not has_nonempty_reply_fields(overrides):
+        create_issue_comment(repo, issue_number, build_invalid_reply_comment(), github_token)
         return
 
     existing_issue = find_existing_promoted_issue(repo, issue_number, github_token)
@@ -69,26 +99,13 @@ def main() -> None:
         create_issue_comment(
             repo,
             issue_number,
-            "Promotion was blocked because the managed triage comment was not found. Run raw-log triage again, then re-add the `promote: evidence` label.",
+            "Promotion was blocked because the managed triage comment was not found. Run raw-log triage again, then retry with a new maintainer reply comment.",
             github_token,
         )
-        remove_label(repo, issue_number, PROMOTE_LABEL, github_token)
-        return
-
-    reply_comment = find_latest_reply_comment(comments)
-    if not reply_comment:
-        create_issue_comment(
-            repo,
-            issue_number,
-            build_missing_reply_comment(via_label=True),
-            github_token,
-        )
-        remove_label(repo, issue_number, PROMOTE_LABEL, github_token)
         return
 
     parsed_comment = parse_managed_comment(managed_comment["body"])
     payload = parsed_comment["payload"]
-    overrides = parse_reply_comment(reply_comment.get("body", ""))
 
     if not payload.get("parsed_log", {}).get("latest_observation"):
         create_issue_comment(
@@ -97,7 +114,6 @@ def main() -> None:
             "Promotion was blocked because the raw log draft does not contain a current-branch `softwareEvidenceDiagnostics observation_window(...)` entry. Update the raw log and re-run triage before promoting.",
             github_token,
         )
-        remove_label(repo, issue_number, PROMOTE_LABEL, github_token)
         return
 
     fields = merge_evidence_fields(
@@ -105,7 +121,7 @@ def main() -> None:
         overrides,
         managed_comment["html_url"],
         issue["html_url"],
-        reply_comment["html_url"],
+        comment["html_url"],
     )
     required_fields = extract_required_issue_fields(".github/ISSUE_TEMPLATE/software_evidence.yml")
     missing_fields = [field_name for field_name in required_fields if not fields.get(field_name, "").strip()]
@@ -113,10 +129,9 @@ def main() -> None:
         create_issue_comment(
             repo,
             issue_number,
-            build_missing_fields_comment(missing_fields, via_label=True),
+            build_missing_fields_comment(missing_fields),
             github_token,
         )
-        remove_label(repo, issue_number, PROMOTE_LABEL, github_token)
         return
 
     ensure_label(
@@ -127,7 +142,7 @@ def main() -> None:
         github_token,
     )
     evidence_title = build_evidence_title(issue["title"], issue_number)
-    evidence_body = render_evidence_issue_body(issue_number, int(reply_comment["id"]), fields)
+    evidence_body = render_evidence_issue_body(issue_number, int(comment["id"]), fields)
     evidence_issue = create_issue(
         repo,
         evidence_title,

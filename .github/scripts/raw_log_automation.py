@@ -10,12 +10,15 @@ from typing import Any
 RAW_LOG_FORM_MARKER = "<!-- raw-log-report -->"
 RAW_LOG_TITLE_PREFIX = "[Raw Log]"
 MANAGED_COMMENT_MARKER = "<!-- raw-log-triage:managed-comment -->"
+REPLY_TEMPLATE_START_MARKER = "<!-- raw-log-triage:reply-template:start -->"
+REPLY_TEMPLATE_END_MARKER = "<!-- raw-log-triage:reply-template:end -->"
 OVERRIDES_START_MARKER = "<!-- raw-log-triage:overrides:start -->"
 OVERRIDES_END_MARKER = "<!-- raw-log-triage:overrides:end -->"
 PAYLOAD_START_MARKER = "<!-- raw-log-triage:machine-payload:start -->"
 PAYLOAD_END_MARKER = "<!-- raw-log-triage:machine-payload:end -->"
 SOURCE_RAW_ISSUE_MARKER = "<!-- source-raw-log-issue:{issue_number} -->"
 SOURCE_RAW_COMMENT_MARKER = "<!-- source-raw-log-comment:{comment_id} -->"
+PROMOTE_COMMAND = "/promote-evidence"
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
@@ -479,6 +482,53 @@ def truncate_text(value: str, limit: int = DETAIL_PREVIEW_LIMIT) -> str:
     return value[: limit - 3].rstrip() + "..."
 
 
+def join_unique_lines(*values: str) -> str:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for line in value.replace("\r\n", "\n").split("\n"):
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            lowered = cleaned.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            ordered.append(cleaned)
+    return "\n".join(ordered)
+
+
+def build_deterministic_confounders(
+    issue_fields: dict[str, str],
+    latest_observation: dict[str, Any],
+    parsed_log: dict[str, Any],
+) -> str:
+    settings = latest_observation.get("settings", {})
+    confounder_lines: list[str] = []
+
+    other_mods = issue_fields.get("other_mods", "").strip()
+    if other_mods:
+        confounder_lines.append(f"other mods reported: {other_mods}")
+
+    patch_state = str(latest_observation.get("patch_state", "")).strip()
+    if patch_state and patch_state != "release-build":
+        confounder_lines.append(f"patch_state={patch_state}")
+
+    if settings.get("EnableTradePatch"):
+        confounder_lines.append("trade patch enabled during capture")
+
+    if not settings.get("CaptureStableEvidence"):
+        confounder_lines.append("no stable baseline capture in this raw intake")
+
+    if safe_int(parsed_log.get("observation_count", 0)) <= 1:
+        confounder_lines.append("single observation window in raw intake")
+
+    if not confounder_lines:
+        return "none known from raw log intake alone"
+
+    return "\n".join(f"- {line}" for line in confounder_lines)
+
+
 def build_deterministic_draft(
     issue_number: int,
     issue_fields: dict[str, str],
@@ -520,11 +570,7 @@ def build_deterministic_draft(
     if patch_summary:
         summary_bits.append(patch_summary)
 
-    confounders = issue_fields.get("other_mods", "").strip()
-    if confounders:
-        confounders = f"Other mods reported: {confounders}"
-    else:
-        confounders = "none known from raw log intake alone"
+    confounders = build_deterministic_confounders(issue_fields, latest_observation, parsed_log)
 
     note_lines = [
         f"Source raw issue: #{issue_number}",
@@ -589,6 +635,8 @@ def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
         - Do not invent numeric counters or quote counters that are not present in the provided facts.
         - Use only the provided structured facts and excerpts.
         - Leave fields empty rather than guessing when confidence is low.
+        - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
+        - Do not repeat deterministic confounders unless you are adding a distinct residual concern.
         - Use one of these labels when possible:
           software_office_propertyless, software_office_efficiency_zero,
           software_office_lack_resources_zero, software_demand_mismatch,
@@ -658,14 +706,29 @@ def generate_llm_suggestions(context: dict[str, Any], github_token: str | None) 
     return json.loads(response_text)
 
 
+def sanitize_llm_detail(raw_detail: str) -> str:
+    detail = raw_detail.lower()
+    if "403" in detail and ("access" in detail or "models" in detail or "denied" in detail):
+        return "models access denied"
+    if "404" in detail or "model" in detail and "not found" in detail:
+        return "model unavailable"
+    if "429" in detail or "rate limit" in detail:
+        return "rate limited"
+    if "no output text" in detail or "empty" in detail:
+        return "empty model response"
+    if "token" in detail and "missing" in detail:
+        return "missing token"
+    return "request failed"
+
+
 def normalize_multiline_value(value: str) -> str:
     return value.replace("\r\n", "\n").strip()
 
 
-def dump_override_yaml(overrides: dict[str, str]) -> str:
-    lines = ["maintainer_overrides:"]
+def dump_named_yaml_block(root_key: str, values: dict[str, str]) -> str:
+    lines = [f"{root_key}:"]
     for field_name in OVERRIDE_FIELD_ORDER:
-        value = normalize_multiline_value(overrides.get(field_name, ""))
+        value = normalize_multiline_value(values.get(field_name, ""))
         if not value:
             lines.append(f'  {field_name}: ""')
             continue
@@ -681,10 +744,14 @@ def dump_override_yaml(overrides: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def parse_override_yaml(yaml_text: str) -> dict[str, str]:
+def dump_reply_yaml(reply_fields: dict[str, str]) -> str:
+    return dump_named_yaml_block("maintainer_reply", reply_fields)
+
+
+def parse_named_yaml_block(yaml_text: str, root_key: str) -> dict[str, str]:
     result = {field_name: "" for field_name in OVERRIDE_FIELD_ORDER}
     lines = yaml_text.replace("\r\n", "\n").split("\n")
-    if not lines or lines[0].strip() != "maintainer_overrides:":
+    if not lines or lines[0].strip() != f"{root_key}:":
         return result
 
     index = 1
@@ -736,6 +803,14 @@ def parse_override_yaml(yaml_text: str) -> dict[str, str]:
     return result
 
 
+def parse_reply_yaml(yaml_text: str) -> dict[str, str]:
+    return parse_named_yaml_block(yaml_text, "maintainer_reply")
+
+
+def parse_override_yaml(yaml_text: str) -> dict[str, str]:
+    return parse_named_yaml_block(yaml_text, "maintainer_overrides")
+
+
 def extract_fenced_block(body: str, start_marker: str, end_marker: str) -> str:
     start_index = body.find(start_marker)
     end_index = body.find(end_marker)
@@ -747,6 +822,54 @@ def extract_fenced_block(body: str, start_marker: str, end_marker: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def extract_first_matching_fenced_block(body: str, root_key: str) -> str:
+    pattern = re.compile(r"```[a-zA-Z0-9_-]*\n(.*?)\n```", flags=re.DOTALL)
+    for match in pattern.finditer(body):
+        candidate = match.group(1).strip()
+        if candidate.startswith(f"{root_key}:"):
+            return candidate
+    return ""
+
+
+def comment_has_promote_command(comment_body: str) -> bool:
+    return re.search(rf"(?mi)(?:^|\s){re.escape(PROMOTE_COMMAND)}(?:\s|$)", comment_body) is not None
+
+
+def is_bot_comment(comment: dict[str, Any]) -> bool:
+    user_login = str(comment.get("user", {}).get("login", ""))
+    return user_login.endswith("[bot]")
+
+
+def is_maintainer_comment(comment: dict[str, Any]) -> bool:
+    association = str(comment.get("author_association", "")).upper()
+    return association in {"OWNER", "MEMBER", "COLLABORATOR"}
+
+
+def parse_reply_comment(comment_body: str) -> dict[str, str]:
+    reply_yaml = extract_first_matching_fenced_block(comment_body, "maintainer_reply")
+    return parse_reply_yaml(reply_yaml) if reply_yaml else {field_name: "" for field_name in OVERRIDE_FIELD_ORDER}
+
+
+def has_nonempty_reply_fields(reply_fields: dict[str, str]) -> bool:
+    return any(value.strip() for value in reply_fields.values())
+
+
+def find_latest_reply_comment(comments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    reply_comments = []
+    for comment in comments:
+        if is_bot_comment(comment):
+            continue
+        if not is_maintainer_comment(comment):
+            continue
+        parsed_reply = parse_reply_comment(comment.get("body", ""))
+        if has_nonempty_reply_fields(parsed_reply):
+            reply_comments.append(comment)
+
+    if not reply_comments:
+        return None
+    return sorted(reply_comments, key=lambda item: item.get("updated_at", item.get("created_at", "")))[-1]
+
+
 def render_managed_comment(
     issue_number: int,
     issue_fields: dict[str, str],
@@ -754,12 +877,13 @@ def render_managed_comment(
     parsed_log: dict[str, Any],
     deterministic_draft: dict[str, Any],
     llm_draft: dict[str, Any] | None,
-    overrides: dict[str, str],
+    reply_fields: dict[str, str],
     redaction_notes: list[str],
+    llm_status: str,
+    llm_detail: str,
 ) -> tuple[str, dict[str, Any]]:
     latest_observation = parsed_log.get("latest_observation")
     latest_detail = parsed_log.get("latest_software_office_detail")
-    llm_state = "enabled" if llm_draft is not None else "disabled"
 
     combined_missing = list(
         dict.fromkeys(
@@ -792,6 +916,8 @@ def render_managed_comment(
         "llm_draft": llm_draft,
         "combined_missing_user_input": combined_missing,
         "llm_model": DEFAULT_GITHUB_MODELS_MODEL if llm_draft else "",
+        "llm_status": llm_status,
+        "llm_detail": llm_detail,
     }
 
     latest_observation_raw = latest_observation["observation_window_raw"] if latest_observation else "not found"
@@ -804,12 +930,13 @@ def render_managed_comment(
     body = "\n".join(
         [
             MANAGED_COMMENT_MARKER,
-            f"Raw log triage draft for #{issue_number}. Edit only the `maintainer_overrides` block, then add the `promote: evidence` label when the required maintainer fields are ready.",
+            f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` block into a new maintainer comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment when the evidence issue is ready.",
             "",
             "## Normalized draft",
             f"- Latest observation window: `{latest_observation_raw}`",
             f"- Deterministic symptom suggestion: `{deterministic_draft.get('symptom_classification', '') or 'not available'}`",
-            f"- LLM status: `{llm_state}`",
+            f"- LLM status: `{llm_status}`",
+            f"- LLM detail: `{llm_detail}`",
             f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
             f"- Raw log source: `{log_source['mode']}`",
             f"- Latest patch summary: `{latest_patch_summary}`",
@@ -817,23 +944,23 @@ def render_managed_comment(
             f"- Redaction notes: `{redaction_summary}`",
             "",
             "### Suggested evidence fields",
-            f"- `scenario_label`: `{deterministic_draft.get('scenario_label', '')}`",
-            f"- `scenario_type`: `{deterministic_draft.get('scenario_type', '')}`",
-            f"- `evidence_summary`: `{truncate_text((llm_draft or {}).get('evidence_summary', '') or deterministic_draft.get('evidence_summary', ''), 600)}`",
-            f"- `confounders`: `{truncate_text((llm_draft or {}).get('confounders', '') or deterministic_draft.get('confounders', ''), 600)}`",
-            f"- `notes`: `{truncate_text((llm_draft or {}).get('notes', '') or deterministic_draft.get('notes', ''), 600)}`",
+            f"- `scenario_label`: `{reply_fields.get('scenario_label', '')}`",
+            f"- `scenario_type`: `{reply_fields.get('scenario_type', '')}`",
+            f"- `evidence_summary`: `{truncate_text(reply_fields.get('evidence_summary', ''), 600)}`",
+            f"- `confounders`: `{truncate_text(reply_fields.get('confounders', ''), 600)}`",
+            f"- `notes`: `{truncate_text(reply_fields.get('notes', ''), 600)}`",
             "",
             "### Draft provenance",
             f"- Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`",
             f"- LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else 'not used'}`",
             "",
-            "### Maintainer overrides",
-            "Edit only this YAML block before adding `promote: evidence`.",
-            OVERRIDES_START_MARKER,
+            "### Maintainer reply template",
+            f"Copy this YAML block into a new comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment.",
+            REPLY_TEMPLATE_START_MARKER,
             "```yaml",
-            dump_override_yaml(overrides),
+            dump_reply_yaml(reply_fields),
             "```",
-            OVERRIDES_END_MARKER,
+            REPLY_TEMPLATE_END_MARKER,
             "",
             "### Machine payload",
             "Do not edit this block manually.",
@@ -855,20 +982,21 @@ def render_managed_comment(
         body = "\n".join(
             [
                 MANAGED_COMMENT_MARKER,
-                f"Raw log triage draft for #{issue_number}. Edit only the `maintainer_overrides` block, then add the `promote: evidence` label when the required maintainer fields are ready.",
+                f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` block into a new maintainer comment and add `{PROMOTE_COMMAND}` there when ready.",
                 "",
                 "## Normalized draft",
                 f"- Latest observation window: `{latest_observation_raw}`",
                 f"- Deterministic symptom suggestion: `{deterministic_draft.get('symptom_classification', '') or 'not available'}`",
-                f"- LLM status: `{llm_state}`",
+                f"- LLM status: `{llm_status}`",
+                f"- LLM detail: `{llm_detail}`",
                 f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
                 "",
-                "### Maintainer overrides",
-                OVERRIDES_START_MARKER,
+                "### Maintainer reply template",
+                REPLY_TEMPLATE_START_MARKER,
                 "```yaml",
-                dump_override_yaml(overrides),
+                dump_reply_yaml(reply_fields),
                 "```",
-                OVERRIDES_END_MARKER,
+                REPLY_TEMPLATE_END_MARKER,
                 "",
                 "### Machine payload",
                 PAYLOAD_START_MARKER,
@@ -884,17 +1012,22 @@ def render_managed_comment(
 
 
 def parse_managed_comment(comment_body: str) -> dict[str, Any]:
-    overrides_yaml = extract_fenced_block(comment_body, OVERRIDES_START_MARKER, OVERRIDES_END_MARKER)
+    reply_yaml = extract_fenced_block(comment_body, REPLY_TEMPLATE_START_MARKER, REPLY_TEMPLATE_END_MARKER)
+    if not reply_yaml:
+        reply_yaml = extract_fenced_block(comment_body, OVERRIDES_START_MARKER, OVERRIDES_END_MARKER)
     payload_json = extract_fenced_block(comment_body, PAYLOAD_START_MARKER, PAYLOAD_END_MARKER)
     try:
         parsed_payload = json.loads(payload_json) if payload_json else {}
     except json.JSONDecodeError:
         parsed_payload = {}
-    parsed_overrides = parse_override_yaml(overrides_yaml) if overrides_yaml else {
-        field_name: "" for field_name in OVERRIDE_FIELD_ORDER
-    }
+    parsed_reply = {field_name: "" for field_name in OVERRIDE_FIELD_ORDER}
+    if reply_yaml:
+        parsed_reply = parse_reply_yaml(reply_yaml)
+        if not has_nonempty_reply_fields(parsed_reply):
+            parsed_reply = parse_override_yaml(reply_yaml)
     return {
-        "overrides": parsed_overrides,
+        "reply_template": parsed_reply,
+        "overrides": parsed_reply,
         "payload": parsed_payload,
     }
 
@@ -1014,8 +1147,15 @@ def build_log_excerpt(payload: dict[str, Any]) -> str:
     return ""
 
 
-def build_artifacts_text(payload: dict[str, Any], draft_comment_url: str, raw_issue_url: str) -> str:
-    lines = [f"raw intake issue: {raw_issue_url}", f"triage draft comment: {draft_comment_url}"]
+def build_artifacts_text(
+    payload: dict[str, Any],
+    triage_comment_url: str,
+    raw_issue_url: str,
+    maintainer_reply_url: str = "",
+) -> str:
+    lines = [f"raw intake issue: {raw_issue_url}", f"triage draft comment: {triage_comment_url}"]
+    if maintainer_reply_url:
+        lines.append(f"maintainer promote reply: {maintainer_reply_url}")
     if payload["log_source"].get("url"):
         lines.append(f"raw log attachment: {payload['log_source']['url']}")
     return "\n".join(lines)
@@ -1059,8 +1199,9 @@ def choose_field_value(*values: str) -> str:
 def merge_evidence_fields(
     payload: dict[str, Any],
     overrides: dict[str, str],
-    draft_comment_url: str,
+    triage_comment_url: str,
     raw_issue_url: str,
+    maintainer_reply_url: str = "",
 ) -> dict[str, str]:
     raw_fields = payload["raw_issue"]["fields"]
     parsed_log = payload["parsed_log"]
@@ -1077,6 +1218,13 @@ def merge_evidence_fields(
         )
 
     symptom_classification = merged_text("symptom_classification")
+    merged_confounders = choose_field_value(
+        overrides.get("confounders", ""),
+        join_unique_lines(
+            deterministic.get("confounders", ""),
+            llm_draft.get("confounders", ""),
+        ),
+    )
     return {
         "game-version": raw_fields.get("game_version", ""),
         "mod-version": raw_fields.get("mod_version", ""),
@@ -1104,9 +1252,14 @@ def merge_evidence_fields(
         "log-excerpt": build_log_excerpt(payload),
         "evidence-summary": merged_text("evidence_summary"),
         "confidence": "medium",
-        "confounders": merged_text("confounders", raw_fields.get("other_mods", "")) or "none known",
+        "confounders": merged_confounders or "none known",
         "analysis-basis": "",
-        "artifacts": build_artifacts_text(payload, draft_comment_url, raw_issue_url),
+        "artifacts": build_artifacts_text(
+            payload,
+            triage_comment_url,
+            raw_issue_url,
+            maintainer_reply_url,
+        ),
         "notes": merged_text("notes"),
     }
 
@@ -1162,12 +1315,41 @@ def render_evidence_issue_body(
     return "\n".join(lines).strip() + "\n"
 
 
-def build_missing_fields_comment(missing_fields: list[str]) -> str:
+def build_missing_fields_comment(missing_fields: list[str], *, via_label: bool = False) -> str:
     formatted = ", ".join(f"`{field_name}`" for field_name in missing_fields)
+    if via_label:
+        follow_up = (
+            "Post a maintainer reply comment that copies the `maintainer_reply` block, fill those fields, "
+            "then re-add the `promote: evidence` label."
+        )
+    else:
+        follow_up = (
+            f"Post a maintainer reply comment that copies the `maintainer_reply` block, fill those fields, "
+            f"and include `{PROMOTE_COMMAND}` in that same comment."
+        )
     return (
         "Promotion was blocked because the evidence issue still has missing required fields: "
-        f"{formatted}. Fill the `maintainer_overrides` block in the managed triage comment, "
-        "then re-add the `promote: evidence` label."
+        f"{formatted}. {follow_up}"
+    )
+
+
+def build_missing_reply_comment(*, via_label: bool = False) -> str:
+    if via_label:
+        return (
+            "Promotion was blocked because no maintainer reply comment with a valid `maintainer_reply` YAML block was found. "
+            "Copy the template from the managed triage comment into a new maintainer comment, edit it, then re-add the `promote: evidence` label."
+        )
+    return (
+        "Promotion was blocked because the triggering comment did not include a valid `maintainer_reply` YAML block. "
+        "Copy the template from the managed triage comment into a new maintainer comment, edit it, and include "
+        f"`{PROMOTE_COMMAND}` in that same comment."
+    )
+
+
+def build_invalid_reply_comment() -> str:
+    return (
+        "Promotion was blocked because the triggering comment did not contain any non-empty `maintainer_reply` fields. "
+        "Copy the template from the managed triage comment, edit at least the maintainer-owned fields, and try again."
     )
 
 

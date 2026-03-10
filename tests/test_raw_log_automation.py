@@ -120,12 +120,25 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertIn("role=producer", parsed["latest_software_office_detail"]["values"])
 
+    def test_build_deterministic_draft_includes_checklist_confounders(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        draft = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        self.assertIn("patch_state=debug-build", draft["confounders"])
+        self.assertIn("trade patch enabled during capture", draft["confounders"])
+
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
         deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
-        overrides = {
+        reply_fields = {
             "scenario_label": "New Seoul",
             "scenario_type": "existing save",
             "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
@@ -142,12 +155,14 @@ class RawLogAutomationTests(unittest.TestCase):
             parsed_log,
             deterministic,
             None,
-            overrides,
+            reply_fields,
             [],
+            "skipped",
+            "no eligible observation",
         )
         parsed = automation.parse_managed_comment(body)
-        self.assertEqual(parsed["overrides"]["mod_ref"], "track/software-instability @ abc1234")
-        self.assertIn("Maintainer note line 2", parsed["overrides"]["notes"])
+        self.assertEqual(parsed["reply_template"]["mod_ref"], "track/software-instability @ abc1234")
+        self.assertIn("Maintainer note line 2", parsed["reply_template"]["notes"])
 
     def test_render_managed_comment_formats_markdown_at_column_zero(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -172,12 +187,47 @@ class RawLogAutomationTests(unittest.TestCase):
                 "notes": "note",
             },
             [],
+            "failed",
+            "models access denied",
         )
         self.assertIn("\n## Normalized draft\n", body)
-        self.assertIn("\n### Maintainer overrides\n", body)
+        self.assertIn("\n### Maintainer reply template\n", body)
         self.assertIn("\n```yaml\n", body)
         self.assertNotIn("\n        ## Normalized draft\n", body)
         self.assertNotIn("\n        ```yaml\n", body)
+        self.assertIn("- LLM status: `failed`", body)
+        self.assertIn("- LLM detail: `models access denied`", body)
+        self.assertIn("/promote-evidence", body)
+
+    def test_render_managed_comment_keeps_preview_short_but_reply_yaml_full(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        long_notes = "A" * 800
+        body, _ = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            {
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": "software_office_propertyless",
+                "evidence_summary": "summary",
+                "confounders": "none known",
+                "notes": long_notes,
+            },
+            [],
+            "skipped",
+            "no eligible observation",
+        )
+        self.assertIn(f"`{'A' * 597}...`", body)
+        self.assertIn(long_notes, body)
 
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -202,13 +252,16 @@ class RawLogAutomationTests(unittest.TestCase):
                 "notes": "Maintainer note.",
             },
             [],
+            "skipped",
+            "no eligible observation",
         )
         parsed = automation.parse_managed_comment(body)
         fields = automation.merge_evidence_fields(
             parsed["payload"],
-            parsed["overrides"],
+            parsed["reply_template"],
             "https://github.com/example/repo/issues/21#issuecomment-1",
             "https://github.com/example/repo/issues/21",
+            "https://github.com/example/repo/issues/21#issuecomment-2",
         )
         required = automation.extract_required_issue_fields(
             str(REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "software_evidence.yml")
@@ -219,6 +272,7 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("<!-- source-raw-log-issue:21 -->", issue_body)
         self.assertIn("### Mod ref", issue_body)
         self.assertIn("track/software-instability @ abc1234", issue_body)
+        self.assertIn("maintainer promote reply: https://github.com/example/repo/issues/21#issuecomment-2", fields["artifacts"])
 
     def test_generate_llm_suggestions_returns_none_without_token(self) -> None:
         self.assertIsNone(automation.generate_llm_suggestions({"foo": "bar"}, None))
@@ -257,6 +311,76 @@ class RawLogAutomationTests(unittest.TestCase):
             suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
         self.assertEqual(suggestions["symptom_classification"], "software_track_unclear")
         self.assertEqual(request_mock.call_args.args[1], automation.GITHUB_MODELS_CHAT_COMPLETIONS_URL)
+
+    def test_parse_reply_comment_and_command(self) -> None:
+        comment_body = textwrap.dedent(
+            """
+            Ready to promote.
+
+            /promote-evidence
+
+            ```yaml
+            maintainer_reply:
+              scenario_label: "New Seoul"
+              scenario_type: "existing save"
+              reproduction_conditions: |
+                Loaded the same save.
+                Waited 3 in-game days.
+              mod_ref: "track/software-instability @ abc1234"
+              symptom_classification: "software_office_propertyless"
+              evidence_summary: "summary"
+              confounders: |
+                - patch_state=debug-build
+                - trade patch enabled during capture
+              notes: "note"
+            ```
+            """
+        ).strip()
+        parsed = automation.parse_reply_comment(comment_body)
+        self.assertTrue(automation.comment_has_promote_command(comment_body))
+        self.assertEqual(parsed["mod_ref"], "track/software-instability @ abc1234")
+        self.assertIn("trade patch enabled", parsed["confounders"])
+
+    def test_find_latest_reply_comment_ignores_bot_and_nonmaintainer(self) -> None:
+        comments = [
+            {
+                "id": 1,
+                "body": "```yaml\nmaintainer_reply:\n  mod_ref: \"one\"\n```",
+                "user": {"login": "github-actions[bot]"},
+                "author_association": "NONE",
+                "updated_at": "2026-03-10T09:00:00Z",
+                "created_at": "2026-03-10T09:00:00Z",
+            },
+            {
+                "id": 2,
+                "body": "```yaml\nmaintainer_reply:\n  mod_ref: \"two\"\n```",
+                "user": {"login": "random-user"},
+                "author_association": "CONTRIBUTOR",
+                "updated_at": "2026-03-10T09:01:00Z",
+                "created_at": "2026-03-10T09:01:00Z",
+            },
+            {
+                "id": 3,
+                "body": "```yaml\nmaintainer_reply:\n  mod_ref: \"three\"\n```",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
+                "updated_at": "2026-03-10T09:02:00Z",
+                "created_at": "2026-03-10T09:02:00Z",
+            },
+        ]
+        latest = automation.find_latest_reply_comment(comments)
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest["id"], 3)
+
+    def test_sanitize_llm_detail_maps_common_failures(self) -> None:
+        self.assertEqual(
+            automation.sanitize_llm_detail("GitHub Models request failed (403): access denied"),
+            "models access denied",
+        )
+        self.assertEqual(
+            automation.sanitize_llm_detail("GitHub Models request failed (429): rate limited"),
+            "rate limited",
+        )
 
 
 if __name__ == "__main__":

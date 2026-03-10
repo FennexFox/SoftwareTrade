@@ -27,8 +27,8 @@ The automation will:
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
-- post a managed triage comment with a normalized draft and a
-  `maintainer_overrides` block
+- post a managed triage comment with a normalized draft and a copy-ready
+  `maintainer_reply` YAML block
 
 ## Privacy Notes
 
@@ -52,8 +52,10 @@ maintainer-only fields.
 ## After Submission
 
 - a managed triage comment will be added or updated on the raw-log issue
-- maintainers can edit the `maintainer_overrides` block in that comment
-- when the issue is ready, a maintainer adds the `promote: evidence` label
+- maintainers should copy the `maintainer_reply` YAML block into a new comment,
+  edit it there, and include `/promote-evidence` in that same comment
+- `promote: evidence` still works as a backward-compatible fallback if a valid
+  maintainer reply comment already exists
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
 
