@@ -69,7 +69,3 @@ That means the safest way to describe this release is:
 
 - Contributors: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Maintainers and operators: [MAINTAINING.md](./MAINTAINING.md)
-- Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
-- Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
-- Software evidence form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
-- Software investigation umbrella form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)
