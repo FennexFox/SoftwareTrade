@@ -29,6 +29,8 @@ LLM_DETAIL_EXCERPT_LIMIT = 700
 LLM_SUMMARY_LINE_LIMIT = 220
 LLM_MAX_PATCH_SUMMARIES = 2
 LLM_MAX_PHANTOM_CORRECTIONS = 2
+MAX_EXCERPT_DETAIL_LINES = 3
+MAX_STYLE_EXAMPLES = 2
 
 RAW_LOG_FORM_LABELS = {
     "game version": "game_version",
@@ -44,9 +46,15 @@ OVERRIDE_FIELD_ORDER = [
     "scenario_type",
     "reproduction_conditions",
     "mod_ref",
+    "platform_notes",
+    "comparison_baseline",
     "symptom_classification",
+    "custom_symptom_classification",
     "evidence_summary",
+    "confidence",
     "confounders",
+    "analysis_basis",
+    "log_excerpt",
     "notes",
 ]
 
@@ -57,6 +65,23 @@ SOFTWARE_EVIDENCE_CANONICAL_CLASSIFICATIONS = {
     "software_demand_mismatch",
     "software_track_unclear",
 }
+
+EVIDENCE_STYLE_EXAMPLES = [
+    {
+        "name": "same-save comparison run",
+        "summary_style": "Start with the tested condition, then describe the bounded window outcome without causal claims.",
+        "example_summary": "With `EnableTradePatch=False`, the same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
+        "log_excerpt_style": "Use `### Day ...` subsections with fenced `text` blocks that quote only the selected producer or consumer detail lines.",
+        "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, peak distress, final sample, and any important trade-state cue.",
+    },
+    {
+        "name": "single bounded run",
+        "summary_style": "Describe what the diagnostics captured in the window, not why it happened.",
+        "example_summary": "This bounded run captured a day-21 software-consumer shortage and a day-22 producer-side `Electronics(stock=0)` signal while office demand remained high.",
+        "log_excerpt_style": "Prefer one producer block and one consumer block when both help interpretation; omit extra blocks if they do not add signal.",
+        "notes_style": "Bullets may mention office-demand counters, consumer `softwareInputZero`, producer `efficiencyZero` / `lackResourcesZero`, and a reminder that `officeDemand.buildingDemand` is a factor counter.",
+    },
+]
 
 
 class AutomationError(RuntimeError):
@@ -434,6 +459,213 @@ def parse_detail_line(line: str) -> dict[str, Any]:
     }
 
 
+def observation_identity(observation: dict[str, Any] | None) -> tuple[str, str]:
+    observation_window = (observation or {}).get("observation_window", {})
+    return (
+        str(observation_window.get("session_id", "")),
+        str(observation_window.get("run_id", "")),
+    )
+
+
+def observation_sample_index(observation: dict[str, Any] | None) -> int:
+    return safe_int((observation or {}).get("observation_window", {}).get("sample_index"))
+
+
+def observation_day(observation: dict[str, Any] | None) -> int:
+    observation_window = (observation or {}).get("observation_window", {})
+    return safe_int(observation_window.get("sample_day") or observation_window.get("end_day"))
+
+
+def detail_sample_index(detail: dict[str, Any] | None) -> int:
+    return safe_int((detail or {}).get("metadata", {}).get("observation_end_sample_index"))
+
+
+def detail_day(detail: dict[str, Any] | None) -> int:
+    return safe_int((detail or {}).get("metadata", {}).get("observation_end_day"))
+
+
+def detail_role(detail: dict[str, Any] | None) -> str:
+    values = str((detail or {}).get("values", ""))
+    if "role=consumer" in values:
+        return "consumer"
+    if "role=producer" in values:
+        return "producer"
+    return ""
+
+
+def counter_value(observation: dict[str, Any] | None, group_name: str, field_name: str) -> int:
+    counter_groups = (observation or {}).get("diagnostic_counters", {})
+    return safe_int(counter_groups.get(group_name, {}).get(field_name))
+
+
+def format_counter_group(name: str, values: dict[str, Any]) -> str:
+    joined = ", ".join(f"{key}={value}" for key, value in values.items())
+    return f"{name}({joined})"
+
+
+def pick_peak_observation(
+    observations: list[dict[str, Any]],
+    score_builder: Any,
+) -> dict[str, Any] | None:
+    if not observations:
+        return None
+    return max(
+        observations,
+        key=lambda item: tuple(score_builder(item)) + (observation_sample_index(item),),
+    )
+
+
+def select_details_for_observation(
+    details: list[dict[str, Any]],
+    observation: dict[str, Any] | None,
+    *,
+    role: str,
+    limit: int = MAX_EXCERPT_DETAIL_LINES,
+) -> list[dict[str, Any]]:
+    if not observation:
+        return []
+
+    target_sample_index = observation_sample_index(observation)
+    target_day = observation_day(observation)
+
+    matching = [
+        detail
+        for detail in details
+        if detail_role(detail) == role and detail_sample_index(detail) == target_sample_index
+    ]
+    if not matching:
+        matching = [
+            detail
+            for detail in details
+            if detail_role(detail) == role and detail_day(detail) == target_day
+        ]
+    if not matching:
+        matching = [detail for detail in details if detail_role(detail) == role]
+    return matching[:limit]
+
+
+def build_excerpt_candidate(
+    label: str,
+    observation: dict[str, Any] | None,
+    details: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not observation or not details:
+        return None
+
+    lines = [truncate_text(detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT) for detail in details]
+    return {
+        "label": label,
+        "day": observation_day(observation),
+        "sample_index": observation_sample_index(observation),
+        "title": (
+            f"Day {observation_day(observation)} consumer-side shortage detail"
+            if label == "consumer_peak"
+            else f"Day {observation_day(observation)} producer-side detail"
+        ),
+        "observation_window": observation.get("observation_window_raw", ""),
+        "diagnostic_counters": observation.get("diagnostic_counters_raw", ""),
+        "lines": lines,
+        "markdown": "\n".join(
+            [
+                (
+                    f"### Day {observation_day(observation)} consumer-side shortage detail"
+                    if label == "consumer_peak"
+                    else f"### Day {observation_day(observation)} producer-side detail"
+                ),
+                "```text",
+                "\n".join(lines),
+                "```",
+            ]
+        ),
+    }
+
+
+def build_latest_run_candidates(
+    latest_observation: dict[str, Any] | None,
+    observations: list[dict[str, Any]],
+    software_office_details: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not latest_observation:
+        return {
+            "latest_run_observations": [],
+            "latest_run_details": [],
+            "final_observation": None,
+            "consumer_peak_observation": None,
+            "producer_peak_observation": None,
+            "log_excerpt_candidates": [],
+        }
+
+    latest_session_id, latest_run_id = observation_identity(latest_observation)
+    latest_run_observations = [
+        observation
+        for observation in observations
+        if observation_identity(observation) == (latest_session_id, latest_run_id)
+    ]
+    latest_run_details = [
+        detail
+        for detail in software_office_details
+        if str(detail.get("metadata", {}).get("session_id", "")) == latest_session_id
+        and str(detail.get("metadata", {}).get("run_id", "")) == latest_run_id
+    ]
+
+    consumer_peak_observation = pick_peak_observation(
+        latest_run_observations,
+        lambda item: (
+            counter_value(item, "softwareConsumerOffices", "softwareInputZero"),
+            counter_value(item, "softwareConsumerOffices", "efficiencyZero"),
+        ),
+    )
+    if counter_value(consumer_peak_observation, "softwareConsumerOffices", "softwareInputZero") <= 0:
+        consumer_peak_observation = None
+
+    producer_peak_observation = pick_peak_observation(
+        latest_run_observations,
+        lambda item: (
+            counter_value(item, "softwareProducerOffices", "lackResourcesZero"),
+            counter_value(item, "softwareProducerOffices", "efficiencyZero"),
+        ),
+    )
+    if (
+        counter_value(producer_peak_observation, "softwareProducerOffices", "lackResourcesZero") <= 0
+        and counter_value(producer_peak_observation, "softwareProducerOffices", "efficiencyZero") <= 0
+    ):
+        producer_peak_observation = None
+
+    producer_target_observation = latest_observation
+    if (
+        counter_value(producer_target_observation, "softwareProducerOffices", "lackResourcesZero") <= 0
+        and counter_value(producer_target_observation, "softwareProducerOffices", "efficiencyZero") <= 0
+    ):
+        producer_target_observation = producer_peak_observation
+
+    log_excerpt_candidates: list[dict[str, Any]] = []
+    consumer_candidate = build_excerpt_candidate(
+        "consumer_peak",
+        consumer_peak_observation,
+        select_details_for_observation(latest_run_details, consumer_peak_observation, role="consumer"),
+    )
+    if consumer_candidate:
+        log_excerpt_candidates.append(consumer_candidate)
+
+    producer_candidate = build_excerpt_candidate(
+        "producer_peak",
+        producer_target_observation,
+        select_details_for_observation(latest_run_details, producer_target_observation, role="producer"),
+    )
+    if producer_candidate:
+        log_excerpt_candidates.append(producer_candidate)
+
+    log_excerpt_candidates.sort(key=lambda item: (safe_int(item["day"]), item["label"]))
+    return {
+        "latest_run_observations": latest_run_observations,
+        "latest_run_details": latest_run_details,
+        "final_observation": latest_observation,
+        "consumer_peak_observation": consumer_peak_observation,
+        "producer_peak_observation": producer_peak_observation,
+        "log_excerpt_candidates": log_excerpt_candidates,
+    }
+
+
 def parse_log(log_text: str) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     software_office_details: list[dict[str, Any]] = []
@@ -461,6 +693,11 @@ def parse_log(log_text: str) -> dict[str, Any]:
             phantom_corrections.append(extract_log_message(stripped))
 
     latest_observation = observations[-1] if observations else None
+    latest_run_candidates = build_latest_run_candidates(
+        latest_observation,
+        observations,
+        software_office_details,
+    )
     latest_detail = None
     if latest_observation and software_office_details:
         latest_run_id = latest_observation["observation_window"].get("run_id")
@@ -483,6 +720,12 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "phantom_corrections": phantom_corrections[-5:],
         "observation_count": len(observations),
         "detail_count": len(software_office_details),
+        "latest_run_observations": latest_run_candidates["latest_run_observations"],
+        "latest_run_details": latest_run_candidates["latest_run_details"],
+        "final_observation": latest_run_candidates["final_observation"],
+        "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
+        "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
+        "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
     }
 
 
@@ -547,6 +790,143 @@ def join_unique_lines(*values: str) -> str:
     return "\n".join(ordered)
 
 
+def markdown_bullets(*lines: str) -> str:
+    cleaned_lines = [line.strip() for line in lines if line and line.strip()]
+    return "\n".join(f"- {line}" for line in cleaned_lines)
+
+
+def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
+    if not observation:
+        return ""
+
+    counter_groups = observation.get("diagnostic_counters", {})
+    lines: list[str] = []
+    office_demand = counter_groups.get("officeDemand", {})
+    if office_demand:
+        lines.append(format_counter_group("officeDemand", office_demand))
+
+    consumer_zero = counter_value(observation, "softwareConsumerOffices", "softwareInputZero")
+    producer_efficiency_zero = counter_value(observation, "softwareProducerOffices", "efficiencyZero")
+    producer_lack_resources_zero = counter_value(observation, "softwareProducerOffices", "lackResourcesZero")
+    if consumer_zero > 0:
+        lines.append(f"softwareConsumerOffices.softwareInputZero={consumer_zero}")
+    if producer_efficiency_zero > 0:
+        lines.append(f"softwareProducerOffices.efficiencyZero={producer_efficiency_zero}")
+    if producer_lack_resources_zero > 0:
+        lines.append(f"softwareProducerOffices.lackResourcesZero={producer_lack_resources_zero}")
+    return ", ".join(lines)
+
+
+def build_deterministic_log_excerpt(parsed_log: dict[str, Any]) -> str:
+    blocks = [candidate["markdown"] for candidate in parsed_log.get("log_excerpt_candidates", []) if candidate.get("markdown")]
+    return "\n\n".join(blocks)
+
+
+def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
+    latest_run_observations = parsed_log.get("latest_run_observations", [])
+    consumer_peak = parsed_log.get("consumer_peak_observation")
+    final_observation = parsed_log.get("final_observation")
+    log_excerpt_candidates = parsed_log.get("log_excerpt_candidates", [])
+
+    note_lines: list[str] = []
+    if latest_run_observations:
+        first_observation = latest_run_observations[0]
+        start_snapshot = compact_office_snapshot(first_observation)
+        if start_snapshot:
+            note_lines.append(f"Day {observation_day(first_observation)} started with `{start_snapshot}`.")
+
+    if consumer_peak:
+        peak_snapshot = compact_office_snapshot(consumer_peak)
+        if peak_snapshot:
+            note_lines.append(
+                f"Day {observation_day(consumer_peak)} peaked with `{peak_snapshot}`."
+            )
+
+    if final_observation:
+        final_snapshot = compact_office_snapshot(final_observation)
+        if final_snapshot:
+            note_lines.append(
+                f"Day {observation_day(final_observation)} ended with `{final_snapshot}`."
+            )
+
+    if any("tradeCostEntry=True" in "\n".join(candidate.get("lines", [])) for candidate in log_excerpt_candidates):
+        note_lines.append(
+            "Sampled trade-state detail still showed `tradeCostEntry=True` on affected office lines."
+        )
+
+    office_demand = (final_observation or {}).get("diagnostic_counters", {}).get("officeDemand", {})
+    if "buildingDemand" in office_demand:
+        note_lines.append(
+            "`officeDemand.buildingDemand` is preserved as a factor counter, not a claim that final office demand was zero."
+        )
+
+    return markdown_bullets(*note_lines)
+
+
+def build_deterministic_summary(
+    parsed_log: dict[str, Any],
+    derived_classification: str,
+) -> str:
+    consumer_peak = parsed_log.get("consumer_peak_observation")
+    final_observation = parsed_log.get("final_observation")
+    summary_sentences: list[str] = []
+
+    if consumer_peak and counter_value(consumer_peak, "softwareConsumerOffices", "softwareInputZero") > 0:
+        summary_sentences.append(
+            f"This bounded run captured a day-{observation_day(consumer_peak)} consumer-side software shortage signal."
+        )
+
+    if final_observation:
+        producer_distress = counter_value(final_observation, "softwareProducerOffices", "lackResourcesZero")
+        office_demand_building = counter_value(final_observation, "officeDemand", "building")
+        if producer_distress > 0:
+            summary_sentences.append(
+                f"The final day-{observation_day(final_observation)} sample still showed producer-side `lackResources=0` distress while `officeDemand.building={office_demand_building}`."
+            )
+        else:
+            summary_sentences.append(
+                f"The final day-{observation_day(final_observation)} sample preserved `{derived_classification}`-aligned counters in the latest observation window."
+            )
+
+    if not summary_sentences:
+        latest_observation = parsed_log.get("latest_observation") or {}
+        summary_sentences.append(
+            f"Latest observation window: {latest_observation.get('observation_window_raw', 'not available')}."
+        )
+
+    return " ".join(summary_sentences)
+
+
+def summarize_observation_for_llm(observation: dict[str, Any] | None) -> dict[str, Any]:
+    if not observation:
+        return {}
+    return {
+        "day": observation_day(observation),
+        "sample_index": observation_sample_index(observation),
+        "observation_window": truncate_text(observation.get("observation_window_raw", ""), LLM_SUMMARY_LINE_LIMIT),
+        "diagnostic_counters": truncate_text(
+            observation.get("diagnostic_counters_raw", ""),
+            DETAIL_PREVIEW_LIMIT,
+        ),
+    }
+
+
+def build_excerpt_candidates_for_llm(parsed_log: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for candidate in parsed_log.get("log_excerpt_candidates", []):
+        candidates.append(
+            {
+                "label": candidate.get("label", ""),
+                "title": candidate.get("title", ""),
+                "day": candidate.get("day", 0),
+                "sample_index": candidate.get("sample_index", 0),
+                "observation_window": truncate_text(candidate.get("observation_window", ""), LLM_SUMMARY_LINE_LIMIT),
+                "lines": [truncate_text(line, LLM_DETAIL_EXCERPT_LIMIT) for line in candidate.get("lines", [])],
+            }
+        )
+    return candidates
+
+
 def build_deterministic_confounders(
     issue_fields: dict[str, str],
     latest_observation: dict[str, Any],
@@ -590,8 +970,13 @@ def build_deterministic_draft(
         return {
             "scenario_label": issue_fields.get("save_or_city_label", ""),
             "scenario_type": "existing save" if issue_fields.get("save_or_city_label") else "",
+            "platform_notes": "",
+            "comparison_baseline": "",
             "symptom_classification": "",
+            "custom_symptom_classification": "",
             "evidence_summary": "",
+            "log_excerpt": "",
+            "analysis_basis": "",
             "confounders": "",
             "notes": "",
             "missing_user_input": [
@@ -607,19 +992,8 @@ def build_deterministic_draft(
     counter_groups = latest_observation["diagnostic_counters"]
     derived_classification = derive_symptom_classification(counter_groups)
     patch_summary = parsed_log.get("latest_patch_summary", "")
-    detail_values = ""
-    if parsed_log.get("latest_software_office_detail"):
-        detail_values = truncate_text(parsed_log["latest_software_office_detail"]["values"])
-
-    summary_bits = [
-        f"Observation window {latest_observation['observation_window_raw']}",
-        f"patch_state={latest_observation['patch_state']}",
-        f"suggested symptom={derived_classification}",
-    ]
-    if patch_summary:
-        summary_bits.append(patch_summary)
-
     confounders = build_deterministic_confounders(issue_fields, latest_observation, parsed_log)
+    deterministic_excerpt = build_deterministic_log_excerpt(parsed_log)
 
     note_lines = [
         f"Source raw issue: #{issue_number}",
@@ -629,8 +1003,13 @@ def build_deterministic_draft(
         note_lines.append(f"Raw log attachment: {sanitize_url(log_source['url'])}")
     if redaction_notes:
         note_lines.append("Redaction notes: " + "; ".join(redaction_notes))
-    if detail_values:
-        note_lines.append("Latest softwareOfficeStates excerpt: " + detail_values)
+    if patch_summary:
+        note_lines.append("Latest patch summary: " + patch_summary)
+    if parsed_log.get("phantom_corrections"):
+        note_lines.append(
+            "Recent phantom corrections: "
+            + "; ".join(parsed_log.get("phantom_corrections", [])[-LLM_MAX_PHANTOM_CORRECTIONS:])
+        )
 
     missing_user_input: list[str] = []
     if not issue_fields.get("save_or_city_label"):
@@ -642,13 +1021,21 @@ def build_deterministic_draft(
     return {
         "scenario_label": issue_fields.get("save_or_city_label", ""),
         "scenario_type": "existing save" if issue_fields.get("save_or_city_label") else "",
+        "platform_notes": "",
+        "comparison_baseline": "",
         "symptom_classification": derived_classification,
-        "evidence_summary": ". ".join(summary_bits) + ".",
+        "custom_symptom_classification": "",
+        "evidence_summary": build_deterministic_summary(parsed_log, derived_classification),
+        "log_excerpt": deterministic_excerpt,
+        "analysis_basis": "",
         "confounders": confounders,
-        "notes": "\n".join(note_lines),
+        "notes": join_unique_lines(build_deterministic_notes(parsed_log), markdown_bullets(*note_lines)),
         "missing_user_input": list(dict.fromkeys(missing_user_input)),
         "confidence": "medium",
-        "reasoning_summary": "Derived from the latest softwareEvidenceDiagnostics observation window plus the latest matching softwareOfficeStates detail line.",
+        "reasoning_summary": (
+            "Derived from the latest run's observation series, peak consumer shortage counters, "
+            "producer distress counters, and matching softwareOfficeStates detail candidates."
+        ),
     }
 
 
@@ -666,29 +1053,34 @@ def build_llm_context(
         "other_mods": truncate_text(issue_fields.get("other_mods", ""), 300),
     }
 
-    latest_detail = parsed_log.get("latest_software_office_detail")
-    latest_detail_excerpt = ""
-    if latest_detail:
-        latest_detail_excerpt = truncate_text(latest_detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT)
-
     semantic_facts = build_llm_semantic_facts(parsed_log)
 
     return {
         "raw_issue": raw_issue_context,
-        "latest_observation": parsed_log.get("latest_observation"),
-        "latest_software_office_detail_excerpt": latest_detail_excerpt,
-        "latest_patch_summary": truncate_text(
-            parsed_log.get("latest_patch_summary", ""),
-            LLM_SUMMARY_LINE_LIMIT,
-        ),
-        "recent_patch_summaries": [
-            truncate_text(item, LLM_SUMMARY_LINE_LIMIT)
-            for item in parsed_log.get("patch_summaries", [])[-LLM_MAX_PATCH_SUMMARIES:]
-        ],
-        "phantom_corrections": [
-            truncate_text(item, LLM_SUMMARY_LINE_LIMIT)
-            for item in parsed_log.get("phantom_corrections", [])[-LLM_MAX_PHANTOM_CORRECTIONS:]
-        ],
+        "locked_facts": {
+            "latest_observation": summarize_observation_for_llm(parsed_log.get("latest_observation")),
+            "final_observation": summarize_observation_for_llm(parsed_log.get("final_observation")),
+            "consumer_peak_observation": summarize_observation_for_llm(
+                parsed_log.get("consumer_peak_observation")
+            ),
+            "producer_peak_observation": summarize_observation_for_llm(
+                parsed_log.get("producer_peak_observation")
+            ),
+            "latest_patch_summary": truncate_text(
+                parsed_log.get("latest_patch_summary", ""),
+                LLM_SUMMARY_LINE_LIMIT,
+            ),
+            "recent_patch_summaries": [
+                truncate_text(item, LLM_SUMMARY_LINE_LIMIT)
+                for item in parsed_log.get("patch_summaries", [])[-LLM_MAX_PATCH_SUMMARIES:]
+            ],
+            "phantom_corrections": [
+                truncate_text(item, LLM_SUMMARY_LINE_LIMIT)
+                for item in parsed_log.get("phantom_corrections", [])[-LLM_MAX_PHANTOM_CORRECTIONS:]
+            ],
+        },
+        "excerpt_candidates": build_excerpt_candidates_for_llm(parsed_log),
+        "style_examples": EVIDENCE_STYLE_EXAMPLES[:MAX_STYLE_EXAMPLES],
         "deterministic_draft": deterministic_draft,
         "redaction_notes": redaction_notes,
         "semantic_facts": semantic_facts,
@@ -706,6 +1098,8 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
         "softwareConsumerOffices.softwareInputZero counts consumer offices where the software input state was zero in diagnostics; it is not a citywide demand verdict by itself.",
         "If the facts show efficiency=0 and lackResources=0, summarize that conservatively as 'efficiency=0 while lackResources=0'.",
         "Do not use phrases like 'zero resources' or 'no resources' unless the provided facts literally support that wording.",
+        "When selecting log excerpts, use only the provided candidate lines and preserve their wording inside fenced `text` blocks.",
+        "Use `### Day ...` subsection headings inside `log_excerpt` when you include producer-side or consumer-side detail excerpts.",
     ]
 
     producer_lack_resources_zero = safe_int(producers.get("lackResourcesZero"))
@@ -735,8 +1129,13 @@ def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
         "additionalProperties": False,
         "properties": {
             "symptom_classification": {"type": "string"},
+            "custom_symptom_classification": {"type": "string"},
             "evidence_summary": {"type": "string"},
+            "comparison_baseline": {"type": "string"},
+            "confidence": {"type": "string"},
             "confounders": {"type": "string"},
+            "analysis_basis": {"type": "string"},
+            "log_excerpt": {"type": "string"},
             "notes": {"type": "string"},
             "missing_user_input": {
                 "type": "array",
@@ -746,8 +1145,13 @@ def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
         },
         "required": [
             "symptom_classification",
+            "custom_symptom_classification",
             "evidence_summary",
+            "comparison_baseline",
+            "confidence",
             "confounders",
+            "analysis_basis",
+            "log_excerpt",
             "notes",
             "missing_user_input",
             "reasoning_summary",
@@ -761,19 +1165,27 @@ def build_llm_request_payload(context: dict[str, Any]) -> dict[str, Any]:
         - Do not invent numeric counters or quote counters that are not present in the provided facts.
         - Use only the provided structured facts and excerpts.
         - Leave fields empty rather than guessing when confidence is low.
+        - Draft for a final `Software evidence` issue body that should read like issues #25 and #26 in this repo: factual, compact, and easy to scan.
         - `evidence_summary` must stay factual and observational. Keep it to 2-4 short sentences about what the provided diagnostics showed.
         - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
         - Do not use `evidence_summary` for causal claims, recommendations, or likely explanations.
+        - `comparison_baseline` should stay empty unless the provided facts explicitly support a save-lineage or patch-state comparison.
+        - `confidence` must be one of: high, medium, low. Use `medium` unless the facts strongly justify another choice.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
         - Only include confounders that could materially affect interpretation. Do not list routine diagnostics settings unless they materially changed behavior or evidence capture.
         - Do not repeat deterministic confounders unless you are adding a distinct residual concern.
+        - `analysis_basis` may stay blank. Fill it only when the provided facts directly justify a brief factual note about code-reading basis.
+        - `log_excerpt` should be Markdown, not prose-only text. Use 1-2 `### Day ...` subsections followed by fenced `text` blocks, and copy only the candidate excerpt lines that were provided.
+        - Do not invent excerpt lines, fields, days, or sample indices. If the candidates are weak, leave `log_excerpt` blank.
         - `notes` may add extra factual context or excerpt observations, but do not speculate about root cause, misconfiguration, ownership problems, or likely explanations.
+        - Prefer bullet-list `notes` that walk through the run chronologically when the facts support that.
         - Put label-selection rationale and interpretation only in `reasoning_summary`.
         - `lackResourcesZero` is a diagnostic counter name for offices where `lackResources=0`; it does not mean "zero resources" or "no resources."
         - `softwareInputZero` is an office-state/input condition for software consumers; do not generalize it into an overall citywide demand or shortage conclusion without explicit facts.
         - If the facts show `efficiency=0` and `lackResources=0`, describe that conservatively as `efficiency=0 while lackResources=0` or equivalent.
         - Do not translate diagnostic counter names into stronger plain-language shortage claims unless the provided facts explicitly support that claim.
         - Avoid phrases like "zero resources" or "no resources" unless the provided facts literally support that wording.
+        - If you use a non-canonical symptom label, set `symptom_classification` to `other` and put the final label in `custom_symptom_classification`.
         - Use one of these labels when possible:
           software_office_propertyless, software_office_efficiency_zero,
           software_office_lack_resources_zero, software_demand_mismatch,
@@ -846,10 +1258,11 @@ def generate_llm_suggestions(context: dict[str, Any], github_token: str | None) 
 
 def apply_llm_wording_guards(suggestions: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(suggestions)
-    summary = str(normalized.get("evidence_summary", ""))
-    summary = re.sub(r"\bzero resources\b", "lackResources=0", summary, flags=re.IGNORECASE)
-    summary = re.sub(r"\bno resources\b", "lackResources=0", summary, flags=re.IGNORECASE)
-    normalized["evidence_summary"] = summary
+    for field_name in ("evidence_summary", "comparison_baseline", "confounders", "analysis_basis", "log_excerpt", "notes"):
+        value = str(normalized.get(field_name, ""))
+        value = re.sub(r"\bzero resources\b", "lackResources=0", value, flags=re.IGNORECASE)
+        value = re.sub(r"\bno resources\b", "lackResources=0", value, flags=re.IGNORECASE)
+        normalized[field_name] = value
     return normalized
 
 
@@ -1068,7 +1481,6 @@ def render_managed_comment(
     llm_detail: str,
 ) -> tuple[str, dict[str, Any]]:
     latest_observation = parsed_log.get("latest_observation")
-    latest_detail = parsed_log.get("latest_software_office_detail")
 
     combined_missing = list(
         dict.fromkeys(
@@ -1090,12 +1502,16 @@ def render_managed_comment(
         "redaction_notes": redaction_notes,
         "parsed_log": {
             "latest_observation": latest_observation,
-            "latest_software_office_detail": latest_detail,
+            "final_observation": parsed_log.get("final_observation"),
+            "consumer_peak_observation": parsed_log.get("consumer_peak_observation"),
+            "producer_peak_observation": parsed_log.get("producer_peak_observation"),
+            "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
             "latest_patch_summary": parsed_log.get("latest_patch_summary", ""),
             "patch_summaries": parsed_log.get("patch_summaries", []),
             "phantom_corrections": parsed_log.get("phantom_corrections", []),
             "observation_count": parsed_log.get("observation_count", 0),
             "detail_count": parsed_log.get("detail_count", 0),
+            "log_excerpt_candidates": parsed_log.get("log_excerpt_candidates", []),
         },
         "deterministic_draft": deterministic_draft,
         "llm_draft": llm_draft,
@@ -1105,37 +1521,34 @@ def render_managed_comment(
         "llm_detail": llm_detail,
     }
 
-    latest_observation_raw = latest_observation["observation_window_raw"] if latest_observation else "not found"
-    latest_detail_preview = truncate_text(latest_detail["values"]) if latest_detail else "not found"
-    latest_patch_summary = parsed_log.get("latest_patch_summary") or "not found"
     redaction_summary = "; ".join(redaction_notes) if redaction_notes else "none"
     deterministic_reasoning = deterministic_draft.get("reasoning_summary", "not available")
     llm_reasoning = (llm_draft or {}).get("reasoning_summary", "")
+    preview_fields = build_preview_evidence_fields(
+        issue_number,
+        issue_fields,
+        log_source,
+        parsed_log,
+        deterministic_draft,
+        llm_draft,
+        reply_fields,
+    )
+    preview_body = render_evidence_issue_body(issue_number, 0, preview_fields).rstrip()
 
     body = "\n".join(
         [
             MANAGED_COMMENT_MARKER,
             f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML below into a new maintainer comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment when the evidence issue is ready. Pasting the copied YAML directly is valid; code fences are optional.",
             "",
-            "## Normalized draft",
-            f"- Latest observation window: `{latest_observation_raw}`",
-            f"- Deterministic symptom suggestion: `{deterministic_draft.get('symptom_classification', '') or 'not available'}`",
+            "## Draft Evidence Issue Preview",
+            preview_body,
+            "",
+            "### Draft provenance",
             f"- LLM status: `{llm_status}`",
             f"- LLM detail: `{llm_detail}`",
             f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
             f"- Raw log source: `{log_source['mode']}`",
-            f"- Latest patch summary: `{latest_patch_summary}`",
-            f"- Latest softwareOfficeStates excerpt: `{latest_detail_preview}`",
             f"- Redaction notes: `{redaction_summary}`",
-            "",
-            "### Suggested evidence fields",
-            f"- `scenario_label`: `{reply_fields.get('scenario_label', '')}`",
-            f"- `scenario_type`: `{reply_fields.get('scenario_type', '')}`",
-            f"- `evidence_summary`: `{truncate_text(reply_fields.get('evidence_summary', ''), 600)}`",
-            f"- `confounders`: `{truncate_text(reply_fields.get('confounders', ''), 600)}`",
-            f"- `notes`: `{truncate_text(reply_fields.get('notes', ''), 600)}`",
-            "",
-            "### Draft provenance",
             f"- Deterministic reasoning: `{deterministic_reasoning}`",
             f"- LLM reasoning: `{llm_reasoning if llm_reasoning else 'not used'}`",
             "",
@@ -1161,6 +1574,7 @@ def render_managed_comment(
         compact_payload = dict(payload)
         compact_parsed = dict(payload["parsed_log"])
         compact_parsed["latest_software_office_detail"] = None
+        compact_parsed["log_excerpt_candidates"] = compact_parsed.get("log_excerpt_candidates", [])[:2]
         compact_parsed["patch_summaries"] = compact_parsed["patch_summaries"][-3:]
         compact_parsed["phantom_corrections"] = compact_parsed["phantom_corrections"][-3:]
         compact_payload["parsed_log"] = compact_parsed
@@ -1169,14 +1583,13 @@ def render_managed_comment(
                 MANAGED_COMMENT_MARKER,
                 f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML into a new maintainer comment and add `{PROMOTE_COMMAND}` there when ready. Plain pasted YAML is accepted.",
                 "",
-                "## Normalized draft",
-                f"- Latest observation window: `{latest_observation_raw}`",
-                f"- Deterministic symptom suggestion: `{deterministic_draft.get('symptom_classification', '') or 'not available'}`",
+                "## Draft Evidence Issue Preview",
+                preview_body,
+                "",
+                "### Draft provenance",
                 f"- LLM status: `{llm_status}`",
                 f"- LLM detail: `{llm_detail}`",
                 f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
-                "",
-                "### Draft provenance",
                 f"- Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`",
                 f"- LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else 'not used'}`",
                 "",
@@ -1326,13 +1739,109 @@ def find_existing_promoted_issue(repo: str, raw_issue_number: int, token: str) -
     return None
 
 
+def normalize_symptom_fields(symptom_classification: str, custom_symptom_classification: str) -> tuple[str, str]:
+    label = symptom_classification.strip()
+    custom_label = custom_symptom_classification.strip()
+    if custom_label and not label:
+        label = "other"
+    if label and label not in SOFTWARE_EVIDENCE_CANONICAL_CLASSIFICATIONS and label != "other":
+        custom_label = custom_label or label
+        label = "other"
+    return label, custom_label
+
+
+def display_symptom_label(fields: dict[str, str]) -> str:
+    label, custom_label = normalize_symptom_fields(
+        fields.get("symptom-classification", ""),
+        fields.get("custom-symptom-classification", ""),
+    )
+    if label == "other" and custom_label:
+        return custom_label
+    return label
+
+
+def build_preview_artifacts_text(issue_number: int, log_source: dict[str, Any]) -> str:
+    lines = [f"- raw intake issue: #{issue_number}", "- triage draft comment: this managed triage comment"]
+    if log_source.get("url"):
+        lines.append(f"- raw log attachment: {sanitize_url(log_source['url'])}")
+    return "\n".join(lines)
+
+
+def build_preview_evidence_fields(
+    issue_number: int,
+    issue_fields: dict[str, str],
+    log_source: dict[str, Any],
+    parsed_log: dict[str, Any],
+    deterministic_draft: dict[str, Any],
+    llm_draft: dict[str, Any] | None,
+    reply_fields: dict[str, str],
+) -> dict[str, str]:
+    latest_observation = parsed_log.get("latest_observation") or {}
+
+    def merged_text(field_name: str, raw_value: str = "") -> str:
+        return choose_field_value(
+            reply_fields.get(field_name, ""),
+            raw_value,
+            (llm_draft or {}).get(field_name, ""),
+            deterministic_draft.get(field_name, ""),
+        )
+
+    symptom_classification, custom_symptom_classification = normalize_symptom_fields(
+        merged_text("symptom_classification"),
+        merged_text("custom_symptom_classification"),
+    )
+    return {
+        "game-version": issue_fields.get("game_version", ""),
+        "mod-version": issue_fields.get("mod_version", ""),
+        "mod-ref": merged_text("mod_ref"),
+        "settings": latest_observation.get("settings_raw", ""),
+        "patch-state": latest_observation.get("patch_state", ""),
+        "platform-notes": merged_text("platform_notes"),
+        "other-mods": choose_field_value(issue_fields.get("other_mods", ""), "not recorded in this evidence log"),
+        "scenario-label": merged_text("scenario_label", issue_fields.get("save_or_city_label", "")),
+        "scenario-type": merged_text("scenario_type"),
+        "reproduction-conditions": merged_text("reproduction_conditions", issue_fields.get("what_happened", "")),
+        "observation-window": latest_observation.get("observation_window_raw", ""),
+        "comparison-baseline": merged_text("comparison_baseline"),
+        "symptom-classification": symptom_classification,
+        "custom-symptom-classification": custom_symptom_classification,
+        "diagnostic-counters": latest_observation.get("diagnostic_counters_raw", ""),
+        "log-excerpt": merged_text("log_excerpt"),
+        "evidence-summary": merged_text("evidence_summary"),
+        "confidence": merged_text("confidence", "medium"),
+        "confounders": merged_text("confounders", "none known"),
+        "analysis-basis": merged_text("analysis_basis"),
+        "artifacts": build_preview_artifacts_text(issue_number, log_source),
+        "notes": merged_text("notes"),
+    }
+
+
 def build_log_excerpt(payload: dict[str, Any]) -> str:
+    llm_draft = payload.get("llm_draft") or {}
+    deterministic_draft = payload.get("deterministic_draft") or {}
+    log_excerpt = choose_field_value(
+        llm_draft.get("log_excerpt", ""),
+        deterministic_draft.get("log_excerpt", ""),
+    )
+    if log_excerpt:
+        return log_excerpt
+
+    excerpt_candidates = payload.get("parsed_log", {}).get("log_excerpt_candidates", [])
+    if excerpt_candidates:
+        return "\n\n".join(candidate.get("markdown", "") for candidate in excerpt_candidates if candidate.get("markdown"))
+
     latest_detail = payload["parsed_log"].get("latest_software_office_detail")
     if latest_detail:
-        return truncate_text(latest_detail["message"], 4000)
+        return "\n".join(["```text", truncate_text(latest_detail["values"], 4000), "```"])
     latest_observation = payload["parsed_log"].get("latest_observation")
     if latest_observation:
-        return truncate_text(latest_observation["line"], 4000)
+        return "\n".join(
+            [
+                "```text",
+                truncate_text(latest_observation.get("diagnostic_counters_raw", ""), 4000),
+                "```",
+            ]
+        )
     return ""
 
 
@@ -1342,11 +1851,11 @@ def build_artifacts_text(
     raw_issue_url: str,
     maintainer_reply_url: str = "",
 ) -> str:
-    lines = [f"raw intake issue: {raw_issue_url}", f"triage draft comment: {triage_comment_url}"]
+    lines = [f"- raw intake issue: {raw_issue_url}", f"- triage draft comment: {triage_comment_url}"]
     if maintainer_reply_url:
-        lines.append(f"maintainer promote reply: {maintainer_reply_url}")
+        lines.append(f"- maintainer promote reply: {maintainer_reply_url}")
     if payload["log_source"].get("url"):
-        lines.append(f"raw log attachment: {payload['log_source']['url']}")
+        lines.append(f"- raw log attachment: {payload['log_source']['url']}")
     return "\n".join(lines)
 
 
@@ -1407,6 +1916,11 @@ def merge_evidence_fields(
         )
 
     symptom_classification = merged_text("symptom_classification")
+    custom_symptom_classification = merged_text("custom_symptom_classification")
+    symptom_classification, custom_symptom_classification = normalize_symptom_fields(
+        symptom_classification,
+        custom_symptom_classification,
+    )
     merged_confounders = choose_field_value(
         overrides.get("confounders", ""),
         join_unique_lines(
@@ -1420,8 +1934,8 @@ def merge_evidence_fields(
         "mod-ref": merged_text("mod_ref"),
         "settings": latest_observation.get("settings_raw", ""),
         "patch-state": latest_observation.get("patch_state", ""),
-        "platform-notes": "",
-        "other-mods": raw_fields.get("other_mods", ""),
+        "platform-notes": merged_text("platform_notes"),
+        "other-mods": choose_field_value(raw_fields.get("other_mods", ""), "not recorded in this evidence log"),
         "scenario-label": merged_text("scenario_label", raw_fields.get("save_or_city_label", "")),
         "scenario-type": merged_text(
             "scenario_type", "existing save" if raw_fields.get("save_or_city_label") else ""
@@ -1430,19 +1944,15 @@ def merge_evidence_fields(
             "reproduction_conditions", raw_fields.get("what_happened", "")
         ),
         "observation-window": latest_observation.get("observation_window_raw", ""),
-        "comparison-baseline": "",
+        "comparison-baseline": merged_text("comparison_baseline"),
         "symptom-classification": symptom_classification,
-        "custom-symptom-classification": (
-            symptom_classification
-            if symptom_classification and symptom_classification not in SOFTWARE_EVIDENCE_CANONICAL_CLASSIFICATIONS
-            else ""
-        ),
+        "custom-symptom-classification": custom_symptom_classification,
         "diagnostic-counters": latest_observation.get("diagnostic_counters_raw", ""),
-        "log-excerpt": build_log_excerpt(payload),
+        "log-excerpt": merged_text("log_excerpt", build_log_excerpt(payload)),
         "evidence-summary": merged_text("evidence_summary"),
-        "confidence": "medium",
+        "confidence": merged_text("confidence", "medium"),
         "confounders": merged_confounders or "none known",
-        "analysis-basis": "",
+        "analysis-basis": merged_text("analysis_basis"),
         "artifacts": build_artifacts_text(
             payload,
             triage_comment_url,
@@ -1473,8 +1983,6 @@ def render_evidence_issue_body(
         source_marker,
         comment_marker,
         "",
-        "> Promoted from raw-log intake. The symptom classification in this issue is provisional and may be revised during later synthesis.",
-        "",
     ]
 
     ordered_sections = [
@@ -1490,8 +1998,7 @@ def render_evidence_issue_body(
         ("Reproduction conditions", fields["reproduction-conditions"]),
         ("Observation window", fields["observation-window"]),
         ("Comparison baseline", fields["comparison-baseline"]),
-        ("Symptom classification", fields["symptom-classification"]),
-        ("Custom symptom classification", fields["custom-symptom-classification"]),
+        ("Symptom classification", display_symptom_label(fields)),
         ("Diagnostic counters", fields["diagnostic-counters"]),
         ("Log excerpt", fields["log-excerpt"]),
         ("Evidence summary", fields["evidence-summary"]),
@@ -1502,18 +2009,45 @@ def render_evidence_issue_body(
         ("Notes", fields["notes"]),
     ]
 
+    optional_sections = {
+        "Platform notes",
+        "Comparison baseline",
+        "Log excerpt",
+        "Analysis basis",
+        "Artifacts",
+        "Notes",
+    }
+    scalar_sections = {
+        "Game version",
+        "Mod version",
+        "Mod ref",
+        "Patch state",
+        "Other mods",
+        "Scenario label",
+        "Scenario type",
+        "Symptom classification",
+        "Confidence",
+    }
+
     for heading, value in ordered_sections:
-        lines.append(f"### {heading}")
         if not value:
-            lines.append("_No response_")
-        elif heading == "Observation window":
-            lines.extend(render_structured_text_block(value, format_observation_window_readable(value)))
+            if heading in optional_sections:
+                continue
+            value = "_No response_"
+        lines.append(f"## {heading}")
+        if heading == "Observation window":
+            lines.extend(["```text", format_observation_window_readable(value), "```"])
         elif heading == "Settings":
-            lines.extend(render_structured_text_block(value, format_settings_readable(value)))
+            lines.extend(["```text", format_settings_readable(value), "```"])
         elif heading == "Diagnostic counters":
-            lines.extend(render_structured_text_block(value, format_diagnostic_counters_readable(value)))
+            lines.extend(["```text", format_diagnostic_counters_readable(value), "```"])
         elif heading == "Log excerpt":
-            lines.extend(render_raw_text_block(value))
+            if "```" in value or value.lstrip().startswith("### "):
+                lines.append(value)
+            else:
+                lines.extend(["```text", value, "```"])
+        elif heading in scalar_sections and value != "_No response_":
+            lines.append(value if value.startswith("`") and value.endswith("`") else f"`{value}`")
         else:
             lines.append(value)
         lines.append("")
@@ -1533,34 +2067,24 @@ def render_raw_text_block(value: str) -> list[str]:
 
 
 def format_observation_window_readable(raw: str) -> str:
-    parsed = parse_key_value_text(raw, "=")
-    if not parsed:
+    parts = split_top_level_delimited(raw, ",")
+    if not parts:
         return raw
-    return "\n".join(f"{key}: {parsed[key]}" for key in parsed)
+    return ",\n".join(parts)
 
 
 def format_settings_readable(raw: str) -> str:
-    parsed = parse_key_value_text(raw, ":")
-    if not parsed:
+    parts = split_top_level_delimited(raw, ",")
+    if not parts:
         return raw
-    return "\n".join(f"{key}: {parsed[key]}" for key in parsed)
+    return "\n".join(parts)
 
 
 def format_diagnostic_counters_readable(raw: str) -> str:
     groups = split_group_entries(raw)
     if not groups:
         return raw
-
-    lines: list[str] = []
-    for name, contents in groups:
-        lines.append(f"{name}:")
-        parsed = parse_key_value_text(contents, "=")
-        if not parsed:
-            lines.append(f"  {contents}")
-            continue
-        for key, value in parsed.items():
-            lines.append(f"  {key}: {value}")
-    return "\n".join(lines)
+    return "\n".join(f"{name}({contents})" for name, contents in groups)
 
 
 def build_missing_fields_comment(missing_fields: list[str], *, via_label: bool = False) -> str:

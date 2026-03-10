@@ -20,6 +20,20 @@ CURRENT_BRANCH_LOG = textwrap.dedent(
     """
 ).strip()
 
+MULTI_OBSERVATION_LOG = textwrap.dedent(
+    """
+    [2026-03-10 14:28:15,189] [INFO]  Office resource storage patch applied. Outside connections: 6, cargo stations: 28.
+    [2026-03-10 14:30:41,511] [INFO]  Signature phantom vacancy guard corrected office property 394316:1 prefab="EE_OfficeSignature02" (36377:1) removed=[PropertyOnMarket]
+    [2026-03-10 15:10:00,000] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T130639590Z, run_id=1, start_day=20, end_day=20, start_sample_index=145, end_sample_index=145, sample_day=20, sample_index=145, sample_slot=1, samples_per_day=7, sample_count=1, trigger=capture_stable_evidence); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:7,CaptureStableEvidence:True,VerboseLogging:True, patch_state=debug-build); diagnostic_counters(officeDemand(building=57, company=1596, emptyBuildings=50, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=925211, resourceDemand=411328, companies=27, propertyless=1); electronics(resourceProduction=109125, resourceDemand=351810, companies=11, propertyless=2); softwareProducerOffices(total=27, propertyless=1, efficiencyZero=0, lackResourcesZero=0); softwareConsumerOffices(total=28, propertyless=3, efficiencyZero=0, lackResourcesZero=0, softwareInputZero=0)); diagnostic_context(topFactors=[EmptyBuildings=50, Taxes=100, LocalDemand=58, EducatedWorkforce=30])
+    [2026-03-10 15:20:00,000] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T130639590Z, run_id=1, start_day=20, end_day=21, start_sample_index=145, end_sample_index=152, sample_day=21, sample_index=152, sample_slot=6, samples_per_day=7, sample_count=8, trigger=suspicious_state); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:7,CaptureStableEvidence:True,VerboseLogging:True, patch_state=debug-build); diagnostic_counters(officeDemand(building=100, company=15225, emptyBuildings=100, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=1044875, resourceDemand=471676, companies=26, propertyless=1); electronics(resourceProduction=226375, resourceDemand=391863, companies=11, propertyless=2); softwareProducerOffices(total=26, propertyless=1, efficiencyZero=2, lackResourcesZero=2); softwareConsumerOffices(total=29, propertyless=3, efficiencyZero=24, lackResourcesZero=0, softwareInputZero=24)); diagnostic_context(topFactors=[EmptyBuildings=100, Taxes=100, LocalDemand=58, EducatedWorkforce=30])
+    [2026-03-10 15:20:00,001] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T130639590Z, run_id=1, observation_end_day=21, observation_end_sample_index=152, detail_type=softwareOfficeStates, values=role=consumer, company=276439:1, prefab="Office_MediaCompany" (420:1), property=71688:1, output=Media, outputStock=0, input1=Software(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0), softwareInputZero=True, efficiency=0, lackResources=0)
+    [2026-03-10 15:20:00,001] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T130639590Z, run_id=1, observation_end_day=21, observation_end_sample_index=152, detail_type=softwareOfficeStates, values=role=consumer, company=276447:1, prefab="Office_Bank" (419:1), property=71715:1, output=Financial, outputStock=0, input1=Software(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0), softwareInputZero=True, efficiency=0, lackResources=0)
+    [2026-03-10 15:28:36,542] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T130639590Z, run_id=1, start_day=20, end_day=22, start_sample_index=145, end_sample_index=160, sample_day=22, sample_index=160, sample_slot=6, samples_per_day=7, sample_count=16, trigger=suspicious_state); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:7,CaptureStableEvidence:True,VerboseLogging:True, patch_state=debug-build); diagnostic_counters(officeDemand(building=100, company=12482, emptyBuildings=100, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=1044875, resourceDemand=471676, companies=26, propertyless=1); electronics(resourceProduction=226375, resourceDemand=391863, companies=11, propertyless=2); softwareProducerOffices(total=26, propertyless=1, efficiencyZero=8, lackResourcesZero=8); softwareConsumerOffices(total=29, propertyless=3, efficiencyZero=0, lackResourcesZero=0, softwareInputZero=0)); diagnostic_context(topFactors=[EmptyBuildings=100, Taxes=100, LocalDemand=58, EducatedWorkforce=30])
+    [2026-03-10 15:28:36,543] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T130639590Z, run_id=1, observation_end_day=22, observation_end_sample_index=160, detail_type=softwareOfficeStates, values=role=producer, company=524396:1, prefab="Office_SoftwareCompany" (364:1), property=116821:1, output=Software, outputStock=0, input1=Electronics(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0.577), efficiency=0, lackResources=0)
+    [2026-03-10 15:28:36,543] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T130639590Z, run_id=1, observation_end_day=22, observation_end_sample_index=160, detail_type=softwareOfficeStates, values=role=producer, company=524398:1, prefab="Office_SoftwareCompany" (364:1), property=116825:1, output=Software, outputStock=0, input1=Electronics(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0.998), efficiency=0, lackResources=0)
+    """
+).strip()
+
 
 RAW_ISSUE_BODY = textwrap.dedent(
     """
@@ -120,6 +134,15 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertIn("role=producer", parsed["latest_software_office_detail"]["values"])
 
+    def test_parse_log_retains_latest_run_candidates_across_multiple_observations(self) -> None:
+        parsed = automation.parse_log(MULTI_OBSERVATION_LOG)
+        self.assertEqual(len(parsed["latest_run_observations"]), 3)
+        self.assertEqual(automation.observation_day(parsed["consumer_peak_observation"]), 21)
+        self.assertEqual(automation.observation_day(parsed["producer_peak_observation"]), 22)
+        self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["consumer_peak", "producer_peak"])
+        self.assertIn("role=consumer", parsed["log_excerpt_candidates"][0]["markdown"])
+        self.assertIn("role=producer", parsed["log_excerpt_candidates"][1]["markdown"])
+
     def test_build_deterministic_draft_includes_checklist_confounders(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
@@ -190,16 +213,17 @@ class RawLogAutomationTests(unittest.TestCase):
             "failed",
             "http_403: models access denied",
         )
-        self.assertIn("\n## Normalized draft\n", body)
+        self.assertIn("\n## Draft Evidence Issue Preview\n", body)
+        self.assertIn("\n## Game version\n", body)
         self.assertIn("\n### Maintainer reply template\n", body)
         self.assertIn("\n```yaml\n", body)
-        self.assertNotIn("\n        ## Normalized draft\n", body)
+        self.assertNotIn("\n        ## Draft Evidence Issue Preview\n", body)
         self.assertNotIn("\n        ```yaml\n", body)
         self.assertIn("- LLM status: `failed`", body)
         self.assertIn("- LLM detail: `http_403: models access denied`", body)
         self.assertIn("/promote-evidence", body)
 
-    def test_render_managed_comment_keeps_preview_short_but_reply_yaml_full(self) -> None:
+    def test_render_managed_comment_keeps_preview_and_reply_yaml_full(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
@@ -226,8 +250,8 @@ class RawLogAutomationTests(unittest.TestCase):
             "skipped",
             "no eligible observation",
         )
-        self.assertIn(f"`{'A' * 597}...`", body)
         self.assertIn(long_notes, body)
+        self.assertIn("## Notes", body)
 
     def test_render_managed_comment_shows_full_reasoning_and_plain_yaml_guidance(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -346,18 +370,20 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(missing, [])
         issue_body = automation.render_evidence_issue_body(21, 1, fields)
         self.assertIn("<!-- source-raw-log-issue:21 -->", issue_body)
-        self.assertIn("symptom classification in this issue is provisional", issue_body)
-        self.assertIn("### Observation window", issue_body)
-        self.assertIn("session_id: 20260310T052953590Z", issue_body)
-        self.assertIn("### Settings", issue_body)
-        self.assertIn("EnableTradePatch: True", issue_body)
-        self.assertIn("### Diagnostic counters", issue_body)
-        self.assertIn("softwareProducerOffices:", issue_body)
-        self.assertIn("### Log excerpt\nRaw string\n```text\nsoftwareEvidenceDiagnostics detail(", issue_body)
-        self.assertIn("Raw string", issue_body)
-        self.assertIn("### Mod ref", issue_body)
+        self.assertIn("<!-- source-raw-log-comment:1 -->", issue_body)
+        self.assertIn("## Observation window", issue_body)
+        self.assertIn("session_id=20260310T052953590Z", issue_body)
+        self.assertIn("## Settings", issue_body)
+        self.assertIn("EnableTradePatch:True", issue_body)
+        self.assertIn("## Diagnostic counters", issue_body)
+        self.assertIn("softwareProducerOffices(total=27, propertyless=1, efficiencyZero=10, lackResourcesZero=10)", issue_body)
+        self.assertIn("## Log excerpt\n### Day 22 producer-side detail", issue_body)
+        self.assertNotIn("Readable view", issue_body)
+        self.assertNotIn("Raw string", issue_body)
+        self.assertNotIn("Custom symptom classification", issue_body)
+        self.assertIn("## Mod ref", issue_body)
         self.assertIn("track/software-instability @ abc1234", issue_body)
-        self.assertIn("maintainer promote reply: https://github.com/example/repo/issues/21#issuecomment-2", fields["artifacts"])
+        self.assertIn("- maintainer promote reply: https://github.com/example/repo/issues/21#issuecomment-2", fields["artifacts"])
 
     def test_generate_llm_suggestions_returns_none_without_token(self) -> None:
         self.assertIsNone(automation.generate_llm_suggestions({"foo": "bar"}, None))
@@ -372,8 +398,10 @@ class RawLogAutomationTests(unittest.TestCase):
             payload["response_format"]["json_schema"]["name"],
             "raw_log_triage_suggestions",
         )
+        self.assertIn("log_excerpt", payload["response_format"]["json_schema"]["schema"]["properties"])
         self.assertIn("lackResourcesZero", payload["messages"][0]["content"])
         self.assertIn("zero resources", payload["messages"][0]["content"])
+        self.assertIn("#25 and #26", payload["messages"][0]["content"])
         self.assertIn("Do not mention the chosen symptom label", payload["messages"][0]["content"])
         self.assertIn("Put label-selection rationale and interpretation only in `reasoning_summary`", payload["messages"][0]["content"])
         self.assertIn("do not speculate about root cause", payload["messages"][0]["content"])
@@ -391,9 +419,11 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
         self.assertNotIn("raw_log", context["raw_issue"])
-        self.assertIn("latest_software_office_detail_excerpt", context)
+        self.assertIn("locked_facts", context)
+        self.assertIn("excerpt_candidates", context)
+        self.assertTrue(context["excerpt_candidates"])
         self.assertLessEqual(
-            len(context["latest_software_office_detail_excerpt"]),
+            len(context["excerpt_candidates"][0]["lines"][0]),
             automation.LLM_DETAIL_EXCERPT_LIMIT,
         )
         self.assertIn("semantic_facts", context)
@@ -421,7 +451,10 @@ class RawLogAutomationTests(unittest.TestCase):
                     "message": {
                         "content": (
                             '{"symptom_classification":"software_track_unclear",'
-                            '"evidence_summary":"summary","confounders":"none",'
+                            '"custom_symptom_classification":"",'
+                            '"evidence_summary":"summary","comparison_baseline":"",'
+                            '"confidence":"medium","confounders":"none","analysis_basis":"",'
+                            '"log_excerpt":"### Day 22 producer-side detail\\n```text\\nrole=producer\\n```",'
                             '"notes":"note","missing_user_input":["mod_ref"],'
                             '"reasoning_summary":"reason"}'
                         )
@@ -445,8 +478,10 @@ class RawLogAutomationTests(unittest.TestCase):
                     "message": {
                         "content": (
                             '{"symptom_classification":"software_office_propertyless",'
+                            '"custom_symptom_classification":"",'
                             '"evidence_summary":"8 producer offices at zero efficiency and zero resources.",'
-                            '"confounders":"none","notes":"note","missing_user_input":["mod_ref"],'
+                            '"comparison_baseline":"","confidence":"medium","confounders":"none","analysis_basis":"",'
+                            '"log_excerpt":"","notes":"note","missing_user_input":["mod_ref"],'
                             '"reasoning_summary":"reason"}'
                         )
                     }

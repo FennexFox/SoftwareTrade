@@ -32,15 +32,25 @@ def build_default_reply_fields(
         "scenario_type": deterministic_draft.get("scenario_type", ""),
         "reproduction_conditions": issue_fields.get("what_happened", ""),
         "mod_ref": "",
+        "platform_notes": deterministic_draft.get("platform_notes", ""),
+        "comparison_baseline": (llm_draft or {}).get("comparison_baseline", "")
+        or deterministic_draft.get("comparison_baseline", ""),
         "symptom_classification": (llm_draft or {}).get("symptom_classification", "")
         or deterministic_draft.get("symptom_classification", ""),
+        "custom_symptom_classification": (llm_draft or {}).get("custom_symptom_classification", "")
+        or deterministic_draft.get("custom_symptom_classification", ""),
         "evidence_summary": (llm_draft or {}).get("evidence_summary", "")
         or deterministic_draft.get("evidence_summary", ""),
+        "confidence": (llm_draft or {}).get("confidence", "") or deterministic_draft.get("confidence", "medium"),
         "confounders": join_unique_lines(
             deterministic_draft.get("confounders", ""),
             (llm_draft or {}).get("confounders", ""),
         )
         or deterministic_draft.get("confounders", ""),
+        "analysis_basis": (llm_draft or {}).get("analysis_basis", "")
+        or deterministic_draft.get("analysis_basis", ""),
+        "log_excerpt": (llm_draft or {}).get("log_excerpt", "")
+        or deterministic_draft.get("log_excerpt", ""),
         "notes": (llm_draft or {}).get("notes", "") or deterministic_draft.get("notes", ""),
     }
 
