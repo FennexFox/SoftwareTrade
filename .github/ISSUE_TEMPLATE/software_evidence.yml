@@ -9,6 +9,7 @@ body:
         Use this form only for `software`-track bounded runs that are worth keeping as reusable evidence.
         Do not open one issue per raw log sample. Raw logs, temporary notes, and unpromoted observations can stay in local artifacts or in the umbrella software investigation issue.
         Keep the report factual and scoped to one observation window that can stand on its own later.
+        If the claim is about office-demand response, keep `officeDemand(...)` in the copied counters instead of only summarizing demand behavior in prose.
         Canonical schema: `.github/software-evidence-schema.md`
         If you have current mod logs, prefer copying values directly from `softwareEvidenceDiagnostics`.
   - type: input
@@ -39,7 +40,7 @@ body:
       label: Settings
       description: Copy only the `settings=...` portion from `environment(settings=..., patch_state=...)` when available.
       placeholder: |
-        EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,CaptureStableEvidence:False,VerboseLogging:False
+        EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:False,VerboseLogging:False
     validations:
       required: true
   - type: input
@@ -90,8 +91,8 @@ body:
     id: observation-window
     attributes:
       label: Observation window
-      description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, then expand if you need more narrative context.
-      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, sample_day=419, sample_count=8, trigger=capture_stable_evidence
+      description: Prefer copying the full `softwareEvidenceDiagnostics observation_window(...)` entry, including sample-slot fields when present, then expand if you need more narrative context.
+      placeholder: session_id=20260309T083500123Z, run_id=2, start_day=412, end_day=419, start_sample_index=824, end_sample_index=839, sample_day=419, sample_index=839, sample_slot=1, samples_per_day=2, sample_count=16, trigger=capture_stable_evidence
     validations:
       required: true
   - type: textarea
@@ -122,21 +123,23 @@ body:
     id: diagnostic-counters
     attributes:
       label: Diagnostic counters
-      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing.
+      description: Copy the `diagnostic_counters(...)` portion from `softwareEvidenceDiagnostics` with minimal editing. Include `electronics(...)` and the producer/consumer office counter groups when they matter for the hypothesis under test. If the claim involves office-demand response, keep `officeDemand(...)` intact.
       placeholder: |
         officeDemand(building=..., company=..., emptyBuildings=..., buildingDemand=...)
         freeOfficeProperties(total=..., software=..., inOccupiedBuildings=..., softwareInOccupiedBuildings=...)
         onMarketOfficeProperties(total=..., activelyVacant=..., occupied=..., staleRenterOnly=...)
         phantomVacancy(signatureOccupiedOnMarketOffice=..., signatureOccupiedOnMarketIndustrial=..., signatureOccupiedToBeOnMarket=..., nonSignatureOccupiedOnMarketOffice=..., nonSignatureOccupiedOnMarketIndustrial=..., guardCorrections=...)
         software(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
-        softwareOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
+        electronics(resourceProduction=..., resourceDemand=..., companies=..., propertyless=...)
+        softwareProducerOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=...)
+        softwareConsumerOffices(total=..., propertyless=..., efficiencyZero=..., lackResourcesZero=..., softwareInputZero=...)
     validations:
       required: true
   - type: textarea
     id: log-excerpt
     attributes:
       label: Log excerpt
-      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry.
+      description: Optional short excerpts or references to the specific `softwareEvidenceDiagnostics` lines that matter most for this entry. Include `detail_type=softwareOfficeStates` when producer-side or consumer-side office input state matters, especially if consumer trade-state cues such as trade-cost entry, active buyer, trip-needed, current-trading, or path state matter.
   - type: textarea
     id: evidence-summary
     attributes:
@@ -158,16 +161,22 @@ body:
     id: confounders
     attributes:
       label: Confounders
-      description: Known uncertainties or alternative explanations. Use `none known` if none stand out.
+      description: Known uncertainties or alternative explanations, such as upstream input pressure, downstream trade or storage gating, or mixed interventions. Use `none known` if none stand out.
     validations:
       required: true
+  - type: textarea
+    id: analysis-basis
+    attributes:
+      label: Analysis basis
+      description: Optional. If code reading informed the interpretation, say whether the relevant claim came from vanilla decompiled game code, this mod's code, or both.
+      placeholder: vanilla decompile for trade lifecycle and virtual-resource handling; mod code for diagnostics output and local patch behavior
   - type: textarea
     id: artifacts
     attributes:
       label: Artifacts
-      description: Logs, saves, screenshots, or other references. Include `softwareEvidenceDiagnostics detail(...)` lines here when relevant.
+      description: Logs, saves, screenshots, or other references. Include relevant `softwareEvidenceDiagnostics detail(...)` lines here when useful, especially `detail_type=softwareOfficeStates` with role-aware producer/consumer detail and any trade-state cues needed for later analysis.
   - type: textarea
     id: notes
     attributes:
       label: Notes
-      description: Extra context that does not fit the structured fields.
+      description: Extra context that does not fit the structured fields. Use this to record office-demand mismatch context if software distress and demand counters point in different directions.

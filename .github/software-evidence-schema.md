@@ -31,7 +31,7 @@ Required:
 - `game_version`: Cities: Skylines II game version
 - `mod_version`: released mod version, or `unreleased`
 - `mod_ref`: branch name and commit SHA, or another exact source reference
-- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `CaptureStableEvidence`, and `VerboseLogging`
+- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`
 - `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems; use `unknown` when the runtime cannot determine them reliably
 
 Optional:
@@ -48,7 +48,7 @@ Required:
 - `scenario_label`: save identity, test city name, or a stable scenario label
 - `scenario_type`: existing save, fresh city, reproduced test case, or another short classification
 - `reproduction_conditions`: what the tester did or what state the city was already in
-- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available
+- `observation_window`: the bounded time span observed, preferably copied from `softwareEvidenceDiagnostics observation_window(...)` when diagnostics are available; keep `sample_index` fields when present because the current diagnostics cadence is per displayed in-game day and configurable
 
 Optional:
 
@@ -62,15 +62,16 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter values captured during the observation window
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
-- `confounders`: known uncertainties, competing explanations, or `none known`
+- `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
 
 Optional:
 
-- `log_excerpt`: only short excerpts or references to attached logs
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos
+- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues
+- `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields
 
 ## Raw Versus Normalized Fields
@@ -82,6 +83,13 @@ The following fields are expected to come from raw diagnostics with little or no
 - `settings`
 - parts of `patch_state` when local code or logging differs from the normal build, or the literal `unknown` when the runtime cannot name those deviations
 
+When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
+That usually means keeping `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and the shared `detail_type=softwareOfficeStates` lines with their role context.
+
+When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone.
+
+If the interpretation relies on code reading, separate what came from vanilla decompiled game code from what came from this mod's code. Vanilla decompile is the source of truth for base-game trade lifecycle and virtual-resource handling; mod code explains instrumentation, local patches, and any deviations that belong in `patch_state`.
+
 The following fields usually require explicit investigator input:
 
 - `scenario_label`
@@ -90,6 +98,9 @@ The following fields usually require explicit investigator input:
 - `observation_window`
 - `confounders`
 - `patch_state` when the runtime emitted `unknown` but the maintainer knows the exact local deviations
+- `analysis_basis` when code reading was part of the interpretation
+
+When diagnostics are sampled more than once per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_index`, `sample_slot`, `samples_per_day`, and the raw `sample_count` so later readers can tell same-day samples apart and interpret density correctly.
 
 The following fields should stay normalized and constrained even when they are chosen by a maintainer:
 
@@ -122,7 +133,10 @@ Use short stable labels instead of free-form titles where possible. Current exam
 - `software_demand_mismatch`
 - `software_track_unclear`
 
+`software_demand_mismatch` is the preferred label when software-office distress is present but office-demand counters stay flat or rise, or when the expected software-to-demand relationship does not appear.
+
 These labels are working categories, not proof of root cause.
+Keep them symptom-based rather than cause-based. Do not introduce presumed root-cause labels such as `electronics_shortage`.
 
 ## Related Documents
 

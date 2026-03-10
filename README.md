@@ -1,19 +1,19 @@
 # No Office Demand Fix
 
-`No Office Demand Fix` is a Cities: Skylines II mod focused on two office-demand failure tracks:
+`No Office Demand Fix` is a Cities: Skylines II mod focused on one confirmed office-demand failure track and one separate software/resource investigation track:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
-- office-resource / `software` instability: a separate trade and storage path that can still collapse office efficiency
+- office-resource / `software` instability: a separate producer/consumer resource-flow investigation that can still collapse office-company efficiency
 
-The current release ships a confirmed fix for the reproduced `Signature` phantom-vacancy case and keeps the `software` track available as an optional mitigation plus diagnostics.
+The current release ships a confirmed fix for the reproduced `Signature` phantom-vacancy case and keeps the `software` track available as opt-in investigation tooling rather than a finished end-user feature.
 
 ## Current Release
 
 What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
-- includes an optional prefab-level office-resource trade patch for outside connections and cargo stations
-- includes diagnostics for office demand, phantom vacancy, and `software` office health
+- includes an opt-in prefab-level office-resource trade patch for outside connections and cargo stations when maintainers need software-track comparison data
+- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including enough signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer trade-state anomalies
 
 What it does not claim:
 
@@ -29,9 +29,10 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | --- | --- | --- |
 | `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Reload or restart after changing it. |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Reload after changing it. |
-| `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` diagnostics when the state looks suspicious. |
-| `CaptureStableEvidence` | `false` | Keeps daily bounded `softwareEvidenceDiagnostics` windows flowing while diagnostics are enabled, even when the city looks stable. Use it for baseline or no-symptom evidence. |
-| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces daily diagnostics while diagnostics are enabled. |
+| `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
+| `DiagnosticsSamplesPerDay` | `2` | Sets how many `softwareEvidenceDiagnostics` samples are emitted per displayed in-game day while diagnostics are active. |
+| `CaptureStableEvidence` | `false` | Keeps bounded `softwareEvidenceDiagnostics` windows flowing at the configured per-day cadence while diagnostics are enabled, even when the city looks stable. Use it only for baseline or no-symptom evidence collection. |
+| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces diagnostics output at the configured per-day cadence while diagnostics are enabled. Use it only for investigation. |
 
 ## Implementation
 
@@ -44,13 +45,19 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 Current evidence supports two distinct tracks:
 
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
-- `software` instability is still plausible, still tracked, and still best treated as experimental mitigation rather than solved
+- `software` instability is still plausible, still tracked, and still best treated as investigation tooling plus experimental mitigation rather than solved
+
+Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks, but the track remains investigational rather than proven.
+
+Current evidence also does not support treating widespread `software` consumer efficiency collapse as a direct proxy for lower office demand. Demand response still has to be captured directly from the office-demand counters rather than inferred from software-office distress alone.
+
+When code reading matters, the base-game lifecycle claims should come from vanilla decompiled game code. This mod's own code is the source of truth for runtime patch behavior and emitted diagnostics, not for every vanilla trade-path assumption.
 
 That means the safest way to describe this release is:
 
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
-- optional `software` trade patch
-- built-in diagnostics for follow-up investigation
+- opt-in `software` trade patch for comparison runs
+- opt-in diagnostics for follow-up investigation
 
 ## Non-Goals
 

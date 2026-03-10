@@ -23,6 +23,12 @@ body:
       description: Short statement of the current hypothesis or suspected failure pattern.
     validations:
       required: true
+  - type: textarea
+    id: analysis-basis
+    attributes:
+      label: Analysis basis
+      description: Optional. If code reading informs the investigation, say whether the relevant claim comes from vanilla decompiled game code, this mod's code, or both.
+      placeholder: vanilla decompile for base-game trade lifecycle; mod code for diagnostics output and patch behavior
   - type: dropdown
     id: current-status
     attributes:
@@ -51,6 +57,8 @@ body:
         - baseline evidence: #21
         - trade patch comparison run: collect on same save with EnableTradePatch=True
         - reload check: collect before/after reload on same save lineage
+        - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run
+        - demand-response check: preserve officeDemand counters on the next consumer-distress run and compare against softwareConsumerOffices
     validations:
       required: true
   - type: textarea
@@ -63,7 +71,19 @@ body:
           baseline_ref: #21
           comparison_ref: #22
           invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
-          observed_deltas: softwareOffices.lackResourcesZero dropped but symptom persisted
+          observed_deltas: softwareConsumerOffices.softwareInputZero dropped but softwareProducerOffices.lackResourcesZero persisted
+          outcome: mitigated but not solved
+        - checkpoint: software_consumer_distress_vs_office_demand_response
+          baseline_ref: #22
+          comparison_ref: #24
+          invariant_status: same save lineage, comparable observation window, officeDemand counters preserved in both runs
+          observed_deltas: softwareConsumerOffices.efficiencyZero and softwareInputZero rose, but officeDemand building/company did not fall
+          outcome: contradictory
+        - checkpoint: upstream_input_vs_downstream_gating
+          baseline_ref: #22
+          comparison_ref: #23
+          invariant_status: same save lineage, comparable observation window, same DiagnosticsSamplesPerDay, sample_index fields preserved, electronics counters and software office detail preserved in both runs
+          observed_deltas: electronics pressure persisted, softwareConsumerOffices.softwareInputZero improved, softwareOfficeStates still showed producer-side input buyer pressure
           outcome: mitigated but not solved
     validations:
       required: true
@@ -86,7 +106,7 @@ body:
     attributes:
       label: Repo-facing implication
       description: Optional wording for README, release notes, or issue summaries.
-      placeholder: plausible but weakly supported by current evidence
+      placeholder: current evidence does not yet support a direct software-to-office-demand claim
   - type: textarea
     id: next-steps
     attributes:
@@ -94,6 +114,7 @@ body:
       placeholder: |
         - collect one baseline bounded run with CaptureStableEvidence enabled
         - compare reload before/after on same save
+        - record whether consumer distress actually changes officeDemand counters
         - update conclusion after checkpoint review
     validations:
       required: true
