@@ -29,6 +29,7 @@ The automation will:
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
+- preserve `sample_count` as the number of emitted scheduled observations and `skipped_sample_slots` as any scheduled-slot gaps that were not backfilled
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 

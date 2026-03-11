@@ -647,6 +647,8 @@ def parse_observation_line(line: str) -> dict[str, Any]:
         sample_slot=safe_int(observation_window.get("sample_slot")),
         samples_per_day=safe_int(observation_window.get("samples_per_day")),
         sample_count=safe_int(observation_window.get("sample_count")),
+        observation_kind=str(observation_window.get("observation_kind", "")),
+        skipped_sample_slots=safe_int(observation_window.get("skipped_sample_slots")),
         trigger=str(observation_window.get("trigger", "")),
         extras={
             "diagnostic_counter_groups": list(diagnostic_counters.keys()),

@@ -150,12 +150,14 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OnMarketPropertyQuery;
         private EntityQuery m_ToBeOnMarketPropertyQuery;
         private EntityQuery m_OfficeCompanyQuery;
-        private int m_LastCompletedSampleIndex = int.MinValue;
+        private int m_LastProcessedSampleIndex = int.MinValue;
+        private int m_LastObservedSampleIndex = int.MinValue;
         private bool m_LastDiagnosticsEnabled;
         private string m_SessionId = CreateSessionId();
         private int m_RunSequence;
         private int m_RunStartDay = int.MinValue;
         private int m_RunStartSampleIndex = int.MinValue;
+        private int m_RunObservationCount;
         private DiagnosticsSettingsState m_LastSettingsState;
         private string m_LastSettingsSnapshot = string.Empty;
         private string m_LastPatchState = string.Empty;
@@ -258,36 +260,39 @@ namespace NoOfficeDemandFix.Systems
                                    patchState != m_LastPatchState;
             if (runStateChanged)
             {
-                BeginNewRun(day, sampleIndex, settingsState, patchState);
-                m_LastCompletedSampleIndex = sampleIndex - 1;
+                BeginNewRun(settingsState, patchState);
+                m_LastProcessedSampleIndex = sampleIndex - 1;
             }
 
             m_LastDiagnosticsEnabled = true;
-            if (sampleIndex <= m_LastCompletedSampleIndex)
+            if (sampleIndex <= m_LastProcessedSampleIndex)
             {
                 return;
             }
 
-            while (m_LastCompletedSampleIndex < sampleIndex)
-            {
-                int nextSampleIndex = m_LastCompletedSampleIndex + 1;
-                // Catch up by sample index so slot-count drift does not break sample_count across frame skips.
-                DiagnosticSnapshot snapshot = CaptureSnapshot(
-                    GetSampleDay(nextSampleIndex, samplesPerDay),
-                    nextSampleIndex,
-                    GetSampleSlotFromSampleIndex(nextSampleIndex, samplesPerDay),
-                    samplesPerDay);
-                m_LastCompletedSampleIndex = nextSampleIndex;
-                EmitObservationIfTriggered(snapshot, settingsState);
-            }
+            DiagnosticSnapshot currentSnapshot = CaptureSnapshot(day, sampleIndex, sampleSlot, samplesPerDay);
+            int skippedSampleSlots = GetSkippedSampleSlots(sampleIndex);
+            m_LastProcessedSampleIndex = sampleIndex;
+            EmitObservationIfTriggered(currentSnapshot, settingsState, skippedSampleSlots);
         }
 
-        private void EmitObservationIfTriggered(DiagnosticSnapshot snapshot, DiagnosticsSettingsState settingsState)
+        private void EmitObservationIfTriggered(
+            DiagnosticSnapshot snapshot,
+            DiagnosticsSettingsState settingsState,
+            int skippedSampleSlots)
         {
             if (!TryGetObservationTrigger(snapshot, settingsState, out string trigger))
             {
                 return;
             }
+
+            if (m_RunObservationCount == 0)
+            {
+                m_RunStartDay = snapshot.Day;
+                m_RunStartSampleIndex = snapshot.SampleIndex;
+            }
+
+            int sampleCount = m_RunObservationCount + 1;
 
             Mod.log.Info(
                 MachineParsedLogContract.FormatObservationWindow(
@@ -301,7 +306,9 @@ namespace NoOfficeDemandFix.Systems
                     snapshot.SampleIndex,
                     snapshot.SampleSlot,
                     snapshot.SamplesPerDay,
-                    GetObservationSampleCount(snapshot.SampleIndex),
+                    sampleCount,
+                    MachineParsedLogContract.ScheduledObservationKind,
+                    skippedSampleSlots,
                     trigger,
                     m_LastSettingsSnapshot,
                     m_LastPatchState,
@@ -339,10 +346,13 @@ namespace NoOfficeDemandFix.Systems
                         m_SessionId,
                         m_RunSequence,
                         snapshot.Day,
-                        snapshot.SampleIndex,
-                        MachineParsedLogContract.SoftwareOfficeStatesDetailType,
-                        snapshot.SoftwareOfficeDetails));
+                    snapshot.SampleIndex,
+                    MachineParsedLogContract.SoftwareOfficeStatesDetailType,
+                    snapshot.SoftwareOfficeDetails));
             }
+
+            m_RunObservationCount = sampleCount;
+            m_LastObservedSampleIndex = snapshot.SampleIndex;
         }
 
         private DiagnosticSnapshot CaptureSnapshot(int day, int sampleIndex, int sampleSlot, int samplesPerDay)
@@ -1074,7 +1084,9 @@ namespace NoOfficeDemandFix.Systems
             m_RunSequence = 0;
             m_RunStartDay = int.MinValue;
             m_RunStartSampleIndex = int.MinValue;
-            m_LastCompletedSampleIndex = int.MinValue;
+            m_RunObservationCount = 0;
+            m_LastProcessedSampleIndex = int.MinValue;
+            m_LastObservedSampleIndex = int.MinValue;
             m_LastDiagnosticsEnabled = false;
             m_LastSettingsState = default;
             m_LastSettingsSnapshot = string.Empty;
@@ -1086,34 +1098,26 @@ namespace NoOfficeDemandFix.Systems
             return DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'");
         }
 
-        private void BeginNewRun(
-            int day,
-            int sampleIndex,
-            DiagnosticsSettingsState settingsState,
-            string patchState)
+        private void BeginNewRun(DiagnosticsSettingsState settingsState, string patchState)
         {
             m_RunSequence++;
-            m_RunStartDay = day;
-            m_RunStartSampleIndex = sampleIndex;
+            m_RunStartDay = int.MinValue;
+            m_RunStartSampleIndex = int.MinValue;
+            m_RunObservationCount = 0;
+            m_LastObservedSampleIndex = int.MinValue;
             m_LastSettingsState = settingsState;
             m_LastSettingsSnapshot = FormatSettingsSnapshot(settingsState);
             m_LastPatchState = patchState;
         }
 
-        private int GetObservationSampleCount(int endSampleIndex)
+        private int GetSkippedSampleSlots(int sampleIndex)
         {
-            return Math.Max(1, endSampleIndex - m_RunStartSampleIndex + 1);
-        }
+            if (m_LastObservedSampleIndex == int.MinValue)
+            {
+                return 0;
+            }
 
-        private static int GetSampleDay(int sampleIndex, int samplesPerDay)
-        {
-            return sampleIndex / samplesPerDay;
-        }
-
-        private static int GetSampleSlotFromSampleIndex(int sampleIndex, int samplesPerDay)
-        {
-            int sampleSlot = sampleIndex % samplesPerDay;
-            return sampleSlot < 0 ? sampleSlot + samplesPerDay : sampleSlot;
+            return Math.Max(0, sampleIndex - m_LastObservedSampleIndex - 1);
         }
 
         private int GetSampleSlot(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
