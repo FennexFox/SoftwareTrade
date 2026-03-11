@@ -717,6 +717,44 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(result["model"], "openai/gpt-5.4")
         self.assertEqual(result["draft"]["symptom_classification"], "software_demand_mismatch")
 
+    def test_generate_validated_llm_draft_keeps_sanitized_excerpt_without_fallback(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft_with_bad_excerpt = {
+            "title": "[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day 22",
+            "symptom_classification": "software_demand_mismatch",
+            "custom_symptom_classification": "",
+            "evidence_summary": "The final day-22 sample still showed producer-side lackResources=0 distress while officeDemand.building=100 remained high.",
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": "none known",
+            "analysis_basis": "",
+            "log_excerpt": "### Day 22 producer-side detail\n```text\nrole=producer, rewritten wording\n```",
+            "notes": "note",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft_with_bad_excerpt):
+            result = automation.generate_validated_llm_draft(
+                context,
+                issue_fields,
+                parsed_log,
+                deterministic,
+                "gh-token",
+            )
+        self.assertEqual(result["status"], "enabled")
+        self.assertEqual(result["detail"], automation.DEFAULT_GITHUB_MODELS_MODEL)
+        self.assertIn("unsupported_excerpt_line", result["validation_errors"])
+        self.assertEqual(result["draft"]["log_excerpt"], deterministic["log_excerpt"])
+
     def test_generate_validated_llm_draft_falls_back_when_both_drafts_fail_validation(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)

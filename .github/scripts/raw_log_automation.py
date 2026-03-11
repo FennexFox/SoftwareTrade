@@ -132,6 +132,9 @@ SOFTWARE_EVIDENCE_CANONICAL_CLASSIFICATIONS = {
     "software_demand_mismatch",
     "software_track_unclear",
 }
+NON_FATAL_VALIDATION_ERRORS = {
+    "unsupported_excerpt_line",
+}
 
 EVIDENCE_STYLE_EXAMPLES = [
     {
@@ -1931,6 +1934,10 @@ def validate_llm_draft(
     return sanitized, list(dict.fromkeys(errors))
 
 
+def validation_errors_require_escalation(errors: list[str]) -> bool:
+    return any(error not in NON_FATAL_VALIDATION_ERRORS for error in errors)
+
+
 def log_requires_editorial_escalation(parsed_log: dict[str, Any]) -> bool:
     return safe_int(parsed_log.get("observation_count", 0)) >= 3 or len(parsed_log.get("selected_snippets", [])) >= 3
 
@@ -1976,7 +1983,8 @@ def generate_validated_llm_draft(
         deterministic_draft,
     )
     editorial_complexity = log_requires_editorial_escalation(parsed_log)
-    should_escalate = bool(primary_errors) or editorial_complexity
+    primary_requires_escalation = validation_errors_require_escalation(primary_errors)
+    should_escalate = primary_requires_escalation or editorial_complexity
     result["validation_errors"] = primary_errors
 
     if not should_escalate:
@@ -1986,7 +1994,7 @@ def generate_validated_llm_draft(
         result["model"] = primary_model
         return result
 
-    if editorial_complexity and not primary_errors and not escalation_model:
+    if editorial_complexity and not primary_requires_escalation and not escalation_model:
         result["draft"] = validated_primary
         result["status"] = "enabled"
         result["detail"] = primary_model
@@ -2010,12 +2018,12 @@ def generate_validated_llm_draft(
                 parsed_log,
                 deterministic_draft,
             )
-            if not escalation_errors:
+            if not validation_errors_require_escalation(escalation_errors):
                 result["draft"] = validated_escalation
                 result["status"] = "escalated"
                 result["detail"] = escalation_model
                 result["model"] = escalation_model
-                result["validation_errors"] = []
+                result["validation_errors"] = escalation_errors
                 return result
             result["validation_errors"] = escalation_errors
 
