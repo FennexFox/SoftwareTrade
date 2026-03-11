@@ -162,13 +162,15 @@ UNSUPPORTED_NOTES_PATTERNS = [
     r"\blikely\b",
 ]
 UNSUPPORTED_PHANTOM_ZERO_PATTERNS = [
-    r"\bphantom[-\s]*vacanc(?:y|ies)\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+zero\b",
-    r"\bguard[-\s]*corrections?\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+zero\b",
+    r"\bphantom[-\s]*vacanc(?:y|ies)\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+(?:at\s+)?zero\b",
+    r"\bguard[-\s]*corrections?\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+(?:at\s+)?zero\b",
 ]
 UNSUPPORTED_PHANTOM_ABSENCE_PATTERNS = [
     r"\bno indication of phantom[-\s]*vacanc(?:y|ies)\b",
+    r"\bno detected phantom[-\s]*vacanc(?:y|ies)\b",
     r"\bno phantom[-\s]*vacanc(?:y|ies)\b",
     r"\bno phantom[-\s]*vacanc(?:y|ies)\b.{0,120}\bguard[-\s]*corrections?\b.{0,80}\b(?:detected|observed|seen|present)\b",
+    r"\bno detected guard[-\s]*corrections?\b",
     r"\bno guard[-\s]*corrections?\b.{0,80}\b(?:detected|observed|seen|present)\b",
     r"\bphantom[-\s]*vacancy activity was absent\b",
 ]

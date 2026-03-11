@@ -1133,6 +1133,48 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(result["draft"]["evidence_summary"], deterministic["evidence_summary"])
         self.assertEqual(result["draft"]["notes"], deterministic["notes"])
 
+    def test_generate_validated_llm_draft_replaces_phantom_zero_and_no_detected_claims(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft = {
+            "title": deterministic["title"],
+            "symptom_classification": deterministic["symptom_classification"],
+            "custom_symptom_classification": "",
+            "evidence_summary": deterministic["evidence_summary"],
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": deterministic["confounders"],
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": "Phantom vacancy counters stayed at zero indicating no detected phantom vacancies during the window.",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft):
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
+        self.assertEqual(result["draft"]["notes"], deterministic["notes"])
+
     def test_generate_validated_llm_draft_replaces_ellipsis_reasoning_summary(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
