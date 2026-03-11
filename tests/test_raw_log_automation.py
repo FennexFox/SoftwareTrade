@@ -231,6 +231,11 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("\n## Game version\n", body)
         self.assertIn("\n### Maintainer reply template\n", body)
         self.assertIn("\n```yaml\n", body)
+        self.assertIn(
+            f"\n{automation.PAYLOAD_START_MARKER}\n<details>\n<summary>Machine payload</summary>\n",
+            body,
+        )
+        self.assertIn("\n```json\n", body)
         self.assertNotIn("\n        ## Draft Evidence Issue Preview\n", body)
         self.assertNotIn("\n        ```yaml\n", body)
         self.assertIn("- LLM status: `failed`", body)
@@ -342,6 +347,9 @@ class RawLogAutomationTests(unittest.TestCase):
             )
         self.assertIn("### Draft provenance", body)
         self.assertIn(f"`{'C' * 397}...`", body)
+        self.assertIn("<summary>Machine payload</summary>", body)
+        self.assertIn("Do not edit this block manually.", body)
+        self.assertIn("```json", body)
 
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)

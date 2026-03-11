@@ -1942,7 +1942,7 @@ def extract_fenced_block(body: str, start_marker: str, end_marker: str) -> str:
         return ""
 
     section = body[start_index + len(start_marker) : end_index].strip()
-    match = re.search(r"\s*```[a-zA-Z0-9_-]*\n(.*)\n\s*```", section, flags=re.DOTALL)
+    match = re.search(r"```[a-zA-Z0-9_-]*\n(.*?)\n```", section, flags=re.DOTALL)
     return match.group(1).strip() if match else ""
 
 
@@ -2125,12 +2125,16 @@ def render_managed_comment(
             "```",
             REPLY_TEMPLATE_END_MARKER,
             "",
-            "### Machine payload",
-            "Do not edit this block manually.",
             PAYLOAD_START_MARKER,
+            "<details>",
+            "<summary>Machine payload</summary>",
+            "",
+            "Do not edit this block manually.",
+            "",
             "```json",
             json.dumps(payload, ensure_ascii=True, indent=2),
             "```",
+            "</details>",
             PAYLOAD_END_MARKER,
         ]
     ).strip()
@@ -2166,11 +2170,16 @@ def render_managed_comment(
                 "```",
                 REPLY_TEMPLATE_END_MARKER,
                 "",
-                "### Machine payload",
                 PAYLOAD_START_MARKER,
+                "<details>",
+                "<summary>Machine payload</summary>",
+                "",
+                "Do not edit this block manually.",
+                "",
                 "```json",
                 json.dumps(compact_payload, ensure_ascii=True, indent=2),
                 "```",
+                "</details>",
                 PAYLOAD_END_MARKER,
             ]
         ).strip()
