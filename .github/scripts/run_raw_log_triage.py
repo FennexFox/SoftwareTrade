@@ -7,7 +7,7 @@ from raw_log_automation import (
     build_deterministic_draft,
     build_llm_context,
     create_issue_comment,
-    generate_llm_suggestions,
+    generate_validated_llm_draft,
     is_raw_log_issue,
     join_unique_lines,
     load_event_payload,
@@ -18,7 +18,6 @@ from raw_log_automation import (
     sanitize_llm_detail,
     select_raw_log_source,
     upsert_managed_comment,
-    DEFAULT_GITHUB_MODELS_MODEL,
 )
 
 
@@ -28,11 +27,12 @@ def build_default_reply_fields(
     llm_draft: dict[str, str] | None,
 ) -> dict[str, str]:
     return {
+        "title": (llm_draft or {}).get("title", "") or deterministic_draft.get("title", ""),
         "scenario_label": issue_fields.get("save_or_city_label", "") or deterministic_draft.get("scenario_label", ""),
         "scenario_type": deterministic_draft.get("scenario_type", ""),
         "reproduction_conditions": issue_fields.get("what_happened", ""),
         "mod_ref": "",
-        "platform_notes": deterministic_draft.get("platform_notes", ""),
+        "platform_notes": issue_fields.get("platform_notes", "") or deterministic_draft.get("platform_notes", ""),
         "comparison_baseline": (llm_draft or {}).get("comparison_baseline", "")
         or deterministic_draft.get("comparison_baseline", ""),
         "symptom_classification": (llm_draft or {}).get("symptom_classification", "")
@@ -97,9 +97,16 @@ def main() -> None:
             redaction_notes,
         )
         try:
-            llm_draft = generate_llm_suggestions(llm_context, github_token)
-            llm_status = "enabled"
-            llm_detail = DEFAULT_GITHUB_MODELS_MODEL
+            llm_result = generate_validated_llm_draft(
+                llm_context,
+                issue_fields,
+                parsed_log,
+                deterministic_draft,
+                github_token,
+            )
+            llm_draft = llm_result["draft"]
+            llm_status = str(llm_result["status"])
+            llm_detail = str(llm_result["detail"])
         except AutomationError as error:
             llm_status = "failed"
             llm_detail = sanitize_llm_detail(str(error))

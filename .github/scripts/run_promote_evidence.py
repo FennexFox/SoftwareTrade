@@ -2,6 +2,7 @@ import os
 
 from raw_log_automation import (
     MANAGED_COMMENT_MARKER,
+    build_evidence_issue_title,
     build_existing_evidence_comment,
     build_missing_fields_comment,
     build_missing_reply_comment,
@@ -26,17 +27,6 @@ from raw_log_automation import (
 
 PROMOTE_LABEL = "promote: evidence"
 PROMOTED_SOURCE_LABEL = "source: raw-log-promoted"
-
-
-def build_evidence_title(raw_issue_title: str, raw_issue_number: int) -> str:
-    title = raw_issue_title.strip()
-    prefix = "[Raw Log]"
-    if title.startswith(prefix):
-        suffix = title[len(prefix) :].strip()
-        return f"[Software Evidence] {suffix or f'from raw #{raw_issue_number}'}"
-    return f"[Software Evidence] from raw #{raw_issue_number}"
-
-
 def main() -> None:
     event = load_event_payload(os.environ["GITHUB_EVENT_PATH"])
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -126,7 +116,7 @@ def main() -> None:
         "Evidence issue created from a raw-log intake issue.",
         github_token,
     )
-    evidence_title = build_evidence_title(issue["title"], issue_number)
+    evidence_title = build_evidence_issue_title(fields, issue["title"], issue_number)
     evidence_body = render_evidence_issue_body(issue_number, int(reply_comment["id"]), fields)
     evidence_issue = create_issue(
         repo,

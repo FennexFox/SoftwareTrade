@@ -50,6 +50,9 @@ RAW_ISSUE_BODY = textwrap.dedent(
     ### What happened
     Loaded the save, enabled diagnostics, and waited 3 in-game days.
 
+    ### Platform notes
+    Windows release build
+
     ### Other mods
     none known
 
@@ -74,6 +77,9 @@ RAW_ISSUE_BODY_WITHOUT_MARKER = textwrap.dedent(
     ### What happened
     Loaded the save, enabled diagnostics, and waited 3 in-game days.
 
+    ### Platform notes
+    Windows release build
+
     ### Other mods
     none known
 
@@ -91,6 +97,7 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(parsed["game_version"], "1.5.xf1")
         self.assertEqual(parsed["mod_version"], "0.1.1")
         self.assertEqual(parsed["save_or_city_label"], "New Seoul")
+        self.assertEqual(parsed["platform_notes"], "Windows release build")
         self.assertIn("Loaded the save", parsed["what_happened"])
         self.assertIn("softwareEvidenceDiagnostics", parsed["raw_log"])
 
@@ -133,6 +140,9 @@ class RawLogAutomationTests(unittest.TestCase):
             "software_office_propertyless",
         )
         self.assertIn("role=producer", parsed["latest_software_office_detail"]["values"])
+        self.assertGreaterEqual(len(parsed["anchors"]), 4)
+        self.assertEqual(parsed["anchor_index"]["observation"], 1)
+        self.assertTrue(parsed["selected_snippets"])
 
     def test_parse_log_retains_latest_run_candidates_across_multiple_observations(self) -> None:
         parsed = automation.parse_log(MULTI_OBSERVATION_LOG)
@@ -155,6 +165,9 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertIn("patch_state=debug-build", draft["confounders"])
         self.assertIn("trade patch enabled during capture", draft["confounders"])
+        self.assertEqual(draft["platform_notes"], "Windows release build")
+        self.assertEqual(draft["symptom_classification"], "software_demand_mismatch")
+        self.assertIn("EnableTradePatch-enabled", draft["title"])
 
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -214,6 +227,7 @@ class RawLogAutomationTests(unittest.TestCase):
             "http_403: models access denied",
         )
         self.assertIn("\n## Draft Evidence Issue Preview\n", body)
+        self.assertIn("Draft title: `", body)
         self.assertIn("\n## Game version\n", body)
         self.assertIn("\n### Maintainer reply template\n", body)
         self.assertIn("\n```yaml\n", body)
@@ -385,6 +399,51 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("track/software-instability @ abc1234", issue_body)
         self.assertIn("- maintainer promote reply: https://github.com/example/repo/issues/21#issuecomment-2", fields["artifacts"])
 
+    def test_merge_evidence_fields_keeps_mod_ref_optional_and_hides_blank_section(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        body, _ = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            {
+                "title": deterministic["title"],
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": deterministic["symptom_classification"],
+                "evidence_summary": deterministic["evidence_summary"],
+                "confounders": deterministic["confounders"],
+                "notes": deterministic["notes"],
+            },
+            [],
+            "skipped",
+            "no eligible observation",
+        )
+        parsed = automation.parse_managed_comment(body)
+        fields = automation.merge_evidence_fields(
+            parsed["payload"],
+            parsed["reply_template"],
+            "https://github.com/example/repo/issues/21#issuecomment-1",
+            "https://github.com/example/repo/issues/21",
+            "https://github.com/example/repo/issues/21#issuecomment-2",
+        )
+        required = automation.extract_required_issue_fields(
+            str(REPO_ROOT / ".github" / "ISSUE_TEMPLATE" / "software_evidence.yml")
+        )
+        missing = automation.find_missing_required_fields(fields, required)
+        self.assertEqual(missing, [])
+        issue_body = automation.render_evidence_issue_body(21, 1, fields)
+        self.assertNotIn("## Mod ref", issue_body)
+        self.assertIn("## Platform notes", issue_body)
+        self.assertIn("Windows release build", issue_body)
+
     def test_generate_llm_suggestions_returns_none_without_token(self) -> None:
         self.assertIsNone(automation.generate_llm_suggestions({"foo": "bar"}, None))
 
@@ -398,6 +457,7 @@ class RawLogAutomationTests(unittest.TestCase):
             payload["response_format"]["json_schema"]["name"],
             "raw_log_triage_suggestions",
         )
+        self.assertIn("title", payload["response_format"]["json_schema"]["schema"]["properties"])
         self.assertIn("log_excerpt", payload["response_format"]["json_schema"]["schema"]["properties"])
         self.assertIn("lackResourcesZero", payload["messages"][0]["content"])
         self.assertIn("zero resources", payload["messages"][0]["content"])
@@ -419,13 +479,17 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
         self.assertNotIn("raw_log", context["raw_issue"])
-        self.assertIn("locked_facts", context)
+        self.assertIn("anchors", context)
+        self.assertIn("selected_snippets", context)
         self.assertIn("excerpt_candidates", context)
         self.assertTrue(context["excerpt_candidates"])
         self.assertLessEqual(
             len(context["excerpt_candidates"][0]["lines"][0]),
             automation.LLM_DETAIL_EXCERPT_LIMIT,
         )
+        self.assertTrue(context["anchors"])
+        self.assertTrue(context["selected_snippets"])
+        self.assertIn("fallback_hints", context)
         self.assertIn("semantic_facts", context)
         self.assertTrue(any("lackResourcesZero" in fact for fact in context["semantic_facts"]))
 
@@ -450,12 +514,13 @@ class RawLogAutomationTests(unittest.TestCase):
                 {
                     "message": {
                         "content": (
-                            '{"symptom_classification":"software_track_unclear",'
+                            '{"title":"[Software Evidence] test title",'
+                            '"symptom_classification":"software_track_unclear",'
                             '"custom_symptom_classification":"",'
                             '"evidence_summary":"summary","comparison_baseline":"",'
                             '"confidence":"medium","confounders":"none","analysis_basis":"",'
                             '"log_excerpt":"### Day 22 producer-side detail\\n```text\\nrole=producer\\n```",'
-                            '"notes":"note","missing_user_input":["mod_ref"],'
+                            '"notes":"note","missing_user_input":[],'
                             '"reasoning_summary":"reason"}'
                         )
                     }
@@ -477,11 +542,12 @@ class RawLogAutomationTests(unittest.TestCase):
                 {
                     "message": {
                         "content": (
-                            '{"symptom_classification":"software_office_propertyless",'
+                            '{"title":"[Software Evidence] test title",'
+                            '"symptom_classification":"software_office_propertyless",'
                             '"custom_symptom_classification":"",'
                             '"evidence_summary":"8 producer offices at zero efficiency and zero resources.",'
                             '"comparison_baseline":"","confidence":"medium","confounders":"none","analysis_basis":"",'
-                            '"log_excerpt":"","notes":"note","missing_user_input":["mod_ref"],'
+                            '"log_excerpt":"","notes":"note","missing_user_input":[],'
                             '"reasoning_summary":"reason"}'
                         )
                     }
@@ -496,6 +562,163 @@ class RawLogAutomationTests(unittest.TestCase):
             suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
         self.assertNotIn("zero resources", suggestions["evidence_summary"].lower())
         self.assertIn("lackResources=0", suggestions["evidence_summary"])
+
+    def test_generate_validated_llm_draft_accepts_primary_model_when_valid(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        valid_draft = {
+            "title": "[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day 22",
+            "symptom_classification": "software_demand_mismatch",
+            "custom_symptom_classification": "",
+            "evidence_summary": "The final day-22 sample still showed producer-side lackResources=0 distress while officeDemand.building=100 remained high.",
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": "none known",
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": "note",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=valid_draft):
+            result = automation.generate_validated_llm_draft(
+                context,
+                issue_fields,
+                parsed_log,
+                deterministic,
+                "gh-token",
+            )
+        self.assertEqual(result["status"], "enabled")
+        self.assertEqual(result["draft"]["symptom_classification"], "software_demand_mismatch")
+
+    def test_generate_validated_llm_draft_escalates_after_validator_failure(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        parsed_log["observation_count"] = 4
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        primary_draft = {
+            "title": "[Software Evidence] automation test",
+            "symptom_classification": "software_office_propertyless",
+            "custom_symptom_classification": "",
+            "evidence_summary": "summary",
+            "comparison_baseline": "Compare against #25.",
+            "confidence": "medium",
+            "confounders": "none",
+            "analysis_basis": "",
+            "log_excerpt": "",
+            "notes": "note",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        escalation_draft = {
+            "title": "[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day 22",
+            "symptom_classification": "software_demand_mismatch",
+            "custom_symptom_classification": "",
+            "evidence_summary": "The final day-22 sample still showed producer-side lackResources=0 distress while officeDemand.building=100 remained high.",
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": "none known",
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": "note",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.dict(
+            automation.os.environ,
+            {
+                automation.ESCALATION_GITHUB_MODELS_MODEL_ENV: "openai/gpt-5.4"
+            },
+            clear=False,
+        ):
+            with mock.patch.object(
+                automation,
+                "generate_llm_suggestions",
+                side_effect=[primary_draft, escalation_draft],
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "escalated")
+        self.assertEqual(result["model"], "openai/gpt-5.4")
+        self.assertEqual(result["draft"]["symptom_classification"], "software_demand_mismatch")
+
+    def test_generate_validated_llm_draft_falls_back_when_both_drafts_fail_validation(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        invalid_draft = {
+            "title": "[Software Evidence] automation test",
+            "symptom_classification": "software_office_propertyless",
+            "custom_symptom_classification": "",
+            "evidence_summary": "summary referencing day-99",
+            "comparison_baseline": "Compare against #25.",
+            "confidence": "low",
+            "confounders": "none",
+            "analysis_basis": "",
+            "log_excerpt": "### Day 99 detail\n```text\ninvented line\n```",
+            "notes": "note",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.dict(
+            automation.os.environ,
+            {
+                automation.ESCALATION_GITHUB_MODELS_MODEL_ENV: "openai/gpt-5.4"
+            },
+            clear=False,
+        ):
+            with mock.patch.object(
+                automation,
+                "generate_llm_suggestions",
+                side_effect=[invalid_draft, invalid_draft],
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "fallback")
+        self.assertIsNone(result["draft"])
+
+    def test_build_evidence_issue_title_prefers_merged_title(self) -> None:
+        title = automation.build_evidence_issue_title(
+            {"title": "[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day 22"},
+            "[Raw Log] automation test",
+            21,
+        )
+        self.assertEqual(
+            title,
+            "[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day 22",
+        )
 
     def test_parse_reply_comment_and_command(self) -> None:
         comment_body = textwrap.dedent(

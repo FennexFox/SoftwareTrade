@@ -17,10 +17,12 @@ Current setting defaults are documented in [README.md](./README.md).
 1. Open a new issue using the `Raw log report` form.
 2. Fill in the game version, mod version, save or city label, and a short
    summary of what happened.
-3. In the `Raw log` field, either:
+3. Add `Platform notes` when install layout, platform, or environment details
+   could matter for later comparison.
+4. In the `Raw log` field, either:
    - paste the relevant `softwareEvidenceDiagnostics` lines directly, or
    - drag-and-drop a plain-text `.log` file into the field
-4. Submit the issue.
+5. Submit the issue.
 
 The automation will:
 
