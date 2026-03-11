@@ -51,7 +51,7 @@ When promoting a run into a `software evidence` issue:
 Capture guidance:
 
 - prefer copying counters directly from logs rather than paraphrasing them
-- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, and sample-slot fields stay available for later comparisons
+- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, sample-slot fields, and `clock_source` stay available for later comparisons
 - treat `diagnostic_counters` as factual capture
 - treat `diagnostic_counters` as the sampled end-of-window state unless you explicitly note a wider aggregation method
 - when the claim touches office-demand response, preserve `officeDemand(...)` alongside the software counters instead of summarizing demand behavior in prose only
@@ -61,7 +61,9 @@ Capture guidance:
 - use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- `sample_count` now counts configured per-day samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
+- `sample_count` counts emitted `observation_window(...)` lines in the current run, not theoretical per-day slots, so use it as a density hint rather than a replacement for the day fields
+- `skipped_sample_slots` reports scheduled slots that elapsed between emitted observations without a backfilled log line
+- the machine-parsed log prefixes consumed by raw-log automation are defined in `NoOfficeDemandFix/MachineParsedLogContract.cs`; treat changes there as parser contract changes and update the Python parser constants and fixtures in the same diff
 
 The current diagnostics vocabulary is:
 
@@ -107,12 +109,14 @@ At the default `DiagnosticsSamplesPerDay=2` cadence, those windows will usually 
 - `5 days`: about `10` samples
 - `7 days`: about `14` samples
 
-Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser evidence inside the same day-count window, not as a replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set differently, scale the expected `sample_count` accordingly.
+Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser emitted evidence inside the same day-count window, not as a replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set differently, scale the expected `sample_count` accordingly for baseline capture and read any `skipped_sample_slots` as a reminder that missed scheduled slots were not backfilled.
 
 These day-count recommendations remain valid under time-scaling mods such as `RealisticTrips` / `Time2Work`.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
-The current sampling code follows the displayed in-game day via patched time-of-day state, so `DiagnosticsSamplesPerDay=2` still means roughly two samples per reported day rather than two samples per vanilla-length day.
-That keeps the `3` / `5` / `7` day guidance conservative rather than weaker.
+The current sampling code derives `sample_slot` from the runtime `TimeSystem` time-of-day path and advances a logical displayed-clock day when that slot wraps, seeding from the runtime day value and re-syncing after large gaps such as loads or long pauses.
+When `CaptureStableEvidence` or `VerboseLogging` is keeping output active, emitted observations now stay tied to the slot that was actually sampled. If a slot is missed, the next emitted observation reports that gap through `skipped_sample_slots` instead of backfilling synthetic observations.
+The emitted `clock_source` field is normally `runtime_time_system`. Older logs may still show `displayed_clock`; treat that as a legacy contract value rather than a different current code path.
+That keeps the `3` / `5` / `7` day guidance conservative rather than weaker, while preserving honest slot timing in the raw log.
 
 Comparability guidance:
 

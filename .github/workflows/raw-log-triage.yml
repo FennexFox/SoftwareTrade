@@ -35,6 +35,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Run Python automation tests
+        run: python -m unittest discover -s .github/scripts/tests -p "test_*.py"
+
       - name: Run raw log triage
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}

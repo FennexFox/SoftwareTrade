@@ -29,8 +29,13 @@ The automation will:
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
+- preserve `clock_source`, `sample_count`, and `skipped_sample_slots` so maintainers can see that slot timing came from the runtime `TimeSystem` path, that `sample_day` was reconstructed as a logical displayed-clock day, and whether any scheduled gaps were not backfilled
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
+
+The machine-parsed prefixes used for those raw-log contracts are defined in
+`NoOfficeDemandFix/MachineParsedLogContract.cs`. Treat changes there as parser
+contract changes, not casual log wording edits.
 
 ## Privacy Notes
 
