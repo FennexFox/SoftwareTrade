@@ -31,11 +31,64 @@ namespace NoOfficeDemandFix.Systems
         private const int kDefaultDiagnosticsSamplesPerDay = 2;
         private const int kMinDiagnosticsSamplesPerDay = 1;
         private const int kMaxDiagnosticsSamplesPerDay = 8;
+        private const int kDiagnosticsDisabledPollInterval = 8;
 
         private struct FactorEntry
         {
             public int Index;
             public int Weight;
+        }
+
+        private readonly struct DiagnosticsSettingsState : IEquatable<DiagnosticsSettingsState>
+        {
+            public DiagnosticsSettingsState(
+                bool enableTradePatch,
+                bool enablePhantomVacancyFix,
+                bool enableDemandDiagnostics,
+                int diagnosticsSamplesPerDay,
+                bool captureStableEvidence,
+                bool verboseLogging)
+            {
+                EnableTradePatch = enableTradePatch;
+                EnablePhantomVacancyFix = enablePhantomVacancyFix;
+                EnableDemandDiagnostics = enableDemandDiagnostics;
+                DiagnosticsSamplesPerDay = diagnosticsSamplesPerDay;
+                CaptureStableEvidence = captureStableEvidence;
+                VerboseLogging = verboseLogging;
+            }
+
+            public bool EnableTradePatch { get; }
+            public bool EnablePhantomVacancyFix { get; }
+            public bool EnableDemandDiagnostics { get; }
+            public int DiagnosticsSamplesPerDay { get; }
+            public bool CaptureStableEvidence { get; }
+            public bool VerboseLogging { get; }
+
+            public bool Equals(DiagnosticsSettingsState other)
+            {
+                return EnableTradePatch == other.EnableTradePatch &&
+                       EnablePhantomVacancyFix == other.EnablePhantomVacancyFix &&
+                       EnableDemandDiagnostics == other.EnableDemandDiagnostics &&
+                       DiagnosticsSamplesPerDay == other.DiagnosticsSamplesPerDay &&
+                       CaptureStableEvidence == other.CaptureStableEvidence &&
+                       VerboseLogging == other.VerboseLogging;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is DiagnosticsSettingsState other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(
+                    EnableTradePatch,
+                    EnablePhantomVacancyFix,
+                    EnableDemandDiagnostics,
+                    DiagnosticsSamplesPerDay,
+                    CaptureStableEvidence,
+                    VerboseLogging);
+            }
         }
 
         private struct DiagnosticSnapshot
@@ -103,6 +156,7 @@ namespace NoOfficeDemandFix.Systems
         private int m_RunSequence;
         private int m_RunStartDay = int.MinValue;
         private int m_RunStartSampleIndex = int.MinValue;
+        private DiagnosticsSettingsState m_LastSettingsState;
         private string m_LastSettingsSnapshot = string.Empty;
         private string m_LastPatchState = string.Empty;
 
@@ -157,8 +211,9 @@ namespace NoOfficeDemandFix.Systems
         {
             if (phase == SystemUpdatePhase.GameSimulation)
             {
-                // Diagnostics must observe slot boundaries continuously to preserve the configured per-day cadence.
-                return 1;
+                // Poll sparingly while disabled, but switch back to per-frame updates during active runs
+                // so sample-slot boundaries still match the configured per-day cadence.
+                return IsDiagnosticsEnabled() || m_LastDiagnosticsEnabled ? 1 : kDiagnosticsDisabledPollInterval;
             }
 
             return base.GetUpdateInterval(phase);
@@ -184,25 +239,26 @@ namespace NoOfficeDemandFix.Systems
             if (!diagnosticsEnabled)
             {
                 m_LastDiagnosticsEnabled = false;
+                m_LastSettingsState = default;
                 m_LastSettingsSnapshot = string.Empty;
                 m_LastPatchState = string.Empty;
                 return;
             }
 
-            string settingsSnapshot = FormatSettingsSnapshot();
+            DiagnosticsSettingsState settingsState = CaptureSettingsState();
             string patchState = FormatPatchState();
             TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
             TimeSettingsData timeSettings = m_TimeSettingsQuery.GetSingleton<TimeSettingsData>();
             int day = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
-            int samplesPerDay = GetDiagnosticsSamplesPerDay();
+            int samplesPerDay = settingsState.DiagnosticsSamplesPerDay;
             int sampleSlot = GetSampleSlot(timeSettings, timeData, samplesPerDay);
             int sampleIndex = GetSampleIndex(day, sampleSlot, samplesPerDay);
             bool runStateChanged = !m_LastDiagnosticsEnabled ||
-                                   settingsSnapshot != m_LastSettingsSnapshot ||
+                                   !settingsState.Equals(m_LastSettingsState) ||
                                    patchState != m_LastPatchState;
             if (runStateChanged)
             {
-                BeginNewRun(day, sampleIndex, settingsSnapshot, patchState);
+                BeginNewRun(day, sampleIndex, settingsState, patchState);
                 m_LastCompletedSampleIndex = sampleIndex - 1;
             }
 
@@ -222,13 +278,13 @@ namespace NoOfficeDemandFix.Systems
                     GetSampleSlotFromSampleIndex(nextSampleIndex, samplesPerDay),
                     samplesPerDay);
                 m_LastCompletedSampleIndex = nextSampleIndex;
-                EmitObservationIfTriggered(snapshot, settingsSnapshot, patchState);
+                EmitObservationIfTriggered(snapshot, settingsState);
             }
         }
 
-        private void EmitObservationIfTriggered(DiagnosticSnapshot snapshot, string settingsSnapshot, string patchState)
+        private void EmitObservationIfTriggered(DiagnosticSnapshot snapshot, DiagnosticsSettingsState settingsState)
         {
-            if (!TryGetObservationTrigger(snapshot, out string trigger))
+            if (!TryGetObservationTrigger(snapshot, settingsState, out string trigger))
             {
                 return;
             }
@@ -247,8 +303,8 @@ namespace NoOfficeDemandFix.Systems
                     snapshot.SamplesPerDay,
                     GetObservationSampleCount(snapshot.SampleIndex),
                     trigger,
-                    settingsSnapshot,
-                    patchState,
+                    m_LastSettingsSnapshot,
+                    m_LastPatchState,
                     FormatDiagnosticCounters(snapshot),
                     snapshot.TopFactors));
 
@@ -917,16 +973,6 @@ namespace NoOfficeDemandFix.Systems
             return Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
         }
 
-        private static bool IsVerboseLoggingEnabled()
-        {
-            return Mod.Settings != null && Mod.Settings.VerboseLogging;
-        }
-
-        private static bool IsStableEvidenceCaptureEnabled()
-        {
-            return Mod.Settings != null && Mod.Settings.CaptureStableEvidence;
-        }
-
         private static bool HasSuspiciousSignals(DiagnosticSnapshot snapshot)
         {
             return snapshot.OfficeBuildingDemand == 0 ||
@@ -947,19 +993,30 @@ namespace NoOfficeDemandFix.Systems
                    snapshot.SoftwareConsumerOfficeSoftwareInputZero > 0;
         }
 
-        private static string FormatSettingsSnapshot()
+        private static DiagnosticsSettingsState CaptureSettingsState()
         {
             if (Mod.Settings == null)
             {
-                return "unavailable";
+                return default;
             }
 
-            return $"EnableTradePatch:{Mod.Settings.EnableTradePatch}," +
-                   $"EnablePhantomVacancyFix:{Mod.Settings.EnablePhantomVacancyFix}," +
-                   $"EnableDemandDiagnostics:{Mod.Settings.EnableDemandDiagnostics}," +
-                   $"DiagnosticsSamplesPerDay:{GetDiagnosticsSamplesPerDay()}," +
-                   $"CaptureStableEvidence:{Mod.Settings.CaptureStableEvidence}," +
-                   $"VerboseLogging:{Mod.Settings.VerboseLogging}";
+            return new DiagnosticsSettingsState(
+                Mod.Settings.EnableTradePatch,
+                Mod.Settings.EnablePhantomVacancyFix,
+                Mod.Settings.EnableDemandDiagnostics,
+                GetDiagnosticsSamplesPerDay(),
+                Mod.Settings.CaptureStableEvidence,
+                Mod.Settings.VerboseLogging);
+        }
+
+        private static string FormatSettingsSnapshot(DiagnosticsSettingsState settingsState)
+        {
+            return $"EnableTradePatch:{settingsState.EnableTradePatch}," +
+                   $"EnablePhantomVacancyFix:{settingsState.EnablePhantomVacancyFix}," +
+                   $"EnableDemandDiagnostics:{settingsState.EnableDemandDiagnostics}," +
+                   $"DiagnosticsSamplesPerDay:{settingsState.DiagnosticsSamplesPerDay}," +
+                   $"CaptureStableEvidence:{settingsState.CaptureStableEvidence}," +
+                   $"VerboseLogging:{settingsState.VerboseLogging}";
         }
 
         private static string FormatPatchState()
@@ -984,7 +1041,10 @@ namespace NoOfficeDemandFix.Systems
                 $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero})";
         }
 
-        private bool TryGetObservationTrigger(DiagnosticSnapshot snapshot, out string trigger)
+        private static bool TryGetObservationTrigger(
+            DiagnosticSnapshot snapshot,
+            DiagnosticsSettingsState settingsState,
+            out string trigger)
         {
             if (HasSuspiciousSignals(snapshot))
             {
@@ -992,13 +1052,13 @@ namespace NoOfficeDemandFix.Systems
                 return true;
             }
 
-            if (IsStableEvidenceCaptureEnabled())
+            if (settingsState.CaptureStableEvidence)
             {
                 trigger = "capture_stable_evidence";
                 return true;
             }
 
-            if (IsVerboseLoggingEnabled())
+            if (settingsState.VerboseLogging)
             {
                 trigger = "verbose_logging";
                 return true;
@@ -1016,6 +1076,7 @@ namespace NoOfficeDemandFix.Systems
             m_RunStartSampleIndex = int.MinValue;
             m_LastCompletedSampleIndex = int.MinValue;
             m_LastDiagnosticsEnabled = false;
+            m_LastSettingsState = default;
             m_LastSettingsSnapshot = string.Empty;
             m_LastPatchState = string.Empty;
         }
@@ -1025,12 +1086,17 @@ namespace NoOfficeDemandFix.Systems
             return DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'");
         }
 
-        private void BeginNewRun(int day, int sampleIndex, string settingsSnapshot, string patchState)
+        private void BeginNewRun(
+            int day,
+            int sampleIndex,
+            DiagnosticsSettingsState settingsState,
+            string patchState)
         {
             m_RunSequence++;
             m_RunStartDay = day;
             m_RunStartSampleIndex = sampleIndex;
-            m_LastSettingsSnapshot = settingsSnapshot;
+            m_LastSettingsState = settingsState;
+            m_LastSettingsSnapshot = FormatSettingsSnapshot(settingsState);
             m_LastPatchState = patchState;
         }
 
