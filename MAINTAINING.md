@@ -45,7 +45,6 @@ Repository automation notes:
 
 - raw-log triage runs on raw-log intake issue open and edit events
 - evidence promotion runs primarily from maintainer reply comments that include `/promote-evidence`
-- `promote: evidence` remains as a backward-compatible label trigger when a valid maintainer reply comment already exists
 - optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow, and treat deterministic parsing as the source of truth if GitHub Models access is unavailable or the call fails
 
 ## Contributor Process

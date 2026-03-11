@@ -59,8 +59,6 @@ until later evidence synthesis reviews the counters and excerpts together.
 - maintainers should copy the `maintainer_reply` YAML block into a new comment,
   paste the YAML directly or wrap it in fences, edit it there, and include
   `/promote-evidence` in that same comment
-- `promote: evidence` still works as a backward-compatible fallback if a valid
-  maintainer reply comment already exists
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
 

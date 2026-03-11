@@ -91,6 +91,29 @@ RAW_ISSUE_BODY_WITHOUT_MARKER = textwrap.dedent(
     """
 ).strip()
 
+RAW_ISSUE_BODY_WITHOUT_MARKER_MISSING_REQUIRED = textwrap.dedent(
+    """
+    ### Game version
+    1.5.xf1
+
+    ### Mod version
+    0.1.1
+
+    ### Save or city label
+    New Seoul
+
+    ### What happened
+
+    ### Platform notes
+    Windows release build
+
+    ### Other mods
+    none known
+
+    ### Raw log
+    """
+).strip()
+
 
 class RawLogAutomationTests(unittest.TestCase):
     def test_parse_issue_form_sections(self) -> None:
@@ -105,6 +128,14 @@ class RawLogAutomationTests(unittest.TestCase):
     def test_is_raw_log_issue_accepts_github_issue_form_output_without_markdown_marker(self) -> None:
         self.assertTrue(automation.is_raw_log_issue(RAW_ISSUE_BODY_WITHOUT_MARKER, "[Raw Log] test"))
         self.assertFalse(automation.is_raw_log_issue(RAW_ISSUE_BODY_WITHOUT_MARKER, "[Bug] test"))
+
+    def test_is_raw_log_issue_rejects_missing_required_fields_without_marker(self) -> None:
+        self.assertFalse(
+            automation.is_raw_log_issue(RAW_ISSUE_BODY_WITHOUT_MARKER_MISSING_REQUIRED, "[Raw Log] test")
+        )
+
+    def test_is_raw_log_issue_rejects_prefix_only_false_positive(self) -> None:
+        self.assertFalse(automation.is_raw_log_issue("not issue-form output", "[Raw Log] test"))
 
     def test_select_raw_log_source_prefers_attachment(self) -> None:
         issue_fields = {
@@ -1410,6 +1441,79 @@ class RawLogAutomationTests(unittest.TestCase):
         latest = automation.find_latest_reply_comment(comments)
         self.assertIsNotNone(latest)
         self.assertEqual(latest["id"], 1)
+
+    def test_get_issue_comments_paginates_until_short_page(self) -> None:
+        first_page = [{"id": index} for index in range(1, 101)]
+        second_page = [{"id": 101}]
+        with mock.patch.object(
+            automation,
+            "http_request",
+            side_effect=[(200, first_page, ""), (200, second_page, "")],
+        ) as request_mock:
+            comments = automation.get_issue_comments("FennexFox/NoOfficeDemandFix", 30, "token")
+        self.assertEqual(len(comments), 101)
+        self.assertEqual(comments[-1]["id"], 101)
+        self.assertEqual(request_mock.call_count, 2)
+        self.assertTrue(request_mock.call_args_list[0].args[1].endswith("/issues/30/comments?per_page=100&page=1"))
+        self.assertTrue(request_mock.call_args_list[1].args[1].endswith("/issues/30/comments?per_page=100&page=2"))
+
+    def test_get_issue_comments_stops_after_first_short_page(self) -> None:
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(200, [{"id": 1}, {"id": 2}], ""),
+        ) as request_mock:
+            comments = automation.get_issue_comments("FennexFox/NoOfficeDemandFix", 30, "token")
+        self.assertEqual([comment["id"] for comment in comments], [1, 2])
+        self.assertEqual(request_mock.call_count, 1)
+
+    def test_get_issue_comments_raises_on_http_error(self) -> None:
+        with mock.patch.object(automation, "http_request", return_value=(500, {"message": "boom"}, "boom")):
+            with self.assertRaisesRegex(automation.AutomationError, r"Failed to fetch issue comments \(500\): boom"):
+                automation.get_issue_comments("FennexFox/NoOfficeDemandFix", 30, "token")
+
+    def test_find_existing_promoted_issue_uses_search_api_and_returns_match(self) -> None:
+        marker = automation.SOURCE_RAW_ISSUE_MARKER.format(issue_number=123)
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(200, {"items": [{"number": 44, "body": marker}]}, ""),
+        ) as request_mock:
+            issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["number"], 44)
+        request_url = request_mock.call_args.args[1]
+        self.assertIn("/search/issues?", request_url)
+        search_query = automation.urllib.parse.parse_qs(automation.urllib.parse.urlsplit(request_url).query)["q"][0]
+        self.assertIn(
+            f'repo:FennexFox/NoOfficeDemandFix is:issue "{marker}"',
+            search_query,
+        )
+
+    def test_find_existing_promoted_issue_ignores_pull_request_results(self) -> None:
+        marker = automation.SOURCE_RAW_ISSUE_MARKER.format(issue_number=123)
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(
+                200,
+                {
+                    "items": [
+                        {"number": 44, "body": marker, "pull_request": {"url": "https://example.invalid/pr/44"}},
+                        {"number": 45, "body": marker},
+                    ]
+                },
+                "",
+            ),
+        ):
+            issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
+        self.assertIsNotNone(issue)
+        self.assertEqual(issue["number"], 45)
+
+    def test_find_existing_promoted_issue_returns_none_when_search_has_no_match(self) -> None:
+        with mock.patch.object(automation, "http_request", return_value=(200, {"items": []}, "")):
+            issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
+        self.assertIsNone(issue)
 
     def test_sanitize_llm_detail_maps_common_failures(self) -> None:
         self.assertEqual(

@@ -117,6 +117,14 @@ RAW_LOG_FORM_LABELS = {
     "raw log": "raw_log",
 }
 
+RAW_LOG_REQUIRED_FIELDS = (
+    "game_version",
+    "mod_version",
+    "save_or_city_label",
+    "what_happened",
+    "raw_log",
+)
+
 OVERRIDE_FIELD_ORDER = [
     "title",
     "scenario_label",
@@ -270,8 +278,7 @@ def is_raw_log_issue(issue_body: str, issue_title: str = "") -> bool:
         return False
 
     parsed_sections = parse_issue_form_sections(issue_body)
-    required_fields = {"game_version", "mod_version", "save_or_city_label", "what_happened", "raw_log"}
-    return required_fields.issubset(parsed_sections.keys())
+    return all(parsed_sections.get(field_name) for field_name in RAW_LOG_REQUIRED_FIELDS)
 
 
 def extract_markdown_links(text: str) -> list[str]:
@@ -333,7 +340,7 @@ def http_request(
     token: str | None = None,
     payload: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-) -> tuple[int, dict[str, Any], str]:
+) -> tuple[int, Any, str]:
     request_headers = {
         "Accept": "application/vnd.github+json, application/json",
         "User-Agent": "NoOfficeDemandFixRawLogAutomation/1.0",
@@ -2864,11 +2871,25 @@ def parse_managed_comment(comment_body: str) -> dict[str, Any]:
 
 
 def get_issue_comments(repo: str, issue_number: int, token: str) -> list[dict[str, Any]]:
-    comments_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}/comments?per_page=100"
-    status, payload, raw = http_request("GET", comments_url, token=token)
-    if status >= 400:
-        raise AutomationError(f"Failed to fetch issue comments ({status}): {raw}")
-    return payload if isinstance(payload, list) else []
+    comments: list[dict[str, Any]] = []
+    page = 1
+
+    while True:
+        comments_url = (
+            f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}/comments"
+            f"?per_page=100&page={page}"
+        )
+        status, payload, raw = http_request("GET", comments_url, token=token)
+        if status >= 400:
+            raise AutomationError(f"Failed to fetch issue comments ({status}): {raw}")
+        if not isinstance(payload, list):
+            return comments
+
+        comments.extend(item for item in payload if isinstance(item, dict))
+        if len(payload) < 100:
+            return comments
+
+        page += 1
 
 
 def create_issue_comment(repo: str, issue_number: int, body: str, token: str) -> dict[str, Any]:
@@ -2900,17 +2921,6 @@ def upsert_managed_comment(repo: str, issue_number: int, body: str, token: str) 
     if managed_comment:
         return update_issue_comment(repo, int(managed_comment["id"]), body, token)
     return create_issue_comment(repo, issue_number, body, token)
-
-
-def remove_label(repo: str, issue_number: int, label_name: str, token: str) -> None:
-    label_url = (
-        f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}/labels/"
-        f"{urllib.parse.quote(label_name, safe='')}"
-    )
-    status, _, _ = http_request("DELETE", label_url, token=token)
-    if status not in (200, 204, 404):
-        raise AutomationError(f"Failed to remove label `{label_name}` from issue #{issue_number}.")
-
 
 def update_issue_state(repo: str, issue_number: int, *, state: str, token: str) -> dict[str, Any]:
     issue_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}"
@@ -2950,20 +2960,26 @@ def ensure_label(repo: str, name: str, color: str, description: str, token: str)
         raise AutomationError(f"Failed to ensure label `{name}` exists ({status}): {raw}")
 
 
-def list_repo_issues(repo: str, token: str, *, state: str = "all") -> list[dict[str, Any]]:
-    url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues?state={state}&per_page=100"
+def search_repo_issues(repo: str, query: str, token: str, *, per_page: int = 10) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode({"q": f"repo:{repo} is:issue {query}", "per_page": str(per_page)})
+    url = f"{GITHUB_API_BASE_URL}/search/issues?{params}"
     status, payload, raw = http_request("GET", url, token=token)
     if status >= 400:
-        raise AutomationError(f"Failed to list repo issues ({status}): {raw}")
-    return payload if isinstance(payload, list) else []
+        raise AutomationError(f"Failed to search repo issues ({status}): {raw}")
+    if not isinstance(payload, dict):
+        return []
+
+    items = payload.get("items", [])
+    return [item for item in items if isinstance(item, dict)]
 
 
 def find_existing_promoted_issue(repo: str, raw_issue_number: int, token: str) -> dict[str, Any] | None:
     marker = SOURCE_RAW_ISSUE_MARKER.format(issue_number=raw_issue_number)
-    for issue in list_repo_issues(repo, token):
+    for issue in search_repo_issues(repo, f'"{marker}"', token):
         if "pull_request" in issue:
             continue
-        if marker in issue.get("body", ""):
+        body = issue.get("body", "")
+        if not body or marker in body:
             return issue
     return None
 
@@ -3325,30 +3341,19 @@ def format_diagnostic_counters_readable(raw: str) -> str:
     return "\n".join(f"{name}({contents})" for name, contents in groups)
 
 
-def build_missing_fields_comment(missing_fields: list[str], *, via_label: bool = False) -> str:
+def build_missing_fields_comment(missing_fields: list[str]) -> str:
     formatted = ", ".join(f"`{field_name}`" for field_name in missing_fields)
-    if via_label:
-        follow_up = (
-            "Post a maintainer reply comment that copies the `maintainer_reply` block, paste the YAML directly or wrap it in fences, fill those fields, "
-            "then re-add the `promote: evidence` label."
-        )
-    else:
-        follow_up = (
-            f"Post a maintainer reply comment that copies the `maintainer_reply` block, paste the YAML directly or wrap it in fences, fill those fields, "
-            f"and include `{PROMOTE_COMMAND}` in that same comment."
-        )
+    follow_up = (
+        f"Post a maintainer reply comment that copies the `maintainer_reply` block, paste the YAML directly or wrap it in fences, fill those fields, "
+        f"and include `{PROMOTE_COMMAND}` in that same comment."
+    )
     return (
         "Promotion was blocked because the evidence issue still has missing required fields: "
         f"{formatted}. {follow_up}"
     )
 
 
-def build_missing_reply_comment(*, via_label: bool = False) -> str:
-    if via_label:
-        return (
-            "Promotion was blocked because no maintainer reply comment with a valid `maintainer_reply` YAML block was found. "
-            "Copy the template from the managed triage comment into a new maintainer comment, paste the YAML directly or wrap it in fences, edit it, then re-add the `promote: evidence` label."
-        )
+def build_missing_reply_comment() -> str:
     return (
         "Promotion was blocked because the triggering comment did not include a valid `maintainer_reply` YAML block. "
         "Copy the template from the managed triage comment into a new maintainer comment, paste the YAML directly or wrap it in fences, edit it, and include "
