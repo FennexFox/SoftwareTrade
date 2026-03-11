@@ -6,12 +6,9 @@ message.
 ## Format
 - Use Conventional Commits:
   - `<type>(<scope>): <subject>`
-  - Body and footer are optional, but see "Body Rules" below.
-  - If a body is present, use:
-    - blank line
-    - body
-    - blank line
-    - footer
+  - Body and footer are optional.
+  - If a body is present, separate subject, body, and footer with blank
+    lines.
 
 ## Types
 Use one of:
@@ -24,10 +21,15 @@ Use one of:
   stability, or keeping existing features working.
 - Choose `refactor` only when behavior is unchanged and the change is
   primarily structural.
+- Choose `test` only when the meaningful change is limited to tests or
+  test infrastructure.
+- If runtime logic changed and tests/docs/config changed alongside it, do
+  not choose `test` or `docs`; title the logic change and mention the
+  supporting work in the body instead.
 - If uncertain between `feat` and `fix`, choose `fix`.
-- For patch/signature alignment, default to `fix`.
-- For adding refresh/rebuild systems that make existing settings/patches
-  apply correctly, default to `fix`.
+- Repo-specific default: changes that make existing
+  settings/patches/signatures apply correctly are usually `fix`, not
+  `feat`.
 
 ## Scopes
 - `scope` is required.
@@ -41,7 +43,13 @@ Use one of:
   "prevent", "rename"
 - 50 characters or fewer
 - No trailing period
-- Describe the primary intent, not the file list
+- Describe the primary behavior or workflow intent, not the file list.
+- Do not let tests, deleted files, or doc cleanup override the subject
+  when they only support a logic change.
+- Avoid generic subjects like "update files", "remove related scripts",
+  or "add tests for behavior" when a more specific runtime intent is
+  visible in the diff.
+- Prefer the narrowest real module or behavior scope.
 
 ## Body Rules (only when needed)
 Add a body when:
@@ -66,10 +74,10 @@ Body should:
   - `Refs: #123`
 
 ## Examples
-- `fix(config): set ped walk factor default to 1.0`
-- `docs(readme): clarify installation steps`
-- `refactor(core): simplify route weight calculation`
 - `fix(systems): refresh bus lane penalties on setting change`
+- `fix(systems): require body marker for promoted issue match`
+- `fix(infra): remove label-based raw-log promotion path`
+- `docs(instructions): clarify commit message guidelines`
 
 Example with body:
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Colossal.Serialization.Entities;
 using Game;
 using Game.Economy;
@@ -16,7 +17,9 @@ namespace NoOfficeDemandFix.Systems
 
         private EntityQuery m_OutsideConnectionPrefabs;
         private EntityQuery m_CargoStationPrefabs;
-        private bool m_Applied;
+        private readonly Dictionary<Entity, Resource> m_TrackedAddedResources = new Dictionary<Entity, Resource>();
+        private bool m_LoadReady;
+        private bool m_InitializedForCurrentLoad;
 
         [Preserve]
         protected override void OnCreate()
@@ -35,29 +38,48 @@ namespace NoOfficeDemandFix.Systems
         protected override void OnGamePreload(Purpose purpose, GameMode mode)
         {
             base.OnGamePreload(purpose, mode);
-            ResetPatchState();
+            bool upcomingPatchEnabled = IsPatchEnabled();
+            if (!upcomingPatchEnabled)
+            {
+                RevertTrackedResourceBits();
+            }
+            else
+            {
+                PruneTrackedResourceBits();
+                if (IsVerboseLoggingEnabled() && m_TrackedAddedResources.Count > 0)
+                {
+                    Mod.log.Info("Skipped reverting tracked office resources during preload because the trade patch remains enabled for the upcoming load.");
+                }
+            }
+
+            ResetLoadState();
         }
 
         protected override void OnGameLoaded(Context serializationContext)
         {
             base.OnGameLoaded(serializationContext);
-            ResetPatchState();
+            m_LoadReady = true;
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
-            if (!IsPatchEnabled())
+            if (!m_LoadReady)
             {
-                m_Applied = true;
-                base.Enabled = false;
-                Mod.log.Info("Office resource storage patch is disabled.");
                 return;
             }
 
-            if (m_Applied)
+            if (m_InitializedForCurrentLoad)
             {
                 base.Enabled = false;
+                return;
+            }
+
+            if (!IsPatchEnabled())
+            {
+                m_InitializedForCurrentLoad = true;
+                base.Enabled = false;
+                Mod.log.Info("Office resource storage patch is disabled for the current load.");
                 return;
             }
 
@@ -69,14 +91,14 @@ namespace NoOfficeDemandFix.Systems
             int patchedOutsideConnections = PatchStorageCompanyPrefabs(m_OutsideConnectionPrefabs, "outside connection");
             int patchedCargoStations = PatchStorageCompanyPrefabs(m_CargoStationPrefabs, "cargo station");
 
-            m_Applied = true;
+            m_InitializedForCurrentLoad = true;
             base.Enabled = false;
-            Mod.log.Info($"Office resource storage patch applied. Outside connections: {patchedOutsideConnections}, cargo stations: {patchedCargoStations}.");
+            Mod.log.Info($"Office resource storage patch applied for the current load. Outside connections: {patchedOutsideConnections}, cargo stations: {patchedCargoStations}.");
         }
 
         private static bool IsPatchEnabled()
         {
-            return Mod.Settings == null || Mod.Settings.EnableTradePatch;
+            return Mod.Settings != null && Mod.Settings.EnableTradePatch;
         }
 
         private static bool IsVerboseLoggingEnabled()
@@ -100,8 +122,10 @@ namespace NoOfficeDemandFix.Systems
                     continue;
                 }
 
+                Resource addedResources = kOfficeResources & ~original;
                 storageCompanyData.m_StoredResources = updated;
                 EntityManager.SetComponentData(entity, storageCompanyData);
+                TrackAddedResources(entity, addedResources);
                 patched++;
 
                 if (IsVerboseLoggingEnabled())
@@ -114,9 +138,157 @@ namespace NoOfficeDemandFix.Systems
             return patched;
         }
 
-        private void ResetPatchState()
+        private void RevertTrackedResourceBits()
         {
-            m_Applied = false;
+            if (m_TrackedAddedResources.Count == 0)
+            {
+                return;
+            }
+
+            bool verboseLogging = IsVerboseLoggingEnabled();
+            int reverted = 0;
+
+            foreach (KeyValuePair<Entity, Resource> trackedEntry in m_TrackedAddedResources)
+            {
+                Entity entity = trackedEntry.Key;
+                Resource addedResources = trackedEntry.Value;
+                if (!EntityManager.Exists(entity))
+                {
+                    if (verboseLogging)
+                    {
+                        Mod.log.Info($"Skipped reverting tracked office resources because entity {entity.Index}:{entity.Version} no longer exists during preload.");
+                    }
+
+                    continue;
+                }
+
+                if (!EntityManager.HasComponent<StorageCompanyData>(entity))
+                {
+                    if (verboseLogging)
+                    {
+                        Mod.log.Info($"Skipped reverting tracked office resources because entity {entity.Index}:{entity.Version} no longer has StorageCompanyData during preload.");
+                    }
+
+                    continue;
+                }
+
+                StorageCompanyData storageCompanyData = EntityManager.GetComponentData<StorageCompanyData>(entity);
+                Resource current = storageCompanyData.m_StoredResources;
+                Resource updated = current & ~addedResources;
+                if (updated == current)
+                {
+                    continue;
+                }
+
+                storageCompanyData.m_StoredResources = updated;
+                EntityManager.SetComponentData(entity, storageCompanyData);
+                reverted++;
+
+                if (verboseLogging && EntityManager.HasComponent<PrefabData>(entity))
+                {
+                    PrefabData prefabData = EntityManager.GetComponentData<PrefabData>(entity);
+                    Mod.log.Info($"Reverted tracked office resources on prefab index {prefabData.m_Index} during preload.");
+                }
+            }
+
+            if (reverted > 0)
+            {
+                Mod.log.Info($"Office resource storage patch reverted tracked office resource bits on {reverted} prefabs during preload.");
+            }
+
+            m_TrackedAddedResources.Clear();
+        }
+
+        private void PruneTrackedResourceBits()
+        {
+            if (m_TrackedAddedResources.Count == 0)
+            {
+                return;
+            }
+
+            bool verboseLogging = IsVerboseLoggingEnabled();
+            List<Entity> removedEntities = null;
+            List<KeyValuePair<Entity, Resource>> narrowedEntries = null;
+
+            foreach (KeyValuePair<Entity, Resource> trackedEntry in m_TrackedAddedResources)
+            {
+                Entity entity = trackedEntry.Key;
+                Resource trackedResources = trackedEntry.Value;
+
+                if (!EntityManager.Exists(entity))
+                {
+                    removedEntities ??= new List<Entity>();
+                    removedEntities.Add(entity);
+                    continue;
+                }
+
+                if (!EntityManager.HasComponent<StorageCompanyData>(entity))
+                {
+                    removedEntities ??= new List<Entity>();
+                    removedEntities.Add(entity);
+                    continue;
+                }
+
+                StorageCompanyData storageCompanyData = EntityManager.GetComponentData<StorageCompanyData>(entity);
+                Resource remainingTrackedResources = storageCompanyData.m_StoredResources & trackedResources;
+                if (remainingTrackedResources == default)
+                {
+                    removedEntities ??= new List<Entity>();
+                    removedEntities.Add(entity);
+                    continue;
+                }
+
+                if (remainingTrackedResources != trackedResources)
+                {
+                    narrowedEntries ??= new List<KeyValuePair<Entity, Resource>>();
+                    narrowedEntries.Add(new KeyValuePair<Entity, Resource>(entity, remainingTrackedResources));
+                }
+            }
+
+            if (removedEntities != null)
+            {
+                foreach (Entity entity in removedEntities)
+                {
+                    m_TrackedAddedResources.Remove(entity);
+                }
+            }
+
+            if (narrowedEntries != null)
+            {
+                foreach (KeyValuePair<Entity, Resource> entry in narrowedEntries)
+                {
+                    m_TrackedAddedResources[entry.Key] = entry.Value;
+                }
+            }
+
+            if (verboseLogging && (removedEntities != null || narrowedEntries != null))
+            {
+                int removedCount = removedEntities?.Count ?? 0;
+                int narrowedCount = narrowedEntries?.Count ?? 0;
+                Mod.log.Info($"Pruned tracked office resource cache during preload. Removed: {removedCount}, narrowed: {narrowedCount}.");
+            }
+        }
+
+        private void TrackAddedResources(Entity entity, Resource addedResources)
+        {
+            if (addedResources == default)
+            {
+                return;
+            }
+
+            if (m_TrackedAddedResources.TryGetValue(entity, out Resource existingResources))
+            {
+                m_TrackedAddedResources[entity] = existingResources | addedResources;
+                return;
+            }
+
+            m_TrackedAddedResources.Add(entity, addedResources);
+        }
+
+        private void ResetLoadState()
+        {
+            m_LoadReady = false;
+            m_InitializedForCurrentLoad = false;
             base.Enabled = true;
         }
     }
