@@ -3,7 +3,7 @@
 `No Office Demand Fix` is a Cities: Skylines II mod focused on one confirmed office-demand failure track and one separate software/resource investigation track:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
-- office-resource / `software` instability: a separate producer/consumer resource-flow investigation that can still collapse office company efficiency
+- office-resource / `software` instability: a separate producer/consumer resource-flow investigation that can still collapse office-company efficiency
 
 The current release ships a confirmed fix for the reproduced `Signature` phantom-vacancy case and keeps the `software` track available as opt-in investigation tooling rather than a finished end-user feature.
 

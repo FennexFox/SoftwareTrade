@@ -70,13 +70,7 @@ namespace NoOfficeDemandFix.Systems
 
         private static bool IsPatchEnabled()
         {
-            if (Mod.Settings == null)
-            {
-                // Default to enabled when settings are not yet loaded to preserve original behavior.
-                return true;
-            }
-
-            return Mod.Settings.EnableTradePatch;
+            return Mod.Settings != null && Mod.Settings.EnableTradePatch;
         }
 
         private static bool IsVerboseLoggingEnabled()

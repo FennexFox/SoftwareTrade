@@ -51,7 +51,7 @@ When promoting a run into a `software evidence` issue:
 Capture guidance:
 
 - prefer copying counters directly from logs rather than paraphrasing them
-- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, and `sample_slot` fields stay available for later comparisons
+- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, and sample-slot fields stay available for later comparisons
 - treat `diagnostic_counters` as factual capture
 - treat `diagnostic_counters` as the sampled end-of-window state unless you explicitly note a wider aggregation method
 - when the claim touches office-demand response, preserve `officeDemand(...)` alongside the software counters instead of summarizing demand behavior in prose only

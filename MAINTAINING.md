@@ -47,6 +47,8 @@ Repository automation notes:
 - evidence promotion runs primarily from maintainer reply comments that include `/promote-evidence`
 - `promote: evidence` remains as a backward-compatible label trigger when a valid maintainer reply comment already exists
 - optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow, and treat deterministic parsing as the source of truth if GitHub Models access is unavailable or the call fails
+- use vanilla decompiled game code for claims about base-game trade lifecycle, virtual-resource handling, and update behavior; use this mod's code for claims about diagnostics output, local patches, and release defaults
+- treat software-office distress and office-demand response as separate observed outcomes; do not infer falling office demand from `software` consumer efficiency collapse alone
 
 ## Contributor Process
 
