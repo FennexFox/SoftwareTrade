@@ -24,8 +24,10 @@ PROMOTE_COMMAND = "/promote-evidence"
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
 DEFAULT_GITHUB_MODELS_MODEL = "openai/gpt-4.1-mini"
+DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL = "openai/gpt-4.1"
 PRIMARY_GITHUB_MODELS_MODEL_ENV = "PRIMARY_GITHUB_MODELS_MODEL"
 ESCALATION_GITHUB_MODELS_MODEL_ENV = "ESCALATION_GITHUB_MODELS_MODEL"
+SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL_ENV = "SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL"
 COMMENT_BODY_LIMIT = 60000
 DETAIL_PREVIEW_LIMIT = 1800
 LLM_DETAIL_EXCERPT_LIMIT = 700
@@ -182,6 +184,13 @@ def get_primary_github_models_model() -> str:
 
 def get_escalation_github_models_model() -> str:
     return os.getenv(ESCALATION_GITHUB_MODELS_MODEL_ENV, "").strip()
+
+
+def get_summary_refinement_github_models_model() -> str:
+    return (
+        os.getenv(SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL_ENV, "").strip()
+        or DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL
+    )
 
 
 def load_event_payload(event_path: str) -> dict[str, Any]:
@@ -1460,6 +1469,37 @@ def build_llm_context(
     }
 
 
+def build_summary_refinement_context(
+    issue_fields: dict[str, str],
+    parsed_log: dict[str, Any],
+    deterministic_draft: dict[str, Any],
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    excerpt_candidates = build_excerpt_candidates_for_llm(parsed_log)
+    selected_candidate = excerpt_candidates[0] if excerpt_candidates else {}
+    return {
+        "raw_issue": {
+            "save_or_city_label": issue_fields.get("save_or_city_label", ""),
+            "what_happened": truncate_text(issue_fields.get("what_happened", ""), 240),
+            "other_mods": truncate_text(issue_fields.get("other_mods", ""), 120),
+        },
+        "draft_title": draft.get("title", ""),
+        "current_summary": truncate_text(str(draft.get("evidence_summary", "")), 500),
+        "fallback_summary": truncate_text(str(deterministic_draft.get("evidence_summary", "")), 500),
+        "final_observation": summarize_observation_for_llm(
+            parsed_log.get("final_observation") or parsed_log.get("latest_observation")
+        ),
+        "consumer_peak_observation": summarize_observation_for_llm(parsed_log.get("consumer_peak_observation")),
+        "selected_excerpt_candidate": {
+            "title": selected_candidate.get("title", ""),
+            "day": safe_int(selected_candidate.get("day")),
+            "sample_index": safe_int(selected_candidate.get("sample_index")),
+            "lines": [truncate_text(str(line), 320) for line in selected_candidate.get("lines", [])[:2]],
+        },
+        "semantic_facts": build_llm_semantic_facts(parsed_log)[:6],
+    }
+
+
 def encode_llm_context(context: dict[str, Any]) -> str:
     return json.dumps(context, ensure_ascii=True, separators=(",", ":"))
 
@@ -1749,6 +1789,54 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
     }
 
 
+def build_summary_refinement_request_payload(context: dict[str, Any], model: str | None = None) -> dict[str, Any]:
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "evidence_summary": {"type": "string"},
+        },
+        "required": ["evidence_summary"],
+    }
+
+    instructions = textwrap.dedent(
+        """
+        Rewrite only the `evidence_summary` field for a GitHub software evidence issue.
+        Follow these rules:
+        - Keep it to 2-4 short factual sentences.
+        - Use only the provided run facts.
+        - Prefer literal counter language when counters are the key signal.
+        - Do not mention labels, comparisons, recommendations, or root-cause theories.
+        - Do not say phantom-vacancy activity was absent if the provided facts show phantom corrections or guardCorrections.
+        - If buyer-state fields are the main signal, describe those buyer-state fields literally.
+        - Avoid subjective intensifiers like "significantly".
+        - Return only a stronger factual summary, not extra commentary.
+        """
+    ).strip()
+
+    return {
+        "model": model or get_summary_refinement_github_models_model(),
+        "messages": [
+            {
+                "role": "system",
+                "content": instructions,
+            },
+            {
+                "role": "user",
+                "content": encode_llm_context(context),
+            },
+        ],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "raw_log_evidence_summary_refinement",
+                "schema": schema,
+                "strict": True,
+            },
+        },
+    }
+
+
 def extract_chat_completion_text(response_payload: dict[str, Any]) -> str:
     for choice in response_payload.get("choices", []):
         message = choice.get("message", {})
@@ -1800,6 +1888,59 @@ def generate_llm_suggestions(
     if last_error is not None:
         raise last_error
     raise AutomationError("GitHub Models request failed: no request variant produced a response.")
+
+
+def refine_evidence_summary(
+    issue_fields: dict[str, str],
+    parsed_log: dict[str, Any],
+    deterministic_draft: dict[str, Any],
+    draft: dict[str, Any],
+    github_token: str | None,
+    model: str | None = None,
+) -> tuple[str, str]:
+    original_summary = str(draft.get("evidence_summary", "")).strip()
+    if not github_token or not original_summary:
+        return original_summary, ""
+
+    refinement_model = model or get_summary_refinement_github_models_model()
+    context = build_summary_refinement_context(issue_fields, parsed_log, deterministic_draft, draft)
+    status, response_payload, raw_text = http_request(
+        "POST",
+        GITHUB_MODELS_CHAT_COMPLETIONS_URL,
+        token=github_token,
+        payload=build_summary_refinement_request_payload(context, model=refinement_model),
+        headers={
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    if status >= 400:
+        raise AutomationError(f"GitHub Models request failed ({status}): {raw_text}")
+
+    response_text = extract_chat_completion_text(response_payload)
+    if not response_text:
+        raise AutomationError("GitHub Models returned no output text.")
+
+    payload = json.loads(response_text)
+    refined_summary = apply_llm_wording_guards(
+        {"evidence_summary": str(payload.get("evidence_summary", ""))}
+    ).get("evidence_summary", "")
+    refined_summary = str(refined_summary).strip()
+    if not refined_summary:
+        return original_summary, ""
+
+    allowed_days = extract_supported_days(parsed_log)
+    allowed_sample_indices = extract_supported_sample_indices(parsed_log)
+    allowed_issue_refs = extract_supported_issue_refs(issue_fields)
+    if has_unsupported_day_reference(refined_summary, allowed_days):
+        return original_summary, ""
+    if has_unsupported_sample_reference(refined_summary, allowed_sample_indices):
+        return original_summary, ""
+    if has_unsupported_issue_reference(refined_summary, allowed_issue_refs):
+        return original_summary, ""
+    if has_unsupported_evidence_summary_interpretation(refined_summary, parsed_log):
+        return original_summary, ""
+    return refined_summary, refinement_model
 
 
 def normalize_evidence_title(title: str, fallback_title: str) -> str:
@@ -2068,16 +2209,46 @@ def generate_validated_llm_draft(
     result["validation_errors"] = primary_errors
 
     if not should_escalate:
+        refinement_model = ""
+        try:
+            validated_primary["evidence_summary"], refinement_model = refine_evidence_summary(
+                issue_fields,
+                parsed_log,
+                deterministic_draft,
+                validated_primary,
+                github_token,
+            )
+        except AutomationError:
+            refinement_model = ""
         result["draft"] = validated_primary
         result["status"] = "enabled"
-        result["detail"] = primary_model
+        result["detail"] = (
+            f"{primary_model}; summary_refinement={refinement_model}"
+            if refinement_model
+            else primary_model
+        )
         result["model"] = primary_model
         return result
 
     if editorial_complexity and not primary_requires_escalation and not escalation_model:
+        refinement_model = ""
+        try:
+            validated_primary["evidence_summary"], refinement_model = refine_evidence_summary(
+                issue_fields,
+                parsed_log,
+                deterministic_draft,
+                validated_primary,
+                github_token,
+            )
+        except AutomationError:
+            refinement_model = ""
         result["draft"] = validated_primary
         result["status"] = "enabled"
-        result["detail"] = primary_model
+        result["detail"] = (
+            f"{primary_model}; summary_refinement={refinement_model}"
+            if refinement_model
+            else primary_model
+        )
         result["model"] = primary_model
         return result
 
@@ -2099,9 +2270,24 @@ def generate_validated_llm_draft(
                 deterministic_draft,
             )
             if not validation_errors_require_escalation(escalation_errors):
+                refinement_model = ""
+                try:
+                    validated_escalation["evidence_summary"], refinement_model = refine_evidence_summary(
+                        issue_fields,
+                        parsed_log,
+                        deterministic_draft,
+                        validated_escalation,
+                        github_token,
+                    )
+                except AutomationError:
+                    refinement_model = ""
                 result["draft"] = validated_escalation
                 result["status"] = "escalated"
-                result["detail"] = escalation_model
+                result["detail"] = (
+                    f"{escalation_model}; summary_refinement={refinement_model}"
+                    if refinement_model
+                    else escalation_model
+                )
                 result["model"] = escalation_model
                 result["validation_errors"] = escalation_errors
                 return result

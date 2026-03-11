@@ -488,6 +488,16 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("no indication of phantom vacancies", payload["messages"][0]["content"])
         self.assertIn("softwareInputZero=False", payload["messages"][0]["content"])
 
+    def test_build_summary_refinement_request_payload_uses_gpt_4_1(self) -> None:
+        payload = automation.build_summary_refinement_request_payload({"foo": "bar"})
+        self.assertEqual(payload["model"], automation.DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL)
+        self.assertEqual(payload["messages"][0]["role"], "system")
+        self.assertEqual(payload["messages"][1]["content"], '{"foo":"bar"}')
+        self.assertEqual(
+            payload["response_format"]["json_schema"]["schema"]["required"],
+            ["evidence_summary"],
+        )
+
     def test_build_llm_context_excludes_raw_log_and_caps_excerpt(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         issue_fields["raw_log"] = "X" * 5000
@@ -557,6 +567,52 @@ class RawLogAutomationTests(unittest.TestCase):
             suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
         self.assertEqual(suggestions["symptom_classification"], "software_track_unclear")
         self.assertEqual(request_mock.call_args.args[1], automation.GITHUB_MODELS_CHAT_COMPLETIONS_URL)
+
+    def test_refine_evidence_summary_uses_gpt_4_1_and_returns_refined_text(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        draft = {
+            "title": deterministic["title"],
+            "evidence_summary": "draft summary",
+        }
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"evidence_summary":"The final day-22 sample kept '
+                            '`softwareConsumerBuyerState.noBuyerDespiteNeed=24` with '
+                            '`buyerActive=0` while `officeDemand.building=100` remained high."}'
+                        )
+                    }
+                }
+            ]
+        }
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(200, response_payload, ""),
+        ) as request_mock:
+            refined_summary, refinement_model = automation.refine_evidence_summary(
+                issue_fields,
+                parsed_log,
+                deterministic,
+                draft,
+                "gh-token",
+            )
+        self.assertEqual(refinement_model, automation.DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL)
+        self.assertIn("officeDemand.building=100", refined_summary)
+        self.assertEqual(
+            request_mock.call_args.kwargs["payload"]["model"],
+            automation.DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL,
+        )
 
     def test_generate_llm_suggestions_rewrites_unsupported_zero_resources_wording(self) -> None:
         response_payload = {
@@ -657,15 +713,22 @@ class RawLogAutomationTests(unittest.TestCase):
             "reasoning_summary": "reason",
         }
         with mock.patch.object(automation, "generate_llm_suggestions", return_value=valid_draft):
-            result = automation.generate_validated_llm_draft(
-                context,
-                issue_fields,
-                parsed_log,
-                deterministic,
-                "gh-token",
-            )
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=("Refined summary", automation.DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
         self.assertEqual(result["status"], "enabled")
         self.assertEqual(result["draft"]["symptom_classification"], "software_demand_mismatch")
+        self.assertEqual(result["draft"]["evidence_summary"], "Refined summary")
+        self.assertIn("summary_refinement=openai/gpt-4.1", result["detail"])
 
     def test_generate_validated_llm_draft_escalates_after_validator_failure(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -719,16 +782,23 @@ class RawLogAutomationTests(unittest.TestCase):
                 "generate_llm_suggestions",
                 side_effect=[primary_draft, escalation_draft],
             ):
-                result = automation.generate_validated_llm_draft(
-                    context,
-                    issue_fields,
-                    parsed_log,
-                    deterministic,
-                    "gh-token",
-                )
+                with mock.patch.object(
+                    automation,
+                    "refine_evidence_summary",
+                    return_value=("Refined escalation summary", automation.DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL),
+                ):
+                    result = automation.generate_validated_llm_draft(
+                        context,
+                        issue_fields,
+                        parsed_log,
+                        deterministic,
+                        "gh-token",
+                    )
         self.assertEqual(result["status"], "escalated")
         self.assertEqual(result["model"], "openai/gpt-5.4")
         self.assertEqual(result["draft"]["symptom_classification"], "software_demand_mismatch")
+        self.assertEqual(result["draft"]["evidence_summary"], "Refined escalation summary")
+        self.assertIn("summary_refinement=openai/gpt-4.1", result["detail"])
 
     def test_generate_validated_llm_draft_keeps_sanitized_excerpt_without_fallback(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -756,13 +826,18 @@ class RawLogAutomationTests(unittest.TestCase):
             "reasoning_summary": "reason",
         }
         with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft_with_bad_excerpt):
-            result = automation.generate_validated_llm_draft(
-                context,
-                issue_fields,
-                parsed_log,
-                deterministic,
-                "gh-token",
-            )
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(draft_with_bad_excerpt["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
         self.assertEqual(result["status"], "enabled")
         self.assertEqual(result["detail"], automation.DEFAULT_GITHUB_MODELS_MODEL)
         self.assertIn("unsupported_excerpt_line", result["validation_errors"])
@@ -794,13 +869,18 @@ class RawLogAutomationTests(unittest.TestCase):
             "reasoning_summary": "reason",
         }
         with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft_with_bad_interpretation):
-            result = automation.generate_validated_llm_draft(
-                context,
-                issue_fields,
-                parsed_log,
-                deterministic,
-                "gh-token",
-            )
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
         self.assertEqual(result["status"], "enabled")
         self.assertIn("unsupported_evidence_summary_interpretation", result["validation_errors"])
         self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
