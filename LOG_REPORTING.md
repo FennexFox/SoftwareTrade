@@ -32,6 +32,10 @@ The automation will:
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
+The machine-parsed prefixes used for those raw-log contracts are defined in
+`NoOfficeDemandFix/MachineParsedLogContract.cs`. Treat changes there as parser
+contract changes, not casual log wording edits.
+
 ## Privacy Notes
 
 - local filesystem paths can appear in mod logs

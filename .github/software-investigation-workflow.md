@@ -62,6 +62,7 @@ Capture guidance:
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
 - `sample_count` now counts configured per-day samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
+- the machine-parsed log prefixes consumed by raw-log automation are defined in `NoOfficeDemandFix/MachineParsedLogContract.cs`; treat changes there as parser contract changes and update the Python parser constants and fixtures in the same diff
 
 The current diagnostics vocabulary is:
 
@@ -112,6 +113,7 @@ Use the day-count recommendation as the primary rule. Treat the higher `sample_c
 These day-count recommendations remain valid under time-scaling mods such as `RealisticTrips` / `Time2Work`.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
 The current sampling code follows the displayed in-game day via patched time-of-day state, so `DiagnosticsSamplesPerDay=2` still means roughly two samples per reported day rather than two samples per vanilla-length day.
+When `CaptureStableEvidence` or `VerboseLogging` is keeping output active, the runtime now tracks those displayed-day sample slots continuously so the configured cadence is not lost to coarse simulation update intervals.
 That keeps the `3` / `5` / `7` day guidance conservative rather than weaker.
 
 Comparability guidance:
