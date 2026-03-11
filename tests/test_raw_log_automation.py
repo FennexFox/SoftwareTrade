@@ -165,9 +165,23 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertIn("patch_state=debug-build", draft["confounders"])
         self.assertIn("trade patch enabled during capture", draft["confounders"])
+        self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
         self.assertEqual(draft["platform_notes"], "Windows release build")
         self.assertEqual(draft["symptom_classification"], "software_demand_mismatch")
         self.assertIn("EnableTradePatch-enabled", draft["title"])
+
+    def test_build_deterministic_draft_marks_disabled_trade_patch_in_confounders(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(MULTI_OBSERVATION_LOG)
+        draft = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": MULTI_OBSERVATION_LOG},
+            [],
+        )
+        self.assertIn("trade patch disabled during capture", draft["confounders"])
+        self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
 
     def test_build_deterministic_summary_prefers_buyer_state_pressure(self) -> None:
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
@@ -363,6 +377,44 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("Do not edit this block manually.", body)
         self.assertIn("```json", body)
 
+    def test_render_managed_comment_compact_fallback_shows_short_llm_reasoning(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        short_reasoning = "Buyer inactivity persisted while office demand stayed high."
+        with mock.patch.object(automation, "COMMENT_BODY_LIMIT", 2500):
+            body, _ = automation.render_managed_comment(
+                21,
+                issue_fields,
+                log_source,
+                parsed_log,
+                deterministic,
+                {
+                    "symptom_classification": "software_demand_mismatch",
+                    "evidence_summary": "summary",
+                    "confounders": "EnableTradePatch=False; debug-build patch state",
+                    "notes": "note",
+                    "missing_user_input": [],
+                    "reasoning_summary": short_reasoning,
+                },
+                {
+                    "scenario_label": "New Seoul",
+                    "scenario_type": "existing save",
+                    "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                    "mod_ref": "",
+                    "symptom_classification": "software_demand_mismatch",
+                    "evidence_summary": "summary",
+                    "confounders": deterministic["confounders"],
+                    "notes": "note",
+                },
+                [],
+                "enabled",
+                automation.DEFAULT_GITHUB_MODELS_MODEL,
+            )
+        self.assertIn(f"- LLM reasoning: `{short_reasoning}`", body)
+        self.assertNotIn("see machine payload", body)
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
@@ -463,6 +515,34 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertNotIn("## Mod ref", issue_body)
         self.assertIn("## Platform notes", issue_body)
         self.assertIn("Windows release build", issue_body)
+
+    def test_merge_evidence_fields_prefers_deterministic_confounders_format(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": MULTI_OBSERVATION_LOG}
+        parsed_log = automation.parse_log(MULTI_OBSERVATION_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        payload = {
+            "raw_issue": {"fields": issue_fields},
+            "log_source": log_source,
+            "parsed_log": parsed_log,
+            "deterministic_draft": deterministic,
+            "llm_draft": {
+                "title": deterministic["title"],
+                "symptom_classification": deterministic["symptom_classification"],
+                "evidence_summary": deterministic["evidence_summary"],
+                "confidence": "medium",
+                "confounders": "EnableTradePatch=False; Realistic Trips mod active; debug-build patch state; no baseline comparison provided",
+                "notes": deterministic["notes"],
+            },
+        }
+        fields = automation.merge_evidence_fields(
+            payload,
+            overrides={},
+            raw_issue_url="https://example.test/raw/21",
+            triage_comment_url="https://example.test/comment/1",
+        )
+        self.assertIn("- trade patch disabled during capture", fields["confounders"])
+        self.assertNotIn("EnableTradePatch=False;", fields["confounders"])
 
     def test_generate_llm_suggestions_returns_none_without_token(self) -> None:
         self.assertIsNone(automation.generate_llm_suggestions({"foo": "bar"}, None))
@@ -1007,6 +1087,50 @@ class RawLogAutomationTests(unittest.TestCase):
                 )
         self.assertEqual(result["status"], "enabled")
         self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
+        self.assertEqual(result["draft"]["notes"], deterministic["notes"])
+
+    def test_generate_validated_llm_draft_replaces_phantom_absence_claims(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft = {
+            "title": deterministic["title"],
+            "symptom_classification": deterministic["symptom_classification"],
+            "custom_symptom_classification": "",
+            "evidence_summary": "PhantomVacancy counters and guardCorrections were zero during the window.",
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": deterministic["confounders"],
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": "No free office properties existed, and no phantom vacancies or guard corrections were detected during the run.",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft):
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_evidence_summary_interpretation", result["validation_errors"])
+        self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
+        self.assertEqual(result["draft"]["evidence_summary"], deterministic["evidence_summary"])
         self.assertEqual(result["draft"]["notes"], deterministic["notes"])
 
     def test_generate_validated_llm_draft_replaces_ellipsis_reasoning_summary(self) -> None:

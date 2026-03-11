@@ -6,10 +6,10 @@ from raw_log_automation import (
     build_attachment_failure_comment,
     build_deterministic_draft,
     build_llm_context,
+    choose_confounders_value,
     create_issue_comment,
     generate_validated_llm_draft,
     is_raw_log_issue,
-    join_unique_lines,
     load_event_payload,
     parse_issue_form_sections,
     parse_log,
@@ -42,7 +42,8 @@ def build_default_reply_fields(
         "evidence_summary": (llm_draft or {}).get("evidence_summary", "")
         or deterministic_draft.get("evidence_summary", ""),
         "confidence": (llm_draft or {}).get("confidence", "") or deterministic_draft.get("confidence", "medium"),
-        "confounders": join_unique_lines(
+        "confounders": choose_confounders_value(
+            "",
             deterministic_draft.get("confounders", ""),
             (llm_draft or {}).get("confounders", ""),
         )

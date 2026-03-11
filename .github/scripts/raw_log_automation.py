@@ -162,8 +162,15 @@ UNSUPPORTED_NOTES_PATTERNS = [
     r"\blikely\b",
 ]
 UNSUPPORTED_PHANTOM_ZERO_PATTERNS = [
-    r"\bphantom vacancy (?:counters|diagnostics?)\b.{0,80}\b(?:remain|remained|stayed|stay|were)\s+zero\b",
-    r"\bguard corrections?\b.{0,80}\b(?:remain|remained|stayed|stay|were)\s+zero\b",
+    r"\bphantom[-\s]*vacanc(?:y|ies)\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+zero\b",
+    r"\bguard[-\s]*corrections?\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+zero\b",
+]
+UNSUPPORTED_PHANTOM_ABSENCE_PATTERNS = [
+    r"\bno indication of phantom[-\s]*vacanc(?:y|ies)\b",
+    r"\bno phantom[-\s]*vacanc(?:y|ies)\b",
+    r"\bno phantom[-\s]*vacanc(?:y|ies)\b.{0,120}\bguard[-\s]*corrections?\b.{0,80}\b(?:detected|observed|seen|present)\b",
+    r"\bno guard[-\s]*corrections?\b.{0,80}\b(?:detected|observed|seen|present)\b",
+    r"\bphantom[-\s]*vacancy activity was absent\b",
 ]
 
 EVIDENCE_STYLE_EXAMPLES = [
@@ -1111,6 +1118,37 @@ def markdown_bullets(*lines: str) -> str:
     return "\n".join(f"- {line}" for line in cleaned_lines)
 
 
+def normalize_confounders_text(value: str) -> str:
+    items: list[str] = []
+    for raw_line in value.replace("\r\n", "\n").split("\n"):
+        cleaned = raw_line.strip()
+        if not cleaned:
+            continue
+        if cleaned.startswith("- "):
+            cleaned = cleaned[2:].strip()
+        parts = [part.strip() for part in cleaned.split(";")] if ";" in cleaned else [cleaned]
+        for part in parts:
+            if part:
+                items.append(part)
+    return markdown_bullets(*join_unique_lines("\n".join(items)).split("\n")) if items else ""
+
+
+def choose_confounders_value(
+    override_value: str,
+    deterministic_value: str,
+    llm_value: str,
+) -> str:
+    override = normalize_confounders_text(override_value)
+    if override:
+        return override
+
+    deterministic = normalize_confounders_text(deterministic_value)
+    if deterministic:
+        return deterministic
+
+    return normalize_confounders_text(llm_value)
+
+
 def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
     if not observation:
         return ""
@@ -1341,14 +1379,20 @@ def build_deterministic_confounders(
     if patch_state and patch_state != "release-build":
         confounder_lines.append(f"patch_state={patch_state}")
 
-    if settings.get("EnableTradePatch"):
-        confounder_lines.append("trade patch enabled during capture")
+    if "EnableTradePatch" in settings:
+        if settings.get("EnableTradePatch"):
+            confounder_lines.append("trade patch enabled during capture")
+        else:
+            confounder_lines.append("trade patch disabled during capture")
 
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
 
     if safe_int(parsed_log.get("observation_count", 0)) <= 1:
         confounder_lines.append("single observation window in raw intake")
+
+    if not supports_explicit_comparison(issue_fields):
+        confounder_lines.append("no explicit comparison baseline in raw intake")
 
     if not confounder_lines:
         return "none known from raw log intake alone"
@@ -2106,14 +2150,19 @@ def has_unsupported_phantom_zero_claim(text: str, parsed_log: dict[str, Any]) ->
     return any(re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL) for pattern in UNSUPPORTED_PHANTOM_ZERO_PATTERNS)
 
 
+def has_unsupported_phantom_absence_claim(text: str, parsed_log: dict[str, Any]) -> bool:
+    if not parsed_log_has_phantom_activity(parsed_log):
+        return False
+    return any(
+        re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        for pattern in UNSUPPORTED_PHANTOM_ABSENCE_PATTERNS
+    )
+
+
 def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
         return True
-    if parsed_log_has_phantom_activity(parsed_log) and re.search(
-        r"\bno indication of phantom vacanc(?:y|ies)\b",
-        text,
-        flags=re.IGNORECASE,
-    ):
+    if has_unsupported_phantom_absence_claim(text, parsed_log):
         return True
     if has_unsupported_phantom_zero_claim(text, parsed_log):
         return True
@@ -2122,6 +2171,8 @@ def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[
 
 def has_unsupported_notes_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_NOTES_PATTERNS):
+        return True
+    if has_unsupported_phantom_absence_claim(text, parsed_log):
         return True
     return has_unsupported_phantom_zero_claim(text, parsed_log)
 
@@ -2756,7 +2807,13 @@ def render_managed_comment(
                 f"- LLM detail: `{llm_detail}`",
                 f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
                 f"- Deterministic reasoning: `{deterministic_reasoning}`",
-                f"- LLM reasoning: `see machine payload`" if llm_reasoning else "- LLM reasoning: `not used`",
+                (
+                    f"- LLM reasoning: `{llm_reasoning}`"
+                    if llm_reasoning and len(llm_reasoning) <= LLM_REASONING_SUMMARY_MAX_LENGTH
+                    else "- LLM reasoning: `see machine payload`"
+                )
+                if llm_reasoning
+                else "- LLM reasoning: `not used`",
                 "",
                 "### Maintainer reply template",
                 REPLY_TEMPLATE_START_MARKER,
@@ -2960,6 +3017,11 @@ def build_preview_evidence_fields(
         merged_text("symptom_classification"),
         merged_text("custom_symptom_classification"),
     )
+    confounders = choose_confounders_value(
+        reply_fields.get("confounders", ""),
+        deterministic_draft.get("confounders", ""),
+        (llm_draft or {}).get("confounders", ""),
+    )
     return {
         "title": merged_text("title", deterministic_draft.get("title", "")),
         "game-version": issue_fields.get("game_version", ""),
@@ -2983,7 +3045,7 @@ def build_preview_evidence_fields(
         "log-excerpt": merged_text("log_excerpt"),
         "evidence-summary": merged_text("evidence_summary"),
         "confidence": merged_text("confidence", "medium"),
-        "confounders": merged_text("confounders", "none known"),
+        "confounders": confounders or "none known",
         "analysis-basis": merged_text("analysis_basis"),
         "artifacts": build_preview_artifacts_text(issue_number, log_source),
         "notes": merged_text("notes"),
@@ -3095,12 +3157,10 @@ def merge_evidence_fields(
         symptom_classification,
         custom_symptom_classification,
     )
-    merged_confounders = choose_field_value(
+    merged_confounders = choose_confounders_value(
         overrides.get("confounders", ""),
-        join_unique_lines(
-            deterministic.get("confounders", ""),
-            llm_draft.get("confounders", ""),
-        ),
+        deterministic.get("confounders", ""),
+        llm_draft.get("confounders", ""),
     )
     return {
         "title": merged_text("title", deterministic.get("title", "")),
