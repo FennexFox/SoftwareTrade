@@ -9,6 +9,9 @@
 *.user
 *.userosscache
 *.sln.docstates
+
+# Ignore the scripts folder, which contains local development scripts that should not be shared
+/scripts/
 .vscode/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
