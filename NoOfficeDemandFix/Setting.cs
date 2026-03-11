@@ -70,7 +70,7 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionGroupLocaleID(Setting.kDiagnosticsGroup), "Diagnostics" },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableTradePatch)), "Enable office resource trade patch" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableTradePatch)), "Experimental software-track investigation aid. Adds office resources to outside connection and cargo station storage definitions so software can pass existing import and storage gates while you collect diagnostics. Restart or reload after changing this option." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableTradePatch)), "Experimental software-track investigation aid. Adds office resources to outside connection and cargo station storage definitions so software can pass existing import and storage gates while you collect diagnostics. Changes apply the next time you load a city or save; a full game restart is not required." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Enable phantom vacancy fix" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Applies immediately to future simulation ticks by removing PropertyOnMarket and PropertyToBeOnMarket from occupied signature office and industrial properties before demand and property search evaluate them. Disabling it stops future corrections but does not restore already cleaned-up market state." },
