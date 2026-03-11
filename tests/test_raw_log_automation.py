@@ -169,6 +169,17 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(draft["symptom_classification"], "software_demand_mismatch")
         self.assertIn("EnableTradePatch-enabled", draft["title"])
 
+    def test_build_deterministic_summary_prefers_buyer_state_pressure(self) -> None:
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        final_observation = parsed_log["final_observation"] or parsed_log["latest_observation"]
+        final_observation["diagnostic_counters"]["softwareConsumerBuyerState"] = {
+            "noBuyerDespiteNeed": 24,
+            "buyerActive": 0,
+        }
+        summary = automation.build_deterministic_summary(parsed_log, "software_demand_mismatch")
+        self.assertIn("softwareConsumerBuyerState.noBuyerDespiteNeed=24", summary)
+        self.assertIn("buyerActive=0", summary)
+
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
@@ -474,6 +485,8 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("Do not mention the chosen symptom label", payload["messages"][0]["content"])
         self.assertIn("Put label-selection rationale and interpretation only in `reasoning_summary`", payload["messages"][0]["content"])
         self.assertIn("do not speculate about root cause", payload["messages"][0]["content"])
+        self.assertIn("no indication of phantom vacancies", payload["messages"][0]["content"])
+        self.assertIn("softwareInputZero=False", payload["messages"][0]["content"])
 
     def test_build_llm_context_excludes_raw_log_and_caps_excerpt(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -754,6 +767,45 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(result["detail"], automation.DEFAULT_GITHUB_MODELS_MODEL)
         self.assertIn("unsupported_excerpt_line", result["validation_errors"])
         self.assertEqual(result["draft"]["log_excerpt"], deterministic["log_excerpt"])
+
+    def test_generate_validated_llm_draft_replaces_unsupported_summary_and_notes(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft_with_bad_interpretation = {
+            "title": "[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day 22",
+            "symptom_classification": "software_demand_mismatch",
+            "custom_symptom_classification": "",
+            "evidence_summary": "There is no indication of phantom vacancies and office demand increased significantly during the window.",
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": "none known",
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": "This suggests unresolved software demand despite stable office market conditions.",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft_with_bad_interpretation):
+            result = automation.generate_validated_llm_draft(
+                context,
+                issue_fields,
+                parsed_log,
+                deterministic,
+                "gh-token",
+            )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_evidence_summary_interpretation", result["validation_errors"])
+        self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
+        self.assertEqual(result["draft"]["evidence_summary"], deterministic["evidence_summary"])
+        self.assertEqual(result["draft"]["notes"], deterministic["notes"])
 
     def test_generate_validated_llm_draft_falls_back_when_both_drafts_fail_validation(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)

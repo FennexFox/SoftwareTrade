@@ -133,8 +133,22 @@ SOFTWARE_EVIDENCE_CANONICAL_CLASSIFICATIONS = {
     "software_track_unclear",
 }
 NON_FATAL_VALIDATION_ERRORS = {
+    "unsupported_evidence_summary_interpretation",
+    "unsupported_notes_interpretation",
     "unsupported_excerpt_line",
 }
+UNSUPPORTED_SUMMARY_PATTERNS = [
+    r"\bresolved\b",
+    r"\bresolving\b",
+    r"\bsignificantly\b",
+]
+UNSUPPORTED_NOTES_PATTERNS = [
+    r"\bthis suggests\b",
+    r"\bthis indicates\b",
+    r"\bthis implies\b",
+    r"\bunresolved\b",
+    r"\blikely\b",
+]
 
 EVIDENCE_STYLE_EXAMPLES = [
     {
@@ -1151,15 +1165,32 @@ def build_deterministic_summary(
     summary_sentences: list[str] = []
     final_day = observation_day(final_observation)
     office_demand_building = counter_value(final_observation, "officeDemand", "building")
+    consumer_buyer_pressure = counter_value(final_observation, "softwareConsumerBuyerState", "noBuyerDespiteNeed")
+    consumer_buyer_active = counter_value(final_observation, "softwareConsumerBuyerState", "buyerActive")
+    consumer_input_zero = counter_value(final_observation, "softwareConsumerOffices", "softwareInputZero")
     producer_distress = counter_value(final_observation, "softwareProducerOffices", "lackResourcesZero")
 
     if consumer_peak and counter_value(consumer_peak, "softwareConsumerOffices", "softwareInputZero") > 0:
         summary_sentences.append(
-            f"This bounded run captured day-{observation_day(consumer_peak)} consumer-side software distress."
+            f"This bounded run captured day-{observation_day(consumer_peak)} consumer-side software distress counters."
         )
 
     if final_observation:
-        if producer_distress > 0:
+        if consumer_buyer_pressure > 0:
+            summary_sentences.append(
+                f"The final day-{final_day} sample kept `softwareConsumerBuyerState.noBuyerDespiteNeed={consumer_buyer_pressure}`"
+                + (
+                    f" with `buyerActive={consumer_buyer_active}`"
+                    if consumer_buyer_active >= 0
+                    else ""
+                )
+                + f" while `officeDemand.building={office_demand_building}` remained high."
+            )
+        elif consumer_input_zero > 0 and office_demand_building > 0:
+            summary_sentences.append(
+                f"The final day-{final_day} sample kept `softwareConsumerOffices.softwareInputZero={consumer_input_zero}` while `officeDemand.building={office_demand_building}` remained high."
+            )
+        elif producer_distress > 0:
             summary_sentences.append(
                 f"The final day-{final_day} sample still showed producer-side `lackResources=0` distress while `officeDemand.building={office_demand_building}` remained high."
             )
@@ -1567,10 +1598,13 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
     counter_groups = latest_observation.get("diagnostic_counters", {})
     producers = counter_groups.get("softwareProducerOffices", {})
     consumers = counter_groups.get("softwareConsumerOffices", {})
+    buyer_state = counter_groups.get("softwareConsumerBuyerState", {})
     facts = [
         "softwareProducerOffices.lackResourcesZero and softwareConsumerOffices.lackResourcesZero count offices where the diagnostic field lackResources=0.",
         "lackResourcesZero does not mean the office had zero resources, no resources, or a confirmed input shortage.",
         "softwareConsumerOffices.softwareInputZero counts consumer offices where the software input state was zero in diagnostics; it is not a citywide demand verdict by itself.",
+        "softwareConsumerBuyerState.noBuyerDespiteNeed counts consumer offices with selected software need but no active buyer in the latest observation.",
+        "If a detail line shows softwareInputZero=False, do not summarize that office as a confirmed softwareInputZero case or a confirmed shortage; describe the buyer-state fields literally.",
         "If the facts show efficiency=0 and lackResources=0, summarize that conservatively as 'efficiency=0 while lackResources=0'.",
         "Do not use phrases like 'zero resources' or 'no resources' unless the provided facts literally support that wording.",
         "When selecting log excerpts, use only the provided candidate lines and preserve their wording inside fenced `text` blocks.",
@@ -1593,6 +1627,12 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
     if software_input_zero > 0:
         facts.append(
             f"Latest counters: softwareConsumerOffices.softwareInputZero={software_input_zero} means {software_input_zero} consumer offices had softwareInputZero in the latest observation."
+        )
+
+    no_buyer_despite_need = safe_int(buyer_state.get("noBuyerDespiteNeed"))
+    if no_buyer_despite_need > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.noBuyerDespiteNeed={no_buyer_despite_need} and buyerActive={safe_int(buyer_state.get('buyerActive'))} describe selected software need with no active buyer in the latest observation."
         )
 
     office_demand_building = safe_int(counter_groups.get("officeDemand", {}).get("building"))
@@ -1654,6 +1694,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - `evidence_summary` must stay factual and observational. Keep it to 2-4 short sentences about what the provided diagnostics showed.
         - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
         - Do not use `evidence_summary` for causal claims, recommendations, or likely explanations.
+        - Prefer literal counter language in `evidence_summary`, such as `officeDemand.building=...`, `softwareConsumerBuyerState.noBuyerDespiteNeed=...`, or `buyerActive=0`, when those counters are the main signal.
         - `comparison_baseline` should stay empty unless the provided facts explicitly support a save-lineage, issue-reference, or patch-state comparison.
         - `confidence` must be one of: high, medium, low. Use `medium` unless the facts strongly justify another choice.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
@@ -1667,9 +1708,14 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Put label-selection rationale and interpretation only in `reasoning_summary`.
         - `lackResourcesZero` is a diagnostic counter name for offices where `lackResources=0`; it does not mean "zero resources" or "no resources."
         - `softwareInputZero` is an office-state/input condition for software consumers; do not generalize it into an overall citywide demand or shortage conclusion without explicit facts.
+        - If a detail line shows `softwareInputZero=False`, do not summarize that office as a software-input-zero case; describe the observed buyer-state or trade-state fields literally instead.
         - If the facts show `efficiency=0` and `lackResources=0`, describe that conservatively as `efficiency=0 while lackResources=0` or equivalent.
         - Do not translate diagnostic counter names into stronger plain-language shortage claims unless the provided facts explicitly support that claim.
         - Avoid phrases like "zero resources" or "no resources" unless the provided facts literally support that wording.
+        - Avoid unsupported interpretation in `evidence_summary` and `notes`.
+        - Do not say "no indication of phantom vacancies" when the bounded window includes phantom corrections or non-zero `guardCorrections`.
+        - Avoid subjective intensifiers like "significantly"; prefer direct counter changes instead.
+        - When the run is mainly showing buyer-state pressure, describe the buyer-state fields literally rather than claiming the demand was resolved or unresolved.
         - Prefer `software_demand_mismatch` when software-track distress is present while office-demand counters stay high or rise in the provided window.
         - If you use a non-canonical symptom label, set `symptom_classification` to `other` and put the final label in `custom_symptom_classification`.
         - Use one of these labels when possible:
@@ -1862,6 +1908,32 @@ def has_unsupported_issue_reference(text: str, allowed_issue_refs: set[int]) -> 
     return False
 
 
+def parsed_log_has_phantom_activity(parsed_log: dict[str, Any]) -> bool:
+    if parsed_log.get("phantom_corrections"):
+        return True
+    for observation in parsed_log.get("latest_run_observations", []):
+        if counter_value(observation, "phantomVacancy", "guardCorrections") > 0:
+            return True
+    latest_observation = parsed_log.get("latest_observation")
+    return counter_value(latest_observation, "phantomVacancy", "guardCorrections") > 0
+
+
+def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
+    if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
+        return True
+    if parsed_log_has_phantom_activity(parsed_log) and re.search(
+        r"\bno indication of phantom vacanc(?:y|ies)\b",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    return False
+
+
+def has_unsupported_notes_interpretation(text: str) -> bool:
+    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_NOTES_PATTERNS)
+
+
 def build_allowed_excerpt_pool(parsed_log: dict[str, Any]) -> list[str]:
     allowed: list[str] = []
     for snippet in parsed_log.get("selected_snippets", []):
@@ -1930,6 +2002,14 @@ def validate_llm_draft(
     if excerpt_lines and any(not any(line in allowed for allowed in allowed_excerpt_pool) for line in excerpt_lines):
         sanitized["log_excerpt"] = deterministic_draft.get("log_excerpt", "")
         errors.append("unsupported_excerpt_line")
+
+    if has_unsupported_evidence_summary_interpretation(str(sanitized.get("evidence_summary", "")), parsed_log):
+        sanitized["evidence_summary"] = deterministic_draft.get("evidence_summary", "")
+        errors.append("unsupported_evidence_summary_interpretation")
+
+    if has_unsupported_notes_interpretation(str(sanitized.get("notes", ""))):
+        sanitized["notes"] = deterministic_draft.get("notes", "")
+        errors.append("unsupported_notes_interpretation")
 
     return sanitized, list(dict.fromkeys(errors))
 
