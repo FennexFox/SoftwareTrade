@@ -34,6 +34,68 @@ LLM_MAX_PATCH_SUMMARIES = 2
 LLM_MAX_PHANTOM_CORRECTIONS = 2
 MAX_EXCERPT_DETAIL_LINES = 3
 MAX_STYLE_EXAMPLES = 2
+LLM_CONTEXT_VARIANTS = (
+    {
+        "name": "default",
+        "anchor_limit": 12,
+        "anchor_excerpt_limit": LLM_SUMMARY_LINE_LIMIT,
+        "anchor_detail_limit": DETAIL_PREVIEW_LIMIT,
+        "snippet_limit": 6,
+        "snippet_text_limit": DETAIL_PREVIEW_LIMIT,
+        "candidate_limit": 2,
+        "candidate_lines_per_item": MAX_EXCERPT_DETAIL_LINES,
+        "candidate_line_limit": LLM_DETAIL_EXCERPT_LIMIT,
+        "style_example_limit": MAX_STYLE_EXAMPLES,
+        "semantic_fact_limit": 8,
+        "semantic_fact_text_limit": 260,
+        "what_happened_limit": 500,
+        "platform_notes_limit": 300,
+        "other_mods_limit": 300,
+        "fallback_summary_limit": 500,
+        "fallback_notes_limit": 700,
+        "redaction_note_limit": 120,
+    },
+    {
+        "name": "compact",
+        "anchor_limit": 8,
+        "anchor_excerpt_limit": 160,
+        "anchor_detail_limit": 700,
+        "snippet_limit": 4,
+        "snippet_text_limit": 700,
+        "candidate_limit": 1,
+        "candidate_lines_per_item": 2,
+        "candidate_line_limit": 400,
+        "style_example_limit": 1,
+        "semantic_fact_limit": 6,
+        "semantic_fact_text_limit": 220,
+        "what_happened_limit": 320,
+        "platform_notes_limit": 180,
+        "other_mods_limit": 180,
+        "fallback_summary_limit": 320,
+        "fallback_notes_limit": 420,
+        "redaction_note_limit": 90,
+    },
+    {
+        "name": "minimal",
+        "anchor_limit": 4,
+        "anchor_excerpt_limit": 120,
+        "anchor_detail_limit": 320,
+        "snippet_limit": 2,
+        "snippet_text_limit": 320,
+        "candidate_limit": 1,
+        "candidate_lines_per_item": 1,
+        "candidate_line_limit": 220,
+        "style_example_limit": 0,
+        "semantic_fact_limit": 4,
+        "semantic_fact_text_limit": 180,
+        "what_happened_limit": 180,
+        "platform_notes_limit": 120,
+        "other_mods_limit": 120,
+        "fallback_summary_limit": 220,
+        "fallback_notes_limit": 260,
+        "redaction_note_limit": 70,
+    },
+)
 
 RAW_LOG_FORM_LABELS = {
     "game version": "game_version",
@@ -1364,6 +1426,139 @@ def build_llm_context(
     }
 
 
+def encode_llm_context(context: dict[str, Any]) -> str:
+    return json.dumps(context, ensure_ascii=True, separators=(",", ":"))
+
+
+def compact_anchor_summaries_for_llm(
+    anchors: list[dict[str, Any]],
+    anchor_limit: int,
+    anchor_excerpt_limit: int,
+    anchor_detail_limit: int,
+) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for anchor in anchors[-anchor_limit:]:
+        compact = dict(anchor)
+        compact["raw_excerpt"] = truncate_text(str(compact.get("raw_excerpt", "")), anchor_excerpt_limit)
+        for field_name in ("settings", "diagnostic_counters", "values"):
+            if field_name in compact:
+                compact[field_name] = truncate_text(str(compact.get(field_name, "")), anchor_detail_limit)
+        if "message" in compact:
+            compact["message"] = truncate_text(str(compact.get("message", "")), anchor_excerpt_limit)
+        summaries.append(compact)
+    return summaries
+
+
+def compact_selected_snippets_for_llm(
+    snippets: list[dict[str, Any]],
+    snippet_limit: int,
+    snippet_text_limit: int,
+) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for snippet in snippets[:snippet_limit]:
+        compact = dict(snippet)
+        compact["text"] = truncate_text(str(compact.get("text", "")), snippet_text_limit)
+        compacted.append(compact)
+    return compacted
+
+
+def compact_excerpt_candidates_for_llm(
+    candidates: list[dict[str, Any]],
+    candidate_limit: int,
+    candidate_lines_per_item: int,
+    candidate_line_limit: int,
+) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for candidate in candidates[:candidate_limit]:
+        compact = dict(candidate)
+        compact["observation_window"] = truncate_text(
+            str(compact.get("observation_window", "")),
+            candidate_line_limit,
+        )
+        compact["lines"] = [
+            truncate_text(str(line), candidate_line_limit)
+            for line in compact.get("lines", [])[:candidate_lines_per_item]
+        ]
+        compacted.append(compact)
+    return compacted
+
+
+def compact_llm_context(context: dict[str, Any], spec: dict[str, int | str]) -> dict[str, Any]:
+    raw_issue = dict(context.get("raw_issue", {}))
+    raw_issue["what_happened"] = truncate_text(
+        str(raw_issue.get("what_happened", "")),
+        int(spec["what_happened_limit"]),
+    )
+    raw_issue["platform_notes"] = truncate_text(
+        str(raw_issue.get("platform_notes", "")),
+        int(spec["platform_notes_limit"]),
+    )
+    raw_issue["other_mods"] = truncate_text(
+        str(raw_issue.get("other_mods", "")),
+        int(spec["other_mods_limit"]),
+    )
+
+    fallback_hints = dict(context.get("fallback_hints", {}))
+    fallback_hints["evidence_summary"] = truncate_text(
+        str(fallback_hints.get("evidence_summary", "")),
+        int(spec["fallback_summary_limit"]),
+    )
+    fallback_hints["comparison_baseline"] = truncate_text(
+        str(fallback_hints.get("comparison_baseline", "")),
+        int(spec["platform_notes_limit"]),
+    )
+    fallback_hints["notes"] = truncate_text(
+        str(fallback_hints.get("notes", "")),
+        int(spec["fallback_notes_limit"]),
+    )
+
+    return {
+        "raw_issue": raw_issue,
+        "anchors": compact_anchor_summaries_for_llm(
+            list(context.get("anchors", [])),
+            int(spec["anchor_limit"]),
+            int(spec["anchor_excerpt_limit"]),
+            int(spec["anchor_detail_limit"]),
+        ),
+        "selected_snippets": compact_selected_snippets_for_llm(
+            list(context.get("selected_snippets", [])),
+            int(spec["snippet_limit"]),
+            int(spec["snippet_text_limit"]),
+        ),
+        "excerpt_candidates": compact_excerpt_candidates_for_llm(
+            list(context.get("excerpt_candidates", [])),
+            int(spec["candidate_limit"]),
+            int(spec["candidate_lines_per_item"]),
+            int(spec["candidate_line_limit"]),
+        ),
+        "style_examples": list(context.get("style_examples", []))[: int(spec["style_example_limit"])],
+        "fallback_hints": fallback_hints,
+        "redaction_notes": [
+            truncate_text(str(note), int(spec["redaction_note_limit"]))
+            for note in list(context.get("redaction_notes", []))[:2]
+        ],
+        "semantic_facts": [
+            truncate_text(str(fact), int(spec["semantic_fact_text_limit"]))
+            for fact in list(context.get("semantic_facts", []))[: int(spec["semantic_fact_limit"])]
+        ],
+        "observation_count": safe_int(context.get("observation_count", 0)),
+        "detail_count": safe_int(context.get("detail_count", 0)),
+    }
+
+
+def build_llm_context_variants(context: dict[str, Any]) -> list[dict[str, Any]]:
+    variants: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for spec in LLM_CONTEXT_VARIANTS:
+        variant = compact_llm_context(context, spec)
+        serialized = encode_llm_context(variant)
+        if serialized in seen:
+            continue
+        seen.add(serialized)
+        variants.append(variant)
+    return variants
+
+
 def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
     latest_observation = parsed_log.get("latest_observation") or {}
     counter_groups = latest_observation.get("diagnostic_counters", {})
@@ -1491,7 +1686,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
             },
             {
                 "role": "user",
-                "content": json.dumps(context, ensure_ascii=True, indent=2),
+                "content": encode_llm_context(context),
             },
         ],
         "response_format": {
@@ -1527,25 +1722,35 @@ def generate_llm_suggestions(
     if not github_token:
         return None
 
-    status, response_payload, raw_text = http_request(
-        "POST",
-        GITHUB_MODELS_CHAT_COMPLETIONS_URL,
-        token=github_token,
-        payload=build_llm_request_payload(context, model=model),
-        headers={
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    if status >= 400:
-        raise AutomationError(f"GitHub Models request failed ({status}): {raw_text}")
+    last_error: AutomationError | None = None
+    for variant in build_llm_context_variants(context):
+        status, response_payload, raw_text = http_request(
+            "POST",
+            GITHUB_MODELS_CHAT_COMPLETIONS_URL,
+            token=github_token,
+            payload=build_llm_request_payload(variant, model=model),
+            headers={
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        if status >= 400:
+            error = AutomationError(f"GitHub Models request failed ({status}): {raw_text}")
+            if status == 413:
+                last_error = error
+                continue
+            raise error
 
-    response_text = extract_chat_completion_text(response_payload)
-    if not response_text:
-        raise AutomationError("GitHub Models returned no output text.")
+        response_text = extract_chat_completion_text(response_payload)
+        if not response_text:
+            raise AutomationError("GitHub Models returned no output text.")
 
-    suggestions = json.loads(response_text)
-    return apply_llm_wording_guards(suggestions)
+        suggestions = json.loads(response_text)
+        return apply_llm_wording_guards(suggestions)
+
+    if last_error is not None:
+        raise last_error
+    raise AutomationError("GitHub Models request failed: no request variant produced a response.")
 
 
 def normalize_evidence_title(title: str, fallback_title: str) -> str:
@@ -1752,7 +1957,14 @@ def generate_validated_llm_draft(
     primary_model = get_primary_github_models_model()
     escalation_model = get_escalation_github_models_model()
 
-    primary_draft = generate_llm_suggestions(context, github_token, model=primary_model)
+    try:
+        primary_draft = generate_llm_suggestions(context, github_token, model=primary_model)
+    except AutomationError as error:
+        if sanitize_llm_detail(str(error)).endswith("payload too large"):
+            result["status"] = "fallback"
+            result["detail"] = "context fallback: payload too large"
+            return result
+        raise
     if primary_draft is None:
         result["detail"] = "missing token"
         return result
@@ -1783,7 +1995,14 @@ def generate_validated_llm_draft(
 
     result["escalation_reason"] = ", ".join(primary_errors) if primary_errors else "editorial complexity"
     if escalation_model and escalation_model != primary_model:
-        escalation_draft = generate_llm_suggestions(context, github_token, model=escalation_model)
+        try:
+            escalation_draft = generate_llm_suggestions(context, github_token, model=escalation_model)
+        except AutomationError as error:
+            if sanitize_llm_detail(str(error)).endswith("payload too large"):
+                result["status"] = "fallback"
+                result["detail"] = "context fallback: payload too large"
+                return result
+            raise
         if escalation_draft is not None:
             validated_escalation, escalation_errors = validate_llm_draft(
                 escalation_draft,

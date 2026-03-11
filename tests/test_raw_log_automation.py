@@ -460,6 +460,7 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(payload["model"], automation.DEFAULT_GITHUB_MODELS_MODEL)
         self.assertEqual(payload["messages"][0]["role"], "system")
         self.assertEqual(payload["messages"][1]["role"], "user")
+        self.assertEqual(payload["messages"][1]["content"], '{"foo":"bar"}')
         self.assertEqual(payload["response_format"]["type"], "json_schema")
         self.assertEqual(
             payload["response_format"]["json_schema"]["name"],
@@ -570,6 +571,52 @@ class RawLogAutomationTests(unittest.TestCase):
             suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
         self.assertNotIn("zero resources", suggestions["evidence_summary"].lower())
         self.assertIn("lackResources=0", suggestions["evidence_summary"])
+
+    def test_generate_llm_suggestions_retries_with_compact_context_after_413(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(MULTI_OBSERVATION_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": MULTI_OBSERVATION_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"title":"[Software Evidence] compact retry title",'
+                            '"symptom_classification":"software_demand_mismatch",'
+                            '"custom_symptom_classification":"",'
+                            '"evidence_summary":"summary","comparison_baseline":"",'
+                            '"confidence":"medium","confounders":"none","analysis_basis":"",'
+                            '"log_excerpt":"","notes":"note","missing_user_input":[],' 
+                            '"reasoning_summary":"reason"}'
+                        )
+                    }
+                }
+            ]
+        }
+        with mock.patch.object(
+            automation,
+            "http_request",
+            side_effect=[
+                (413, {}, "payload too large"),
+                (200, response_payload, ""),
+            ],
+        ) as request_mock:
+            suggestions = automation.generate_llm_suggestions(context, "gh-token")
+        self.assertEqual(suggestions["title"], "[Software Evidence] compact retry title")
+        self.assertEqual(request_mock.call_count, 2)
+        first_payload = request_mock.call_args_list[0].kwargs["payload"]
+        second_payload = request_mock.call_args_list[1].kwargs["payload"]
+        self.assertLess(
+            len(second_payload["messages"][1]["content"]),
+            len(first_payload["messages"][1]["content"]),
+        )
 
     def test_generate_validated_llm_draft_accepts_primary_model_when_valid(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -715,6 +762,33 @@ class RawLogAutomationTests(unittest.TestCase):
                     "gh-token",
                 )
         self.assertEqual(result["status"], "fallback")
+        self.assertIsNone(result["draft"])
+
+    def test_generate_validated_llm_draft_falls_back_after_payload_too_large(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(MULTI_OBSERVATION_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": MULTI_OBSERVATION_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        with mock.patch.object(
+            automation,
+            "generate_llm_suggestions",
+            side_effect=automation.AutomationError("GitHub Models request failed (413): payload too large"),
+        ):
+            result = automation.generate_validated_llm_draft(
+                context,
+                issue_fields,
+                parsed_log,
+                deterministic,
+                "gh-token",
+            )
+        self.assertEqual(result["status"], "fallback")
+        self.assertEqual(result["detail"], "context fallback: payload too large")
         self.assertIsNone(result["draft"])
 
     def test_build_evidence_issue_title_prefers_merged_title(self) -> None:
