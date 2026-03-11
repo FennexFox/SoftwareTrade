@@ -38,7 +38,16 @@ namespace NoOfficeDemandFix.Systems
         protected override void OnGamePreload(Purpose purpose, GameMode mode)
         {
             base.OnGamePreload(purpose, mode);
-            RevertTrackedResourceBits();
+            bool upcomingPatchEnabled = IsPatchEnabled();
+            if (!upcomingPatchEnabled)
+            {
+                RevertTrackedResourceBits();
+            }
+            else if (IsVerboseLoggingEnabled() && m_TrackedAddedResources.Count > 0)
+            {
+                Mod.log.Info("Skipped reverting tracked office resources during preload because the trade patch remains enabled for the upcoming load.");
+            }
+
             ResetLoadState();
         }
 
@@ -106,7 +115,7 @@ namespace NoOfficeDemandFix.Systems
                     continue;
                 }
 
-                Resource addedResources = updated ^ original;
+                Resource addedResources = kOfficeResources & ~original;
                 storageCompanyData.m_StoredResources = updated;
                 EntityManager.SetComponentData(entity, storageCompanyData);
                 TrackAddedResources(entity, addedResources);
