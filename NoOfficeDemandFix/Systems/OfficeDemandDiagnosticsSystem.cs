@@ -97,6 +97,7 @@ namespace NoOfficeDemandFix.Systems
             public int SampleIndex;
             public int SampleSlot;
             public int SamplesPerDay;
+            public string ClockSource;
             public int OfficeBuildingDemand;
             public int OfficeCompanyDemand;
             public int EmptyBuildingsFactor;
@@ -138,6 +139,22 @@ namespace NoOfficeDemandFix.Systems
             public string SoftwareOfficeDetails;
         }
 
+        private readonly struct SampleWindowContext
+        {
+            public SampleWindowContext(int day, int sampleIndex, int sampleSlot, string clockSource)
+            {
+                Day = day;
+                SampleIndex = sampleIndex;
+                SampleSlot = sampleSlot;
+                ClockSource = clockSource;
+            }
+
+            public int Day { get; }
+            public int SampleIndex { get; }
+            public int SampleSlot { get; }
+            public string ClockSource { get; }
+        }
+
         private SimulationSystem m_SimulationSystem;
         private TimeSystem m_TimeSystem;
         private IndustrialDemandSystem m_IndustrialDemandSystem;
@@ -152,6 +169,8 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OfficeCompanyQuery;
         private int m_LastProcessedSampleIndex = int.MinValue;
         private int m_LastObservedSampleIndex = int.MinValue;
+        private int m_DisplayedClockDay = int.MinValue;
+        private int m_LastComputedSampleSlot = int.MinValue;
         private bool m_LastDiagnosticsEnabled;
         private string m_SessionId = CreateSessionId();
         private int m_RunSequence;
@@ -213,9 +232,7 @@ namespace NoOfficeDemandFix.Systems
         {
             if (phase == SystemUpdatePhase.GameSimulation)
             {
-                // Poll sparingly while disabled, but switch back to per-frame updates during active runs
-                // so sample-slot boundaries still match the configured per-day cadence.
-                return IsDiagnosticsEnabled() || m_LastDiagnosticsEnabled ? 1 : kDiagnosticsDisabledPollInterval;
+                return 1;
             }
 
             return base.GetUpdateInterval(phase);
@@ -240,39 +257,54 @@ namespace NoOfficeDemandFix.Systems
 
             if (!diagnosticsEnabled)
             {
+                if (!m_LastDiagnosticsEnabled &&
+                    (m_SimulationSystem.frameIndex % (uint)kDiagnosticsDisabledPollInterval) != 0u)
+                {
+                    return;
+                }
+
                 m_LastDiagnosticsEnabled = false;
                 m_LastSettingsState = default;
                 m_LastSettingsSnapshot = string.Empty;
                 m_LastPatchState = string.Empty;
+                m_DisplayedClockDay = int.MinValue;
+                m_LastComputedSampleSlot = int.MinValue;
                 return;
             }
 
             DiagnosticsSettingsState settingsState = CaptureSettingsState();
             string patchState = FormatPatchState();
-            TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
-            TimeSettingsData timeSettings = m_TimeSettingsQuery.GetSingleton<TimeSettingsData>();
-            int day = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
-            int samplesPerDay = settingsState.DiagnosticsSamplesPerDay;
-            int sampleSlot = GetSampleSlot(timeSettings, timeData, samplesPerDay);
-            int sampleIndex = GetSampleIndex(day, sampleSlot, samplesPerDay);
             bool runStateChanged = !m_LastDiagnosticsEnabled ||
                                    !settingsState.Equals(m_LastSettingsState) ||
                                    patchState != m_LastPatchState;
             if (runStateChanged)
             {
                 BeginNewRun(settingsState, patchState);
-                m_LastProcessedSampleIndex = sampleIndex - 1;
+            }
+
+            TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
+            TimeSettingsData timeSettings = m_TimeSettingsQuery.GetSingleton<TimeSettingsData>();
+            int samplesPerDay = settingsState.DiagnosticsSamplesPerDay;
+            SampleWindowContext sampleWindow = GetSampleWindowContext(timeSettings, timeData, samplesPerDay);
+            if (runStateChanged)
+            {
+                m_LastProcessedSampleIndex = sampleWindow.SampleIndex - 1;
             }
 
             m_LastDiagnosticsEnabled = true;
-            if (sampleIndex <= m_LastProcessedSampleIndex)
+            if (sampleWindow.SampleIndex <= m_LastProcessedSampleIndex)
             {
                 return;
             }
 
-            DiagnosticSnapshot currentSnapshot = CaptureSnapshot(day, sampleIndex, sampleSlot, samplesPerDay);
-            int skippedSampleSlots = GetSkippedSampleSlots(sampleIndex);
-            m_LastProcessedSampleIndex = sampleIndex;
+            DiagnosticSnapshot currentSnapshot = CaptureSnapshot(
+                sampleWindow.Day,
+                sampleWindow.SampleIndex,
+                sampleWindow.SampleSlot,
+                samplesPerDay,
+                sampleWindow.ClockSource);
+            int skippedSampleSlots = GetSkippedSampleSlots(sampleWindow.SampleIndex);
+            m_LastProcessedSampleIndex = sampleWindow.SampleIndex;
             EmitObservationIfTriggered(currentSnapshot, settingsState, skippedSampleSlots);
         }
 
@@ -309,6 +341,7 @@ namespace NoOfficeDemandFix.Systems
                     sampleCount,
                     MachineParsedLogContract.ScheduledObservationKind,
                     skippedSampleSlots,
+                    snapshot.ClockSource,
                     trigger,
                     m_LastSettingsSnapshot,
                     m_LastPatchState,
@@ -355,7 +388,12 @@ namespace NoOfficeDemandFix.Systems
             m_LastObservedSampleIndex = snapshot.SampleIndex;
         }
 
-        private DiagnosticSnapshot CaptureSnapshot(int day, int sampleIndex, int sampleSlot, int samplesPerDay)
+        private DiagnosticSnapshot CaptureSnapshot(
+            int day,
+            int sampleIndex,
+            int sampleSlot,
+            int samplesPerDay,
+            string clockSource)
         {
             JobHandle officeDeps;
             NativeArray<int> officeFactors = m_IndustrialDemandSystem.GetOfficeDemandFactors(out officeDeps);
@@ -373,6 +411,7 @@ namespace NoOfficeDemandFix.Systems
                 SampleIndex = sampleIndex,
                 SampleSlot = sampleSlot,
                 SamplesPerDay = samplesPerDay,
+                ClockSource = clockSource,
                 OfficeBuildingDemand = m_IndustrialDemandSystem.officeBuildingDemand,
                 OfficeCompanyDemand = m_IndustrialDemandSystem.officeCompanyDemand,
                 EmptyBuildingsFactor = officeFactors[(int)DemandFactor.EmptyBuildings],
@@ -1087,6 +1126,8 @@ namespace NoOfficeDemandFix.Systems
             m_RunObservationCount = 0;
             m_LastProcessedSampleIndex = int.MinValue;
             m_LastObservedSampleIndex = int.MinValue;
+            m_DisplayedClockDay = int.MinValue;
+            m_LastComputedSampleSlot = int.MinValue;
             m_LastDiagnosticsEnabled = false;
             m_LastSettingsState = default;
             m_LastSettingsSnapshot = string.Empty;
@@ -1105,6 +1146,8 @@ namespace NoOfficeDemandFix.Systems
             m_RunStartSampleIndex = int.MinValue;
             m_RunObservationCount = 0;
             m_LastObservedSampleIndex = int.MinValue;
+            m_DisplayedClockDay = int.MinValue;
+            m_LastComputedSampleSlot = int.MinValue;
             m_LastSettingsState = settingsState;
             m_LastSettingsSnapshot = FormatSettingsSnapshot(settingsState);
             m_LastPatchState = patchState;
@@ -1120,10 +1163,79 @@ namespace NoOfficeDemandFix.Systems
             return Math.Max(0, sampleIndex - m_LastObservedSampleIndex - 1);
         }
 
-        private int GetSampleSlot(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
+        private SampleWindowContext GetSampleWindowContext(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
+        {
+            int frameDay = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
+            int sampleSlot = GetRuntimeTimeSystemSampleSlot(timeSettings, timeData, samplesPerDay);
+            int day = GetDisplayedClockDay(frameDay, sampleSlot, samplesPerDay);
+            return new SampleWindowContext(
+                day,
+                GetSampleIndex(day, sampleSlot, samplesPerDay),
+                sampleSlot,
+                MachineParsedLogContract.RuntimeTimeSystemClockSource);
+        }
+
+        /// <summary>
+        /// Derives the displayed-clock day from slot transitions so that day
+        /// and slot are always consistent with the same time source.
+        /// <para>
+        /// <c>GetDay()</c> (frame-tick-based) and <c>GetTimeOfDay()</c>
+        /// (runtime-time-system-based) are computed independently and can
+        /// disagree at day boundaries.  Time-scaling mods such as
+        /// RealisticTrips widen this disagreement window.  Rather than
+        /// relying on <c>GetDay()</c> for the composite sample index, we
+        /// detect displayed-clock midnight from the slot counter wrapping
+        /// backward while using <c>GetDay()</c> only for initialisation and
+        /// large-gap recovery.
+        /// </para>
+        /// </summary>
+        private int GetDisplayedClockDay(int frameDay, int sampleSlot, int samplesPerDay)
+        {
+            if (m_LastComputedSampleSlot == int.MinValue)
+            {
+                m_DisplayedClockDay = frameDay;
+                m_LastComputedSampleSlot = sampleSlot;
+                return frameDay;
+            }
+
+            int previousSlot = m_LastComputedSampleSlot;
+            m_LastComputedSampleSlot = sampleSlot;
+
+            // Large frame-day gap (long pause, save load, etc.): re-sync.
+            if (frameDay > m_DisplayedClockDay + 1)
+            {
+                m_DisplayedClockDay = frameDay;
+                return frameDay;
+            }
+
+            // With a single sample per day the slot is always 0, so wrap
+            // detection is impossible.  Boundary desync cannot produce a
+            // multi-slot jump either (index == day), so frameDay is safe.
+            if (samplesPerDay <= 1)
+            {
+                m_DisplayedClockDay = frameDay;
+                return frameDay;
+            }
+
+            // Slot decreased: the displayed clock crossed midnight.
+            if (sampleSlot < previousSlot)
+            {
+                m_DisplayedClockDay++;
+            }
+
+            return m_DisplayedClockDay;
+        }
+
+        private int GetRuntimeTimeSystemSampleSlot(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
         {
             float normalizedTimeOfDay = m_TimeSystem.GetTimeOfDay(timeSettings, timeData, m_SimulationSystem.frameIndex);
-            int sampleSlot = (int)Math.Floor(normalizedTimeOfDay * samplesPerDay);
+            int ticksIntoDay = (int)Math.Floor(normalizedTimeOfDay * TimeSystem.kTicksPerDay);
+            return GetSampleSlotFromTicksIntoDay(ticksIntoDay, samplesPerDay);
+        }
+
+        private static int GetSampleSlotFromTicksIntoDay(int ticksIntoDay, int samplesPerDay)
+        {
+            int sampleSlot = (int)((long)ticksIntoDay * samplesPerDay / TimeSystem.kTicksPerDay);
             return Math.Max(0, Math.Min(samplesPerDay - 1, sampleSlot));
         }
 

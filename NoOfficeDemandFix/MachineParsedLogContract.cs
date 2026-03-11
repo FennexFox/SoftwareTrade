@@ -9,12 +9,18 @@ namespace NoOfficeDemandFix
         // observation_window(...) is reserved for scheduled sample emissions.
         // TODO(next PR): add a separate anomaly log contract instead of overloading observation_window(...)
         // if we need ad-hoc anomaly emissions outside the scheduled cadence.
+        // TODO(next PR): add generic observed-rate time-scaling metadata if maintainers need
+        // more provenance than the runtime TimeSystem clock source; do not couple this contract
+        // to one specific time-scaling mod name.
         public const string DiagnosticsObservationPrefix = "softwareEvidenceDiagnostics observation_window(";
         public const string DiagnosticsDetailPrefix = "softwareEvidenceDiagnostics detail(";
         public const string PhantomVacancyCorrectionPrefix = "Signature phantom vacancy guard corrected";
         public const string OfficeResourcePatchAppliedPrefix = "Office resource storage patch applied for the current load.";
 
         public const string ScheduledObservationKind = "scheduled";
+        public const string RuntimeTimeSystemClockSource = "runtime_time_system";
+        public const string DisplayedClockSource = "displayed_clock";
+        public const string SimulationFallbackClockSource = "simulation_fallback";
         public const string FreeSoftwareOfficePropertiesDetailType = "freeSoftwareOfficeProperties";
         public const string OnMarketOfficePropertiesDetailType = "onMarketOfficeProperties";
         public const string SoftwareOfficeStatesDetailType = "softwareOfficeStates";
@@ -33,6 +39,7 @@ namespace NoOfficeDemandFix
             int sampleCount,
             string observationKind,
             int skippedSampleSlots,
+            string clockSource,
             string trigger,
             string settingsSnapshot,
             string patchState,
@@ -40,7 +47,7 @@ namespace NoOfficeDemandFix
             string topFactors)
         {
             return
-                $"{DiagnosticsObservationPrefix}session_id={sessionId}, run_id={runId}, start_day={startDay}, end_day={endDay}, start_sample_index={startSampleIndex}, end_sample_index={endSampleIndex}, sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, samples_per_day={samplesPerDay}, sample_count={sampleCount}, observation_kind={observationKind}, skipped_sample_slots={skippedSampleSlots}, trigger={trigger}); " +
+                $"{DiagnosticsObservationPrefix}session_id={sessionId}, run_id={runId}, start_day={startDay}, end_day={endDay}, start_sample_index={startSampleIndex}, end_sample_index={endSampleIndex}, sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, samples_per_day={samplesPerDay}, sample_count={sampleCount}, observation_kind={observationKind}, skipped_sample_slots={skippedSampleSlots}, clock_source={clockSource}, trigger={trigger}); " +
                 $"environment(settings={settingsSnapshot}, patch_state={patchState}); " +
                 $"diagnostic_counters({diagnosticCounters}); " +
                 $"diagnostic_context(topFactors=[{topFactors}])";

@@ -649,6 +649,7 @@ def parse_observation_line(line: str) -> dict[str, Any]:
         sample_count=safe_int(observation_window.get("sample_count")),
         observation_kind=str(observation_window.get("observation_kind", "")),
         skipped_sample_slots=safe_int(observation_window.get("skipped_sample_slots")),
+        clock_source=str(observation_window.get("clock_source", "")),
         trigger=str(observation_window.get("trigger", "")),
         extras={
             "diagnostic_counter_groups": list(diagnostic_counters.keys()),
@@ -1350,6 +1351,7 @@ def build_anchor_summaries_for_llm(parsed_log: dict[str, Any]) -> list[dict[str,
                     "run_id": safe_int(anchor.get("run_id")),
                     "sample_day": safe_int(anchor.get("sample_day")),
                     "sample_index": safe_int(anchor.get("sample_index")),
+                    "clock_source": str(anchor.get("clock_source", "")),
                     "trigger": str(anchor.get("trigger", "")),
                     "settings": truncate_text(str(anchor.get("settings_raw", "")), LLM_SUMMARY_LINE_LIMIT),
                     "patch_state": str(anchor.get("patch_state", "")),
@@ -1433,6 +1435,10 @@ def build_deterministic_confounders(
 
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
+
+    clock_source = str((latest_observation or {}).get("observation_window", {}).get("clock_source", "")).strip()
+    if clock_source and clock_source not in {"displayed_clock", "runtime_time_system"}:
+        confounder_lines.append(f"clock_source={clock_source}")
 
     if safe_int(parsed_log.get("observation_count", 0)) <= 1:
         confounder_lines.append("single observation window in raw intake")
