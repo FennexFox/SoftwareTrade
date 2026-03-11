@@ -1526,9 +1526,17 @@ class RawLogAutomationTests(unittest.TestCase):
         with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("dns fail")):
             with self.assertRaisesRegex(
                 automation.AutomationError,
-                r"GitHub API GET request failed: dns fail",
+                r"HTTP GET request to api\.github\.com failed: dns fail",
             ):
                 automation.http_request("GET", "https://api.github.com/repos/FennexFox/NoOfficeDemandFix/issues/30")
+
+    def test_http_request_wraps_models_url_error_in_automation_error(self) -> None:
+        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("tls fail")):
+            with self.assertRaisesRegex(
+                automation.AutomationError,
+                r"HTTP POST request to models\.github\.ai failed: tls fail",
+            ):
+                automation.http_request("POST", automation.GITHUB_MODELS_CHAT_COMPLETIONS_URL)
 
     def test_find_existing_promoted_issue_uses_search_api_and_returns_match(self) -> None:
         marker = automation.SOURCE_RAW_ISSUE_MARKER.format(issue_number=123)

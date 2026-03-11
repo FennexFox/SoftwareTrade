@@ -390,7 +390,10 @@ def http_request(
         parsed = json.loads(raw) if raw else {}
         return error.code, parsed, raw
     except urllib.error.URLError as error:
-        raise AutomationError(f"GitHub API {method.upper()} request failed: {error.reason}") from error
+        host = urllib.parse.urlsplit(url).netloc or url
+        raise AutomationError(
+            f"HTTP {method.upper()} request to {host} failed: {error.reason}"
+        ) from error
 
 
 def download_attachment(url: str) -> str:
