@@ -32,6 +32,14 @@ COMMENT_BODY_LIMIT = 60000
 DETAIL_PREVIEW_LIMIT = 1800
 LLM_DETAIL_EXCERPT_LIMIT = 700
 LLM_SUMMARY_LINE_LIMIT = 220
+LLM_TITLE_MAX_LENGTH = 140
+LLM_EVIDENCE_SUMMARY_MAX_LENGTH = 500
+LLM_COMPARISON_BASELINE_MAX_LENGTH = 280
+LLM_CONFOUNDERS_MAX_LENGTH = 400
+LLM_ANALYSIS_BASIS_MAX_LENGTH = 240
+LLM_LOG_EXCERPT_MAX_LENGTH = 2200
+LLM_NOTES_MAX_LENGTH = 1000
+LLM_REASONING_SUMMARY_MAX_LENGTH = 220
 LLM_MAX_PATCH_SUMMARIES = 2
 LLM_MAX_PHANTOM_CORRECTIONS = 2
 MAX_EXCERPT_DETAIL_LINES = 3
@@ -135,8 +143,10 @@ SOFTWARE_EVIDENCE_CANONICAL_CLASSIFICATIONS = {
     "software_track_unclear",
 }
 NON_FATAL_VALIDATION_ERRORS = {
+    "unsupported_missing_user_input",
     "unsupported_evidence_summary_interpretation",
     "unsupported_notes_interpretation",
+    "unsupported_reasoning_summary_format",
     "unsupported_excerpt_line",
 }
 UNSUPPORTED_SUMMARY_PATTERNS = [
@@ -150,6 +160,10 @@ UNSUPPORTED_NOTES_PATTERNS = [
     r"\bthis implies\b",
     r"\bunresolved\b",
     r"\blikely\b",
+]
+UNSUPPORTED_PHANTOM_ZERO_PATTERNS = [
+    r"\bphantom vacancy (?:counters|diagnostics?)\b.{0,80}\b(?:remain|remained|stayed|stay|were)\s+zero\b",
+    r"\bguard corrections?\b.{0,80}\b(?:remain|remained|stayed|stay|were)\s+zero\b",
 ]
 
 EVIDENCE_STYLE_EXAMPLES = [
@@ -1466,6 +1480,7 @@ def build_llm_context(
         "semantic_facts": semantic_facts,
         "observation_count": safe_int(parsed_log.get("observation_count", 0)),
         "detail_count": safe_int(parsed_log.get("detail_count", 0)),
+        "allowed_missing_user_input": deterministic_draft.get("missing_user_input", []),
     }
 
 
@@ -1617,6 +1632,7 @@ def compact_llm_context(context: dict[str, Any], spec: dict[str, int | str]) -> 
         ],
         "observation_count": safe_int(context.get("observation_count", 0)),
         "detail_count": safe_int(context.get("detail_count", 0)),
+        "allowed_missing_user_input": list(context.get("allowed_missing_user_input", [])),
     }
 
 
@@ -1689,21 +1705,22 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "title": {"type": "string"},
+            "title": {"type": "string", "maxLength": LLM_TITLE_MAX_LENGTH},
             "symptom_classification": {"type": "string"},
             "custom_symptom_classification": {"type": "string"},
-            "evidence_summary": {"type": "string"},
-            "comparison_baseline": {"type": "string"},
+            "evidence_summary": {"type": "string", "maxLength": LLM_EVIDENCE_SUMMARY_MAX_LENGTH},
+            "comparison_baseline": {"type": "string", "maxLength": LLM_COMPARISON_BASELINE_MAX_LENGTH},
             "confidence": {"type": "string"},
-            "confounders": {"type": "string"},
-            "analysis_basis": {"type": "string"},
-            "log_excerpt": {"type": "string"},
-            "notes": {"type": "string"},
+            "confounders": {"type": "string", "maxLength": LLM_CONFOUNDERS_MAX_LENGTH},
+            "analysis_basis": {"type": "string", "maxLength": LLM_ANALYSIS_BASIS_MAX_LENGTH},
+            "log_excerpt": {"type": "string", "maxLength": LLM_LOG_EXCERPT_MAX_LENGTH},
+            "notes": {"type": "string", "maxLength": LLM_NOTES_MAX_LENGTH},
             "missing_user_input": {
                 "type": "array",
                 "items": {"type": "string"},
+                "maxItems": 3,
             },
-            "reasoning_summary": {"type": "string"},
+            "reasoning_summary": {"type": "string", "maxLength": LLM_REASONING_SUMMARY_MAX_LENGTH},
         },
         "required": [
             "title",
@@ -1729,7 +1746,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Do not invent numeric counters, comparison baselines, issue references, or quoted detail lines that are not present in the provided facts.
         - Leave fields empty rather than guessing when confidence is low.
         - Draft for a final `Software evidence` issue body that should read like issues #25 and #26 in this repo: factual, compact, easy to scan, and editorially strong.
-        - `title` should be a concise issue title suitable for GitHub and should read like a reusable evidence title rather than a raw intake label.
+        - `title` should be a concise issue title suitable for GitHub, ideally under 120 characters, and should read like a reusable evidence title rather than a raw intake label.
         - Do not simply repeat the raw issue title or scenario label as the evidence title.
         - `evidence_summary` must stay factual and observational. Keep it to 2-4 short sentences about what the provided diagnostics showed.
         - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
@@ -1738,6 +1755,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - `comparison_baseline` should stay empty unless the provided facts explicitly support a save-lineage, issue-reference, or patch-state comparison.
         - `confidence` must be one of: high, medium, low. Use `medium` unless the facts strongly justify another choice.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
+        - Keep the total confounders text brief; do not pad it.
         - Only include confounders that could materially affect interpretation. Do not list routine diagnostics settings unless they materially changed behavior or evidence capture.
         - Do not repeat fallback hints unless they help and remain fully supported by the anchors/snippets.
         - `analysis_basis` may stay blank. Fill it only when the provided facts directly justify a brief factual note about code-reading basis.
@@ -1745,6 +1763,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Do not invent excerpt lines, fields, days, sample indices, or comparisons. If the candidates are weak, leave `log_excerpt` blank.
         - `notes` may add extra factual context or excerpt observations, but do not speculate about root cause, misconfiguration, ownership problems, or likely explanations.
         - Prefer bullet-list `notes` that walk through the run chronologically when the facts support that.
+        - Keep `notes` compact: 2-5 short bullets, not a long paragraph.
         - Put label-selection rationale and interpretation only in `reasoning_summary`.
         - `lackResourcesZero` is a diagnostic counter name for offices where `lackResources=0`; it does not mean "zero resources" or "no resources."
         - `softwareInputZero` is an office-state/input condition for software consumers; do not generalize it into an overall citywide demand or shortage conclusion without explicit facts.
@@ -1754,6 +1773,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Avoid phrases like "zero resources" or "no resources" unless the provided facts literally support that wording.
         - Avoid unsupported interpretation in `evidence_summary` and `notes`.
         - Do not say "no indication of phantom vacancies" when the bounded window includes phantom corrections or non-zero `guardCorrections`.
+        - Do not say phantom-vacancy counters or guard corrections stayed zero if the provided run facts include phantom corrections or non-zero `guardCorrections` anywhere in the bounded window.
         - Avoid subjective intensifiers like "significantly"; prefer direct counter changes instead.
         - When the run is mainly showing buyer-state pressure, describe the buyer-state fields literally rather than claiming the demand was resolved or unresolved.
         - Prefer `software_demand_mismatch` when software-track distress is present while office-demand counters stay high or rise in the provided window.
@@ -1762,7 +1782,8 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
           software_office_propertyless, software_office_efficiency_zero,
           software_office_lack_resources_zero, software_demand_mismatch,
           software_track_unclear.
-        - missing_user_input should list only fields that a maintainer or reporter still needs to supply.
+        - `reasoning_summary` must be 1-2 short sentences, complete, concise, and under 220 characters. Do not use ellipses.
+        - `missing_user_input` should list only field ids from `allowed_missing_user_input`. If that list is empty, return an empty array.
         """
     ).strip()
 
@@ -1794,7 +1815,7 @@ def build_summary_refinement_request_payload(context: dict[str, Any], model: str
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "evidence_summary": {"type": "string"},
+            "evidence_summary": {"type": "string", "maxLength": LLM_EVIDENCE_SUMMARY_MAX_LENGTH},
         },
         "required": ["evidence_summary"],
     }
@@ -1803,7 +1824,7 @@ def build_summary_refinement_request_payload(context: dict[str, Any], model: str
         """
         Rewrite only the `evidence_summary` field for a GitHub software evidence issue.
         Follow these rules:
-        - Keep it to 2-4 short factual sentences.
+        - Keep it to 2-4 short factual sentences and under 500 characters.
         - Use only the provided run facts.
         - Prefer literal counter language when counters are the key signal.
         - Do not mention labels, comparisons, recommendations, or root-cause theories.
@@ -1931,7 +1952,7 @@ def refine_evidence_summary(
 
     allowed_days = extract_supported_days(parsed_log)
     allowed_sample_indices = extract_supported_sample_indices(parsed_log)
-    allowed_issue_refs = extract_supported_issue_refs(issue_fields)
+    allowed_issue_refs = build_allowed_issue_refs(issue_fields, deterministic_draft)
     if has_unsupported_day_reference(refined_summary, allowed_days):
         return original_summary, ""
     if has_unsupported_sample_reference(refined_summary, allowed_sample_indices):
@@ -2018,6 +2039,26 @@ def extract_supported_issue_refs(issue_fields: dict[str, str]) -> set[int]:
     return refs
 
 
+def build_allowed_issue_refs(
+    issue_fields: dict[str, str],
+    deterministic_draft: dict[str, Any] | None = None,
+) -> set[int]:
+    refs = extract_supported_issue_refs(issue_fields)
+    if not deterministic_draft:
+        return refs
+
+    for field_name in (
+        "title",
+        "evidence_summary",
+        "comparison_baseline",
+        "notes",
+        "reasoning_summary",
+    ):
+        for match in re.findall(r"#(\d+)", str(deterministic_draft.get(field_name, ""))):
+            refs.add(int(match))
+    return refs
+
+
 def extract_excerpt_body_lines(log_excerpt: str) -> list[str]:
     lines: list[str] = []
     for line in log_excerpt.replace("\r\n", "\n").split("\n"):
@@ -2059,6 +2100,12 @@ def parsed_log_has_phantom_activity(parsed_log: dict[str, Any]) -> bool:
     return counter_value(latest_observation, "phantomVacancy", "guardCorrections") > 0
 
 
+def has_unsupported_phantom_zero_claim(text: str, parsed_log: dict[str, Any]) -> bool:
+    if not parsed_log_has_phantom_activity(parsed_log):
+        return False
+    return any(re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL) for pattern in UNSUPPORTED_PHANTOM_ZERO_PATTERNS)
+
+
 def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
         return True
@@ -2068,11 +2115,51 @@ def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[
         flags=re.IGNORECASE,
     ):
         return True
+    if has_unsupported_phantom_zero_claim(text, parsed_log):
+        return True
     return False
 
 
-def has_unsupported_notes_interpretation(text: str) -> bool:
-    return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_NOTES_PATTERNS)
+def has_unsupported_notes_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
+    if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_NOTES_PATTERNS):
+        return True
+    return has_unsupported_phantom_zero_claim(text, parsed_log)
+
+
+def normalize_missing_user_input(
+    value: Any,
+    allowed_missing_user_input: list[str],
+) -> tuple[list[str], bool]:
+    if not isinstance(value, list):
+        return list(allowed_missing_user_input), bool(value)
+
+    allowed_set = set(allowed_missing_user_input)
+    normalized: list[str] = []
+    had_unsupported = False
+    for item in value:
+        if not isinstance(item, str):
+            had_unsupported = True
+            continue
+        cleaned = item.strip()
+        if not cleaned:
+            continue
+        if cleaned not in allowed_set:
+            had_unsupported = True
+            continue
+        if cleaned not in normalized:
+            normalized.append(cleaned)
+    return normalized, had_unsupported
+
+
+def has_unsupported_reasoning_summary_format(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if "..." in stripped or "…" in stripped:
+        return True
+    if len(stripped) > LLM_REASONING_SUMMARY_MAX_LENGTH:
+        return True
+    return False
 
 
 def build_allowed_excerpt_pool(parsed_log: dict[str, Any]) -> list[str]:
@@ -2106,12 +2193,16 @@ def validate_llm_draft(
         str(sanitized.get("symptom_classification", "")),
         str(sanitized.get("custom_symptom_classification", "")),
     )
+    sanitized["reasoning_summary"] = str(
+        sanitized.get("reasoning_summary", deterministic_draft.get("reasoning_summary", ""))
+    ).strip()
 
     errors: list[str] = []
     allowed_days = extract_supported_days(parsed_log)
     allowed_sample_indices = extract_supported_sample_indices(parsed_log)
-    allowed_issue_refs = extract_supported_issue_refs(issue_fields)
+    allowed_issue_refs = build_allowed_issue_refs(issue_fields, deterministic_draft)
     allowed_excerpt_pool = build_allowed_excerpt_pool(parsed_log)
+    allowed_missing_user_input = list(dict.fromkeys(deterministic_draft.get("missing_user_input", [])))
 
     if title_is_generic(sanitized["title"], issue_fields, deterministic_draft.get("title", "")):
         errors.append("generic_title")
@@ -2144,13 +2235,24 @@ def validate_llm_draft(
         sanitized["log_excerpt"] = deterministic_draft.get("log_excerpt", "")
         errors.append("unsupported_excerpt_line")
 
+    sanitized["missing_user_input"], had_unsupported_missing = normalize_missing_user_input(
+        sanitized.get("missing_user_input", []),
+        allowed_missing_user_input,
+    )
+    if had_unsupported_missing:
+        errors.append("unsupported_missing_user_input")
+
     if has_unsupported_evidence_summary_interpretation(str(sanitized.get("evidence_summary", "")), parsed_log):
         sanitized["evidence_summary"] = deterministic_draft.get("evidence_summary", "")
         errors.append("unsupported_evidence_summary_interpretation")
 
-    if has_unsupported_notes_interpretation(str(sanitized.get("notes", ""))):
+    if has_unsupported_notes_interpretation(str(sanitized.get("notes", "")), parsed_log):
         sanitized["notes"] = deterministic_draft.get("notes", "")
         errors.append("unsupported_notes_interpretation")
+
+    if has_unsupported_reasoning_summary_format(sanitized["reasoning_summary"]):
+        sanitized["reasoning_summary"] = deterministic_draft.get("reasoning_summary", "")
+        errors.append("unsupported_reasoning_summary_format")
 
     return sanitized, list(dict.fromkeys(errors))
 
@@ -2653,8 +2755,8 @@ def render_managed_comment(
                 f"- LLM status: `{llm_status}`",
                 f"- LLM detail: `{llm_detail}`",
                 f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
-                f"- Deterministic reasoning: `{truncate_text(deterministic_reasoning, 400)}`",
-                f"- LLM reasoning: `{truncate_text(llm_reasoning, 400) if llm_reasoning else 'not used'}`",
+                f"- Deterministic reasoning: `{deterministic_reasoning}`",
+                f"- LLM reasoning: `see machine payload`" if llm_reasoning else "- LLM reasoning: `not used`",
                 "",
                 "### Maintainer reply template",
                 REPLY_TEMPLATE_START_MARKER,

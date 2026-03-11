@@ -321,7 +321,7 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("plain YAML is accepted", body)
         self.assertIn("code fences are optional", body)
 
-    def test_render_managed_comment_compact_fallback_truncates_reasoning(self) -> None:
+    def test_render_managed_comment_compact_fallback_keeps_reasoning_untruncated(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
@@ -357,7 +357,8 @@ class RawLogAutomationTests(unittest.TestCase):
                 automation.DEFAULT_GITHUB_MODELS_MODEL,
             )
         self.assertIn("### Draft provenance", body)
-        self.assertIn(f"`{'C' * 397}...`", body)
+        self.assertIn("- LLM reasoning: `see machine payload`", body)
+        self.assertNotIn(f"`{'C' * 397}...`", body)
         self.assertIn("<summary>Machine payload</summary>", body)
         self.assertIn("Do not edit this block manually.", body)
         self.assertIn("```json", body)
@@ -468,6 +469,7 @@ class RawLogAutomationTests(unittest.TestCase):
 
     def test_build_llm_request_payload_uses_github_models_chat_completions_shape(self) -> None:
         payload = automation.build_llm_request_payload({"foo": "bar"})
+        schema_properties = payload["response_format"]["json_schema"]["schema"]["properties"]
         self.assertEqual(payload["model"], automation.DEFAULT_GITHUB_MODELS_MODEL)
         self.assertEqual(payload["messages"][0]["role"], "system")
         self.assertEqual(payload["messages"][1]["role"], "user")
@@ -477,8 +479,18 @@ class RawLogAutomationTests(unittest.TestCase):
             payload["response_format"]["json_schema"]["name"],
             "raw_log_triage_suggestions",
         )
-        self.assertIn("title", payload["response_format"]["json_schema"]["schema"]["properties"])
-        self.assertIn("log_excerpt", payload["response_format"]["json_schema"]["schema"]["properties"])
+        self.assertIn("title", schema_properties)
+        self.assertIn("log_excerpt", schema_properties)
+        self.assertEqual(schema_properties["title"]["maxLength"], automation.LLM_TITLE_MAX_LENGTH)
+        self.assertEqual(
+            schema_properties["evidence_summary"]["maxLength"],
+            automation.LLM_EVIDENCE_SUMMARY_MAX_LENGTH,
+        )
+        self.assertEqual(
+            schema_properties["reasoning_summary"]["maxLength"],
+            automation.LLM_REASONING_SUMMARY_MAX_LENGTH,
+        )
+        self.assertEqual(schema_properties["missing_user_input"]["maxItems"], 3)
         self.assertIn("lackResourcesZero", payload["messages"][0]["content"])
         self.assertIn("zero resources", payload["messages"][0]["content"])
         self.assertIn("#25 and #26", payload["messages"][0]["content"])
@@ -487,6 +499,9 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("do not speculate about root cause", payload["messages"][0]["content"])
         self.assertIn("no indication of phantom vacancies", payload["messages"][0]["content"])
         self.assertIn("softwareInputZero=False", payload["messages"][0]["content"])
+        self.assertIn("Do not use ellipses", payload["messages"][0]["content"])
+        self.assertIn("allowed_missing_user_input", payload["messages"][0]["content"])
+        self.assertIn("under 220 characters", payload["messages"][0]["content"])
 
     def test_build_summary_refinement_request_payload_uses_gpt_4_1(self) -> None:
         payload = automation.build_summary_refinement_request_payload({"foo": "bar"})
@@ -539,6 +554,28 @@ class RawLogAutomationTests(unittest.TestCase):
         context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
         serialized = automation.json.dumps(context, ensure_ascii=True)
         self.assertLess(len(serialized), 12000)
+
+    def test_build_llm_context_variants_preserve_allowed_missing_user_input(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        issue_fields["save_or_city_label"] = ""
+        issue_fields["what_happened"] = ""
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        variants = automation.build_llm_context_variants(context)
+        self.assertEqual(deterministic["missing_user_input"], ["scenario_label", "reproduction_conditions"])
+        self.assertTrue(variants)
+        self.assertTrue(all("allowed_missing_user_input" in variant for variant in variants))
+        self.assertEqual(
+            variants[-1]["allowed_missing_user_input"],
+            ["scenario_label", "reproduction_conditions"],
+        )
 
     def test_generate_llm_suggestions_parses_github_models_response(self) -> None:
         response_payload = {
@@ -886,6 +923,133 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
         self.assertEqual(result["draft"]["evidence_summary"], deterministic["evidence_summary"])
         self.assertEqual(result["draft"]["notes"], deterministic["notes"])
+
+    def test_generate_validated_llm_draft_drops_unsupported_missing_user_input(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft = {
+            "title": deterministic["title"],
+            "symptom_classification": deterministic["symptom_classification"],
+            "custom_symptom_classification": "",
+            "evidence_summary": deterministic["evidence_summary"],
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": deterministic["confounders"],
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": deterministic["notes"],
+            "missing_user_input": ["specific save file or city label", "comparison_baseline"],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft):
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_missing_user_input", result["validation_errors"])
+        self.assertEqual(result["draft"]["missing_user_input"], [])
+        self.assertNotIn("unsupported_issue_ref:notes", result["validation_errors"])
+
+    def test_generate_validated_llm_draft_replaces_unsupported_phantom_zero_claim(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft = {
+            "title": deterministic["title"],
+            "symptom_classification": deterministic["symptom_classification"],
+            "custom_symptom_classification": "",
+            "evidence_summary": deterministic["evidence_summary"],
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": deterministic["confounders"],
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": "Phantom vacancy counters and guard corrections remain zero throughout the run.",
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft):
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
+        self.assertEqual(result["draft"]["notes"], deterministic["notes"])
+
+    def test_generate_validated_llm_draft_replaces_ellipsis_reasoning_summary(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft = {
+            "title": deterministic["title"],
+            "symptom_classification": deterministic["symptom_classification"],
+            "custom_symptom_classification": "",
+            "evidence_summary": deterministic["evidence_summary"],
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": deterministic["confounders"],
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": deterministic["notes"],
+            "missing_user_input": [],
+            "reasoning_summary": "This is incomplete...",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft):
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_reasoning_summary_format", result["validation_errors"])
+        self.assertEqual(result["draft"]["reasoning_summary"], deterministic["reasoning_summary"])
 
     def test_generate_validated_llm_draft_falls_back_when_both_drafts_fail_validation(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
