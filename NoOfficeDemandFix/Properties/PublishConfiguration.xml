@@ -20,7 +20,7 @@ Current release status:
 - keeps the software path available as an experimental mitigation, not a claimed full fix
 	</LongDescription>
 	<!--Thumbnail-->
-	<Thumbnail Value="Thumbnail.png" />
+	<Thumbnail Value="Properties/Thumbnail.png" />
 	<!--Tag, can be set multiple times. PDX tags are fixed categories, not free-form keywords.-->
 	<Tag Value="Code Mod" />
 	<!--Link to the forum post where the mod can be discussed-->

@@ -25,6 +25,9 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
+    concurrency:
+      group: raw-log-triage-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: true
 
     steps:
       - name: Check out repository
