@@ -47,7 +47,7 @@ body:
     attributes:
       label: Platform notes
       description: Optional platform, install-layout, or environment notes that may matter for later comparison.
-      placeholder: Steam Workshop release on Windows, local install, or none
+      placeholder: Paradox Mods release on Windows, local install, or none
   - type: textarea
     id: other_mods
     attributes:
