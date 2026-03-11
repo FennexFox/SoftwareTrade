@@ -12,7 +12,7 @@ The current release ships a confirmed fix for the reproduced `Signature` phantom
 What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
-- includes an opt-in prefab-level office-resource trade patch for outside connections and cargo stations when maintainers need software-track comparison data; setting changes are picked up on the next city/save load without a full restart
+- includes an opt-in prefab-level office-resource trade patch for outside connections and cargo stations when maintainers need software-track comparison data; setting changes are picked up on the next city/save load without a full restart in the normal case, but a restart is recommended for clean comparison runs if other mods may also modify the same storage resource definitions
 - includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including enough signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer trade-state anomalies
 
 What it does not claim:
@@ -27,7 +27,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Changes apply on the next city/save load without a full game restart. |
+| `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Changes apply on the next city/save load without a full game restart in the normal case. For clean comparison runs, restart first if other mods may also modify the same storage resource definitions. |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Reload after changing it. |
 | `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many `softwareEvidenceDiagnostics` samples are emitted per displayed in-game day while diagnostics are active. |

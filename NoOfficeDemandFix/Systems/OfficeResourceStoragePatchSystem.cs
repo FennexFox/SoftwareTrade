@@ -129,14 +129,30 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
+            bool verboseLogging = IsVerboseLoggingEnabled();
             int reverted = 0;
 
             foreach (KeyValuePair<Entity, Resource> trackedEntry in m_TrackedAddedResources)
             {
                 Entity entity = trackedEntry.Key;
                 Resource addedResources = trackedEntry.Value;
-                if (!EntityManager.Exists(entity) || !EntityManager.HasComponent<StorageCompanyData>(entity))
+                if (!EntityManager.Exists(entity))
                 {
+                    if (verboseLogging)
+                    {
+                        Mod.log.Info($"Skipped reverting tracked office resources because entity {entity.Index}:{entity.Version} no longer exists during preload.");
+                    }
+
+                    continue;
+                }
+
+                if (!EntityManager.HasComponent<StorageCompanyData>(entity))
+                {
+                    if (verboseLogging)
+                    {
+                        Mod.log.Info($"Skipped reverting tracked office resources because entity {entity.Index}:{entity.Version} no longer has StorageCompanyData during preload.");
+                    }
+
                     continue;
                 }
 
@@ -152,7 +168,7 @@ namespace NoOfficeDemandFix.Systems
                 EntityManager.SetComponentData(entity, storageCompanyData);
                 reverted++;
 
-                if (IsVerboseLoggingEnabled() && EntityManager.HasComponent<PrefabData>(entity))
+                if (verboseLogging && EntityManager.HasComponent<PrefabData>(entity))
                 {
                     PrefabData prefabData = EntityManager.GetComponentData<PrefabData>(entity);
                     Mod.log.Info($"Reverted tracked office resources on prefab index {prefabData.m_Index} during preload.");
