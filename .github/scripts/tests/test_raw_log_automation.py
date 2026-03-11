@@ -142,10 +142,43 @@ class RawLogAutomationTests(unittest.TestCase):
             "raw_log": "[NoOfficeDemandFix.Mod.log](https://github.com/user-attachments/files/12345/NoOfficeDemandFix.Mod.log)"
         }
         with mock.patch.object(automation, "download_attachment", return_value="attachment-body") as download_mock:
-            source = automation.select_raw_log_source(issue_fields, "token")
+            source = automation.select_raw_log_source(issue_fields)
         self.assertEqual(source["mode"], "attachment")
         self.assertEqual(source["text"], "attachment-body")
         self.assertEqual(download_mock.call_count, 1)
+
+    def test_select_raw_log_source_rejects_non_github_attachment_hosts(self) -> None:
+        issue_fields = {"raw_log": "https://example.com/NoOfficeDemandFix.Mod.log"}
+        with self.assertRaisesRegex(automation.AttachmentDownloadError, "host is not allowed"):
+            automation.select_raw_log_source(issue_fields)
+
+    def test_download_attachment_does_not_forward_authorization_header(self) -> None:
+        request_headers: dict[str, str] = {}
+
+        class FakeResponse:
+            status = 200
+
+            def __enter__(self) -> "FakeResponse":
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return b"attachment-body"
+
+        def fake_urlopen(request: object) -> FakeResponse:
+            nonlocal request_headers
+            request_headers = dict(request.header_items())
+            return FakeResponse()
+
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            body = automation.download_attachment(
+                "https://github.com/user-attachments/files/12345/NoOfficeDemandFix.Mod.log"
+            )
+
+        self.assertEqual(body, "attachment-body")
+        self.assertNotIn("Authorization", request_headers)
 
     def test_redact_log_text_removes_local_paths_and_query_strings(self) -> None:
         redacted, notes = automation.redact_log_text(

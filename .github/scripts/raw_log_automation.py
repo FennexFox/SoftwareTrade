@@ -23,6 +23,7 @@ PROMOTE_COMMAND = "/promote-evidence"
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
+GITHUB_ATTACHMENT_HOST_SUFFIX = ".githubusercontent.com"
 DEFAULT_GITHUB_MODELS_MODEL = "openai/gpt-4.1-mini"
 DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL = "openai/gpt-4.1"
 PRIMARY_GITHUB_MODELS_MODEL_ENV = "PRIMARY_GITHUB_MODELS_MODEL"
@@ -304,6 +305,18 @@ def sanitize_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
 
 
+def is_allowed_attachment_url(url: str) -> bool:
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not host:
+        return False
+
+    if host == "github.com":
+        return parsed.path.startswith("/user-attachments/")
+
+    return host.endswith(GITHUB_ATTACHMENT_HOST_SUFFIX)
+
+
 def redact_log_text(log_text: str) -> tuple[str, list[str]]:
     redaction_notes: list[str] = []
     redacted = log_text.replace("\r\n", "\n")
@@ -367,13 +380,18 @@ def http_request(
         return error.code, parsed, raw
 
 
-def download_attachment(url: str, token: str | None) -> str:
+def download_attachment(url: str) -> str:
+    if not is_allowed_attachment_url(url):
+        sanitized_url = sanitize_url(url)
+        raise AttachmentDownloadError(
+            f"Raw log attachment host is not allowed: {sanitized_url}. "
+            "Only GitHub-hosted attachment URLs are accepted."
+        )
+
     request_headers = {
         "User-Agent": "NoOfficeDemandFixRawLogAutomation/1.0",
         "Accept": "*/*",
     }
-    if token:
-        request_headers["Authorization"] = f"Bearer {token}"
 
     request = urllib.request.Request(url, headers=request_headers, method="GET")
     try:
@@ -388,7 +406,7 @@ def download_attachment(url: str, token: str | None) -> str:
         raise AttachmentDownloadError(f"Failed to download attachment: {error.reason}") from error
 
 
-def select_raw_log_source(issue_fields: dict[str, str], token: str | None) -> dict[str, Any]:
+def select_raw_log_source(issue_fields: dict[str, str]) -> dict[str, Any]:
     raw_log_section = issue_fields.get("raw_log", "")
     attachment_urls = extract_attachment_urls(raw_log_section)
 
@@ -397,7 +415,7 @@ def select_raw_log_source(issue_fields: dict[str, str], token: str | None) -> di
         return {
             "mode": "attachment",
             "url": preferred_url,
-            "text": download_attachment(preferred_url, token),
+            "text": download_attachment(preferred_url),
             "attachment_urls": attachment_urls,
         }
 

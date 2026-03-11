@@ -73,7 +73,7 @@ def main() -> None:
 
     issue_fields = parse_issue_form_sections(issue_body)
     try:
-        log_source = select_raw_log_source(issue_fields, github_token)
+        log_source = select_raw_log_source(issue_fields)
     except AttachmentDownloadError as error:
         create_issue_comment(repo, issue_number, build_attachment_failure_comment(str(error)), github_token)
         print(f"Attachment download failed for issue #{issue_number}: {error}")

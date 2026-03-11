@@ -150,6 +150,7 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<Temp>());
             ResetEvidenceSession();
             RequireForUpdate(m_TimeDataQuery);
+            RequireForUpdate(m_TimeSettingsQuery);
         }
 
         public override int GetUpdateInterval(SystemUpdatePhase phase)

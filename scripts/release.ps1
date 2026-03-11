@@ -146,11 +146,6 @@ try {
         throw "PublishConfiguration.xml has ModVersion '$configuredVersion', but the requested release version is '$normalizedVersion'."
     }
 
-    $changeLog = ([string]$publishConfiguration.Publish.ChangeLog).Trim()
-    if ($changeLog -notmatch [regex]::Escape($normalizedVersion)) {
-        Write-Warning "ChangeLog does not mention version $normalizedVersion."
-    }
-
     if (-not $SkipParadoxPublish) {
         if ([string]::IsNullOrWhiteSpace($PdxEmail)) {
             $PdxEmail = Read-Host "Paradox email"

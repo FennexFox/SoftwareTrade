@@ -43,9 +43,13 @@ namespace NoOfficeDemandFix.Systems
             {
                 RevertTrackedResourceBits();
             }
-            else if (IsVerboseLoggingEnabled() && m_TrackedAddedResources.Count > 0)
+            else
             {
-                Mod.log.Info("Skipped reverting tracked office resources during preload because the trade patch remains enabled for the upcoming load.");
+                PruneTrackedResourceBits();
+                if (IsVerboseLoggingEnabled() && m_TrackedAddedResources.Count > 0)
+                {
+                    Mod.log.Info("Skipped reverting tracked office resources during preload because the trade patch remains enabled for the upcoming load.");
+                }
             }
 
             ResetLoadState();
@@ -67,12 +71,14 @@ namespace NoOfficeDemandFix.Systems
 
             if (m_InitializedForCurrentLoad)
             {
+                base.Enabled = false;
                 return;
             }
 
             if (!IsPatchEnabled())
             {
                 m_InitializedForCurrentLoad = true;
+                base.Enabled = false;
                 Mod.log.Info("Office resource storage patch is disabled for the current load.");
                 return;
             }
@@ -86,6 +92,7 @@ namespace NoOfficeDemandFix.Systems
             int patchedCargoStations = PatchStorageCompanyPrefabs(m_CargoStationPrefabs, "cargo station");
 
             m_InitializedForCurrentLoad = true;
+            base.Enabled = false;
             Mod.log.Info($"Office resource storage patch applied for the current load. Outside connections: {patchedOutsideConnections}, cargo stations: {patchedCargoStations}.");
         }
 
@@ -192,6 +199,76 @@ namespace NoOfficeDemandFix.Systems
             m_TrackedAddedResources.Clear();
         }
 
+        private void PruneTrackedResourceBits()
+        {
+            if (m_TrackedAddedResources.Count == 0)
+            {
+                return;
+            }
+
+            bool verboseLogging = IsVerboseLoggingEnabled();
+            List<Entity> removedEntities = null;
+            List<KeyValuePair<Entity, Resource>> narrowedEntries = null;
+
+            foreach (KeyValuePair<Entity, Resource> trackedEntry in m_TrackedAddedResources)
+            {
+                Entity entity = trackedEntry.Key;
+                Resource trackedResources = trackedEntry.Value;
+
+                if (!EntityManager.Exists(entity))
+                {
+                    removedEntities ??= new List<Entity>();
+                    removedEntities.Add(entity);
+                    continue;
+                }
+
+                if (!EntityManager.HasComponent<StorageCompanyData>(entity))
+                {
+                    removedEntities ??= new List<Entity>();
+                    removedEntities.Add(entity);
+                    continue;
+                }
+
+                StorageCompanyData storageCompanyData = EntityManager.GetComponentData<StorageCompanyData>(entity);
+                Resource remainingTrackedResources = storageCompanyData.m_StoredResources & trackedResources;
+                if (remainingTrackedResources == default)
+                {
+                    removedEntities ??= new List<Entity>();
+                    removedEntities.Add(entity);
+                    continue;
+                }
+
+                if (remainingTrackedResources != trackedResources)
+                {
+                    narrowedEntries ??= new List<KeyValuePair<Entity, Resource>>();
+                    narrowedEntries.Add(new KeyValuePair<Entity, Resource>(entity, remainingTrackedResources));
+                }
+            }
+
+            if (removedEntities != null)
+            {
+                foreach (Entity entity in removedEntities)
+                {
+                    m_TrackedAddedResources.Remove(entity);
+                }
+            }
+
+            if (narrowedEntries != null)
+            {
+                foreach (KeyValuePair<Entity, Resource> entry in narrowedEntries)
+                {
+                    m_TrackedAddedResources[entry.Key] = entry.Value;
+                }
+            }
+
+            if (verboseLogging && (removedEntities != null || narrowedEntries != null))
+            {
+                int removedCount = removedEntities?.Count ?? 0;
+                int narrowedCount = narrowedEntries?.Count ?? 0;
+                Mod.log.Info($"Pruned tracked office resource cache during preload. Removed: {removedCount}, narrowed: {narrowedCount}.");
+            }
+        }
+
         private void TrackAddedResources(Entity entity, Resource addedResources)
         {
             if (addedResources == default)
@@ -212,6 +289,7 @@ namespace NoOfficeDemandFix.Systems
         {
             m_LoadReady = false;
             m_InitializedForCurrentLoad = false;
+            base.Enabled = true;
         }
     }
 }
