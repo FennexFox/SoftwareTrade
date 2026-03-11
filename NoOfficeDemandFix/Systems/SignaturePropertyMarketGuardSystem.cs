@@ -111,8 +111,11 @@ namespace NoOfficeDemandFix.Systems
                 {
                     PrefabRef prefabRef = EntityManager.GetComponentData<PrefabRef>(property);
                     Mod.log.Info(
-                        $"Signature phantom vacancy guard corrected {propertyType} property {FormatEntity(property)} " +
-                        $"prefab={GetPrefabLabel(prefabRef.m_Prefab)} removed=[{string.Join(", ", removedComponents)}]");
+                        MachineParsedLogContract.FormatPhantomVacancyCorrection(
+                            propertyType,
+                            FormatEntity(property),
+                            GetPrefabLabel(prefabRef.m_Prefab),
+                            removedComponents));
                 }
             }
         }

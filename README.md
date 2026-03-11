@@ -13,7 +13,7 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - includes an opt-in prefab-level office-resource trade patch for outside connections and cargo stations when maintainers need software-track comparison data; setting changes are picked up on the next city/save load without a full restart in the normal case, but a restart is recommended for clean comparison runs if other mods may also modify the same storage resource definitions
-- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including enough signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer trade-state anomalies
+- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, with stable machine-parsed evidence lines for raw-log triage and enough signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer trade-state anomalies
 
 What it does not claim:
 
@@ -28,9 +28,9 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Changes apply on the next city/save load without a full game restart in the normal case. For clean comparison runs, restart first if other mods may also modify the same storage resource definitions. |
-| `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Reload after changing it. |
+| `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
 | `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
-| `DiagnosticsSamplesPerDay` | `2` | Sets how many `softwareEvidenceDiagnostics` samples are emitted per displayed in-game day while diagnostics are active. |
+| `DiagnosticsSamplesPerDay` | `2` | Sets how many diagnostic sample slots exist per displayed in-game day. When `CaptureStableEvidence` or `VerboseLogging` keeps diagnostics emitting, each slot is recorded once and `sample_count` follows the configured cadence. |
 | `CaptureStableEvidence` | `false` | Keeps bounded `softwareEvidenceDiagnostics` windows flowing at the configured per-day cadence while diagnostics are enabled, even when the city looks stable. Use it only for baseline or no-symptom evidence collection. |
 | `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces diagnostics output at the configured per-day cadence while diagnostics are enabled. Use it only for investigation. |
 

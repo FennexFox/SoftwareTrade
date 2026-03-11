@@ -97,7 +97,7 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OnMarketPropertyQuery;
         private EntityQuery m_ToBeOnMarketPropertyQuery;
         private EntityQuery m_OfficeCompanyQuery;
-        private int m_LastLoggedSampleIndex = int.MinValue;
+        private int m_LastCompletedSampleIndex = int.MinValue;
         private bool m_LastDiagnosticsEnabled;
         private string m_SessionId = CreateSessionId();
         private int m_RunSequence;
@@ -157,7 +157,8 @@ namespace NoOfficeDemandFix.Systems
         {
             if (phase == SystemUpdatePhase.GameSimulation)
             {
-                return 256;
+                // Diagnostics must observe slot boundaries continuously to preserve the configured per-day cadence.
+                return 1;
             }
 
             return base.GetUpdateInterval(phase);
@@ -179,17 +180,17 @@ namespace NoOfficeDemandFix.Systems
         protected override void OnUpdate()
         {
             bool diagnosticsEnabled = IsDiagnosticsEnabled();
-            string settingsSnapshot = FormatSettingsSnapshot();
-            string patchState = FormatPatchState();
 
             if (!diagnosticsEnabled)
             {
                 m_LastDiagnosticsEnabled = false;
-                m_LastSettingsSnapshot = settingsSnapshot;
-                m_LastPatchState = patchState;
+                m_LastSettingsSnapshot = string.Empty;
+                m_LastPatchState = string.Empty;
                 return;
             }
 
+            string settingsSnapshot = FormatSettingsSnapshot();
+            string patchState = FormatPatchState();
             TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
             TimeSettingsData timeSettings = m_TimeSettingsQuery.GetSingleton<TimeSettingsData>();
             int day = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
@@ -202,51 +203,89 @@ namespace NoOfficeDemandFix.Systems
             if (runStateChanged)
             {
                 BeginNewRun(day, sampleIndex, settingsSnapshot, patchState);
-                m_LastLoggedSampleIndex = int.MinValue;
+                m_LastCompletedSampleIndex = sampleIndex - 1;
             }
 
             m_LastDiagnosticsEnabled = true;
-            if (sampleIndex == m_LastLoggedSampleIndex)
+            if (sampleIndex <= m_LastCompletedSampleIndex)
             {
                 return;
             }
 
-            DiagnosticSnapshot snapshot = CaptureSnapshot(day, sampleIndex, sampleSlot, samplesPerDay);
-            m_LastLoggedSampleIndex = sampleIndex;
+            while (m_LastCompletedSampleIndex < sampleIndex)
+            {
+                int nextSampleIndex = m_LastCompletedSampleIndex + 1;
+                // Catch up by sample index so slot-count drift does not break sample_count across frame skips.
+                DiagnosticSnapshot snapshot = CaptureSnapshot(
+                    GetSampleDay(nextSampleIndex, samplesPerDay),
+                    nextSampleIndex,
+                    GetSampleSlotFromSampleIndex(nextSampleIndex, samplesPerDay),
+                    samplesPerDay);
+                m_LastCompletedSampleIndex = nextSampleIndex;
+                EmitObservationIfTriggered(snapshot, settingsSnapshot, patchState);
+            }
+        }
 
+        private void EmitObservationIfTriggered(DiagnosticSnapshot snapshot, string settingsSnapshot, string patchState)
+        {
             if (!TryGetObservationTrigger(snapshot, out string trigger))
             {
                 return;
             }
 
             Mod.log.Info(
-                $"softwareEvidenceDiagnostics observation_window(session_id={m_SessionId}, run_id={m_RunSequence}, start_day={m_RunStartDay}, end_day={snapshot.Day}, start_sample_index={m_RunStartSampleIndex}, end_sample_index={snapshot.SampleIndex}, sample_day={snapshot.Day}, sample_index={snapshot.SampleIndex}, sample_slot={snapshot.SampleSlot}, samples_per_day={snapshot.SamplesPerDay}, sample_count={GetObservationSampleCount(snapshot.SampleIndex)}, trigger={trigger}); " +
-                $"environment(settings={settingsSnapshot}, patch_state={patchState}); " +
-                $"diagnostic_counters(" +
-                $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
-                $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
-                $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
-                $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
-                $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
-                $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
-                $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
-                $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero})" +
-                $"); " +
-                $"diagnostic_context(topFactors=[{snapshot.TopFactors}])");
+                MachineParsedLogContract.FormatObservationWindow(
+                    m_SessionId,
+                    m_RunSequence,
+                    m_RunStartDay,
+                    snapshot.Day,
+                    m_RunStartSampleIndex,
+                    snapshot.SampleIndex,
+                    snapshot.Day,
+                    snapshot.SampleIndex,
+                    snapshot.SampleSlot,
+                    snapshot.SamplesPerDay,
+                    GetObservationSampleCount(snapshot.SampleIndex),
+                    trigger,
+                    settingsSnapshot,
+                    patchState,
+                    FormatDiagnosticCounters(snapshot),
+                    snapshot.TopFactors));
 
             if (!string.IsNullOrEmpty(snapshot.FreeSoftwareOfficePropertyDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, observation_end_sample_index={snapshot.SampleIndex}, detail_type=freeSoftwareOfficeProperties, values={snapshot.FreeSoftwareOfficePropertyDetails})");
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.FreeSoftwareOfficePropertiesDetailType,
+                        snapshot.FreeSoftwareOfficePropertyDetails));
             }
 
             if (!string.IsNullOrEmpty(snapshot.OnMarketOfficePropertyDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, observation_end_sample_index={snapshot.SampleIndex}, detail_type=onMarketOfficeProperties, values={snapshot.OnMarketOfficePropertyDetails})");
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.OnMarketOfficePropertiesDetailType,
+                        snapshot.OnMarketOfficePropertyDetails));
             }
 
             if (!string.IsNullOrEmpty(snapshot.SoftwareOfficeDetails))
             {
-                Mod.log.Info($"softwareEvidenceDiagnostics detail(session_id={m_SessionId}, run_id={m_RunSequence}, observation_end_day={snapshot.Day}, observation_end_sample_index={snapshot.SampleIndex}, detail_type=softwareOfficeStates, values={snapshot.SoftwareOfficeDetails})");
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.SoftwareOfficeStatesDetailType,
+                        snapshot.SoftwareOfficeDetails));
             }
         }
 
@@ -932,6 +971,19 @@ namespace NoOfficeDemandFix.Systems
 #endif
         }
 
+        private static string FormatDiagnosticCounters(DiagnosticSnapshot snapshot)
+        {
+            return
+                $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
+                $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
+                $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
+                $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
+                $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
+                $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
+                $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
+                $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero})";
+        }
+
         private bool TryGetObservationTrigger(DiagnosticSnapshot snapshot, out string trigger)
         {
             if (HasSuspiciousSignals(snapshot))
@@ -962,7 +1014,7 @@ namespace NoOfficeDemandFix.Systems
             m_RunSequence = 0;
             m_RunStartDay = int.MinValue;
             m_RunStartSampleIndex = int.MinValue;
-            m_LastLoggedSampleIndex = int.MinValue;
+            m_LastCompletedSampleIndex = int.MinValue;
             m_LastDiagnosticsEnabled = false;
             m_LastSettingsSnapshot = string.Empty;
             m_LastPatchState = string.Empty;
@@ -985,6 +1037,17 @@ namespace NoOfficeDemandFix.Systems
         private int GetObservationSampleCount(int endSampleIndex)
         {
             return Math.Max(1, endSampleIndex - m_RunStartSampleIndex + 1);
+        }
+
+        private static int GetSampleDay(int sampleIndex, int samplesPerDay)
+        {
+            return sampleIndex / samplesPerDay;
+        }
+
+        private static int GetSampleSlotFromSampleIndex(int sampleIndex, int samplesPerDay)
+        {
+            int sampleSlot = sampleIndex % samplesPerDay;
+            return sampleSlot < 0 ? sampleSlot + samplesPerDay : sampleSlot;
         }
 
         private int GetSampleSlot(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
