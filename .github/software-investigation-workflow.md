@@ -111,9 +111,9 @@ At the default `DiagnosticsSamplesPerDay=2` cadence, those windows will usually 
 
 Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser emitted evidence inside the same day-count window, not as a replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set differently, scale the expected `sample_count` accordingly for baseline capture and read any `skipped_sample_slots` as a reminder that missed scheduled slots were not backfilled.
 
-These day-count recommendations remain valid under time-scaling mods such as `RealisticTrips` / `Time2Work`.
+These day-count recommendations remain usable under time-scaling mods such as `RealisticTrips` / `Time2Work`, but they should be treated as lower-confidence comparisons than vanilla-speed runs.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
-The current sampling code derives `sample_slot` from the runtime `TimeSystem` time-of-day path and advances a logical displayed-clock day when that slot wraps, seeding from the runtime day value and re-syncing after large gaps such as loads or long pauses.
+The current sampling code derives `sample_slot` from the runtime `TimeSystem` time-of-day path and advances a logical displayed-clock day when that slot wraps, seeding from the runtime day value and re-syncing after large gaps such as loads or long pauses, but it does not include explicit per-mod interoperability.
 When `CaptureStableEvidence` or `VerboseLogging` is keeping output active, emitted observations now stay tied to the slot that was actually sampled. If a slot is missed, the next emitted observation reports that gap through `skipped_sample_slots` instead of backfilling synthetic observations.
 The emitted `clock_source` field is normally `runtime_time_system`. Older logs may still show `displayed_clock`; treat that as a legacy contract value rather than a different current code path.
 That keeps the `3` / `5` / `7` day guidance conservative rather than weaker, while preserving honest slot timing in the raw log.
