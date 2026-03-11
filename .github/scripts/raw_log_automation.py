@@ -2979,7 +2979,7 @@ def find_existing_promoted_issue(repo: str, raw_issue_number: int, token: str) -
         if "pull_request" in issue:
             continue
         body = issue.get("body", "")
-        if not body or marker in body:
+        if marker in body:
             return issue
     return None
 

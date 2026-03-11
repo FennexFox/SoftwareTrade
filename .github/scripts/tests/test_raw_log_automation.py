@@ -1515,6 +1515,24 @@ class RawLogAutomationTests(unittest.TestCase):
             issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
         self.assertIsNone(issue)
 
+    def test_find_existing_promoted_issue_ignores_empty_body_search_hit(self) -> None:
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(200, {"items": [{"number": 44, "body": ""}]}, ""),
+        ):
+            issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
+        self.assertIsNone(issue)
+
+    def test_find_existing_promoted_issue_ignores_comment_only_search_hit(self) -> None:
+        with mock.patch.object(
+            automation,
+            "http_request",
+            return_value=(200, {"items": [{"number": 44, "body": "search matched a comment, not the marker"}]}, ""),
+        ):
+            issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
+        self.assertIsNone(issue)
+
     def test_sanitize_llm_detail_maps_common_failures(self) -> None:
         self.assertEqual(
             automation.sanitize_llm_detail("GitHub Models request failed (403): access denied"),
