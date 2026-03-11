@@ -1,0 +1,43 @@
+name: Raw Log Triage
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+
+permissions:
+  contents: read
+  issues: write
+  models: read
+
+jobs:
+  triage:
+    if: >-
+      github.event.issue.state == 'open' && (
+        contains(github.event.issue.body, '<!-- raw-log-report -->') || (
+          startsWith(github.event.issue.title, '[Raw Log]') &&
+          contains(github.event.issue.body, '### Game version') &&
+          contains(github.event.issue.body, '### Mod version') &&
+          contains(github.event.issue.body, '### Save or city label') &&
+          contains(github.event.issue.body, '### What happened') &&
+          contains(github.event.issue.body, '### Raw log')
+        )
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run raw log triage
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/run_raw_log_triage.py

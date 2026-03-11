@@ -30,10 +30,8 @@ body:
     id: mod-ref
     attributes:
       label: Mod ref
-      description: Branch and commit SHA, or another exact source reference.
+      description: Optional branch and commit SHA, or another exact source reference for dev or local builds.
       placeholder: track/software-instability @ abc1234
-    validations:
-      required: true
   - type: textarea
     id: settings
     attributes:

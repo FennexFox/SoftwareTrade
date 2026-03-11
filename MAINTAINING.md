@@ -19,6 +19,7 @@ for contributor-facing branch, commit, PR, and testing expectations.
 
 For `software`-track investigation work, use these documents together:
 
+- raw-log onboarding: [LOG_REPORTING.md](./LOG_REPORTING.md)
 - evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
 - evidence entry form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
@@ -34,9 +35,17 @@ Recommended operating flow:
 - escalation: turn on `VerboseLogging` only when you also need the noisier correction and patch traces
 - if diagnostics emit `patch_state=unknown`, keep that in the evidence entry unless you can name the exact local deviations for that run
 - promote only reusable bounded runs into the software evidence form
+- use the `Raw log report` intake form for raw diagnostics, then copy the managed `maintainer_reply` YAML block into a new maintainer comment, paste the YAML directly or wrap it in fences, edit it there, and add `/promote-evidence` in that same comment when the intake issue is ready to become reusable evidence
+- treat the initial symptom classification on raw-log-promoted evidence issues as provisional; later synthesis may revise it after re-reading counters, excerpts, and comparison context
 - keep one software investigation umbrella issue per hypothesis or investigation line, and record comparison summaries there
 - use vanilla decompiled game code for claims about base-game trade lifecycle, virtual-resource handling, and update behavior; use this mod's code for claims about diagnostics output, local patches, and release defaults
 - treat software-office distress and office-demand response as separate observed outcomes; do not infer falling office demand from `software` consumer efficiency collapse alone
+
+Repository automation notes:
+
+- raw-log triage runs on raw-log intake issue open and edit events
+- evidence promotion runs primarily from maintainer reply comments that include `/promote-evidence`
+- optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow, and treat deterministic parsing as the source of truth if GitHub Models access is unavailable or the call fails
 
 ## Contributor Process
 

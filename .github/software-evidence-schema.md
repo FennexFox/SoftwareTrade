@@ -30,12 +30,12 @@ Required:
 
 - `game_version`: Cities: Skylines II game version
 - `mod_version`: released mod version, or `unreleased`
-- `mod_ref`: branch name and commit SHA, or another exact source reference
 - `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`
 - `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems; use `unknown` when the runtime cannot determine them reliably
 
 Optional:
 
+- `mod_ref`: branch name and commit SHA, or another exact source reference for dev or local builds
 - `platform_notes`: anything relevant about platform or install layout
 - `other_mods`: only if they may affect office demand, trade, property, or company behavior
 
