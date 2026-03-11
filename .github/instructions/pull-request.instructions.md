@@ -9,10 +9,29 @@ Prefer filling the repository template at
   - `<type>(<scope>): <summary>`
 - Choose `type`/`scope` using the same rules as commit messages.
 - Summary 72 characters or fewer, imperative mood, no trailing period.
+- Determine `type` from the full PR outcome, not the active file, latest
+  commit, or noisiest part of the diff.
 - Title the primary behavior or workflow change, not the biggest file or
   supporting test/doc churn.
 - If runtime logic changed and tests/docs/config changed alongside it,
   title the logic change.
+- Use `docs` only when the meaningful change is limited to documentation.
+- Use `test` only when the meaningful change is limited to tests or test
+  infrastructure.
+- If the PR adds or enables a new workflow, automation path, or
+  user-facing capability, prefer `feat` unless the change is clearly a
+  correction to existing behavior.
+- Prefer the real changed module or system as scope; do not use `docs`
+  or `test` as scope when code in another area actually changed.
+
+## Title Selection Heuristics
+- Start from the highest-impact non-doc behavior change in the PR, then
+  treat docs/tests/config as supporting detail.
+- For multi-commit PRs, ignore intermediate cleanup/follow-up commit
+  messages and summarize the final merged state instead.
+- Avoid generic or misleading titles like `fix(docs): ...` when the PR
+  also introduces or changes runtime code, workflows, automation, or
+  shipped behavior.
 
 ## PR Description Template
 Use these sections in template order. Keep bullets concise, concrete,
@@ -49,3 +68,8 @@ If asked to classify the PR, use one label:
   `Build/CI`, `Test`
 
 Provide a one to two sentence justification.
+
+## Examples
+- `feat(infra): automate raw log triage and evidence promotion`
+- `fix(systems): tighten promoted issue duplicate detection`
+- `docs(instructions): clarify commit message and PR guidelines`
