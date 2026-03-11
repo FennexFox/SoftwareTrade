@@ -1,0 +1,120 @@
+name: Software investigation
+description: Track a software-track hypothesis, evidence line, and current conclusion.
+title: "[Software Investigation] "
+labels: ["investigation", "area: software-track"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this as the umbrella tracker for one `software`-track investigation line.
+        Link reusable bounded evidence runs here, then keep comparison summaries and the current conclusion in this issue.
+        Canonical workflow: `.github/software-investigation-workflow.md`
+  - type: input
+    id: core-question
+    attributes:
+      label: Core question
+      placeholder: What exactly are we trying to verify or rule out?
+    validations:
+      required: true
+  - type: textarea
+    id: working-hypothesis
+    attributes:
+      label: Working hypothesis
+      description: Short statement of the current hypothesis or suspected failure pattern.
+    validations:
+      required: true
+  - type: textarea
+    id: analysis-basis
+    attributes:
+      label: Analysis basis
+      description: Optional. If code reading informs the investigation, say whether the relevant claim comes from vanilla decompiled game code, this mod's code, or both.
+      placeholder: vanilla decompile for base-game trade lifecycle; mod code for diagnostics output and patch behavior
+  - type: dropdown
+    id: current-status
+    attributes:
+      label: Current status
+      options:
+        - open question
+        - collecting evidence
+        - comparing evidence
+        - conclusion forming
+        - parked
+    validations:
+      required: true
+  - type: textarea
+    id: scope-or-scenario-family
+    attributes:
+      label: Scope or scenario family
+      description: Saves, scenario family, or operating conditions this umbrella covers.
+    validations:
+      required: true
+  - type: textarea
+    id: linked-evidence-plan
+    attributes:
+      label: Linked evidence plan
+      description: Link the evidence issues already collected or the bounded runs that still need to be promoted into evidence issues.
+      placeholder: |
+        - baseline evidence: #21
+        - trade patch comparison run: collect on same save with EnableTradePatch=True
+        - reload check: collect before/after reload on same save lineage
+        - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run
+        - demand-response check: preserve officeDemand counters on the next consumer-distress run and compare against softwareConsumerOffices
+    validations:
+      required: true
+  - type: textarea
+    id: comparison-summary
+    attributes:
+      label: Comparison summary
+      description: Use this section for checkpoint-by-checkpoint comparison summaries and update it as evidence accumulates.
+      placeholder: |
+        - checkpoint: trade_patch_toggle_same_save
+          baseline_ref: #21
+          comparison_ref: #22
+          invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
+          observed_deltas: softwareConsumerOffices.softwareInputZero dropped but softwareProducerOffices.lackResourcesZero persisted
+          outcome: mitigated but not solved
+        - checkpoint: software_consumer_distress_vs_office_demand_response
+          baseline_ref: #22
+          comparison_ref: #24
+          invariant_status: same save lineage, comparable observation window, officeDemand counters preserved in both runs
+          observed_deltas: softwareConsumerOffices.efficiencyZero and softwareInputZero rose, but officeDemand building/company did not fall
+          outcome: contradictory
+        - checkpoint: upstream_input_vs_downstream_gating
+          baseline_ref: #22
+          comparison_ref: #23
+          invariant_status: same save lineage, comparable observation window, same DiagnosticsSamplesPerDay, sample_index fields preserved, electronics counters and software office detail preserved in both runs
+          observed_deltas: electronics pressure persisted, softwareConsumerOffices.softwareInputZero improved, softwareOfficeStates still showed producer-side input buyer pressure
+          outcome: mitigated but not solved
+    validations:
+      required: true
+  - type: dropdown
+    id: current-conclusion
+    attributes:
+      label: Current conclusion
+      options:
+        - not assessed yet
+        - not reproduced
+        - inconclusive
+        - plausible but weakly supported
+        - strongly supported
+        - mitigated but not solved
+        - contradicted by evidence
+    validations:
+      required: true
+  - type: textarea
+    id: repo-facing-implication
+    attributes:
+      label: Repo-facing implication
+      description: Optional wording for README, release notes, or issue summaries.
+      placeholder: current evidence does not yet support a direct software-to-office-demand claim
+  - type: textarea
+    id: next-steps
+    attributes:
+      label: Next steps
+      placeholder: |
+        - collect one baseline bounded run with CaptureStableEvidence enabled
+        - compare reload before/after on same save
+        - record whether consumer distress actually changes officeDemand counters
+        - update conclusion after checkpoint review
+    validations:
+      required: true

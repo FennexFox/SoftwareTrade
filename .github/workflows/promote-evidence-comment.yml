@@ -1,0 +1,38 @@
+name: Promote Evidence From Comment
+
+on:
+  issue_comment:
+    types:
+      - created
+      - edited
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  promote:
+    if: github.event.issue.state == 'open' && contains(github.event.comment.body, '/promote-evidence')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: promote-evidence-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Python automation tests
+        run: python -m unittest discover -s .github/scripts/tests -p "test_*.py"
+
+      - name: Promote raw log intake from maintainer reply comment
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/run_promote_evidence_comment.py

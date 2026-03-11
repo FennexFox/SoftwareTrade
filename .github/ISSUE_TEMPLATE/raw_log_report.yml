@@ -1,0 +1,66 @@
+name: Raw log report
+description: Submit a raw diagnostics log for triage and optional promotion into software evidence.
+title: "[Raw Log] "
+labels: ["investigation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <!-- raw-log-report -->
+        Use this form when you want to share a raw diagnostics log and let maintainers normalize it into a comparable evidence draft.
+        Paste the relevant log text into the final field, or drag-and-drop a plain-text `.log` file into that field.
+        Do not use this form for every temporary sample if you already have a normalized software evidence issue.
+  - type: input
+    id: game_version
+    attributes:
+      label: Game version
+      placeholder: 1.5.xf1
+    validations:
+      required: true
+  - type: input
+    id: mod_version
+    attributes:
+      label: Mod version
+      placeholder: 0.1.1 or unreleased
+    validations:
+      required: true
+  - type: input
+    id: save_or_city_label
+    attributes:
+      label: Save or city label
+      placeholder: Save name, city name, or another short scenario label
+    validations:
+      required: true
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: Briefly describe the symptom, what you did, and why you think this log matters.
+      placeholder: |
+        Loaded the same save after enabling diagnostics.
+        Waited 3 in-game days without changing settings.
+        Offices stayed distressed and the log started emitting softwareEvidenceDiagnostics lines.
+    validations:
+      required: true
+  - type: textarea
+    id: platform_notes
+    attributes:
+      label: Platform notes
+      description: Optional platform, install-layout, or environment notes that may matter for later comparison.
+      placeholder: Paradox Mods release on Windows, local install, or none
+  - type: textarea
+    id: other_mods
+    attributes:
+      label: Other mods
+      description: List only other mods that might affect demand, property, trade, company, or time scaling.
+      placeholder: none known
+  - type: textarea
+    id: raw_log
+    attributes:
+      label: Raw log
+      description: Paste the relevant `softwareEvidenceDiagnostics` log text here, or drag-and-drop a plain-text `.log` file into this field.
+      placeholder: |
+        [2026-03-10 15:36:14,138] [INFO]  softwareEvidenceDiagnostics observation_window(...)
+        [2026-03-10 15:36:14,138] [INFO]  softwareEvidenceDiagnostics detail(...)
+    validations:
+      required: true

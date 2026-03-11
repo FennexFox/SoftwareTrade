@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using Colossal.Serialization.Entities;
+using CitizenTripNeeded = Game.Citizens.TripNeeded;
 using Game;
 using Game.Buildings;
 using Game.Common;
 using Game.Companies;
 using Game.Economy;
 using Game.Objects;
+using Game.Pathfind;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
@@ -25,6 +28,10 @@ namespace NoOfficeDemandFix.Systems
     {
         private const int kTopFactorCount = 5;
         private const int kMaxDetailEntries = 5;
+        private const int kDefaultDiagnosticsSamplesPerDay = 2;
+        private const int kMinDiagnosticsSamplesPerDay = 1;
+        private const int kMaxDiagnosticsSamplesPerDay = 8;
+        private const int kDiagnosticsDisabledPollInterval = 8;
 
         private struct FactorEntry
         {
@@ -32,9 +39,65 @@ namespace NoOfficeDemandFix.Systems
             public int Weight;
         }
 
+        private readonly struct DiagnosticsSettingsState : IEquatable<DiagnosticsSettingsState>
+        {
+            public DiagnosticsSettingsState(
+                bool enableTradePatch,
+                bool enablePhantomVacancyFix,
+                bool enableDemandDiagnostics,
+                int diagnosticsSamplesPerDay,
+                bool captureStableEvidence,
+                bool verboseLogging)
+            {
+                EnableTradePatch = enableTradePatch;
+                EnablePhantomVacancyFix = enablePhantomVacancyFix;
+                EnableDemandDiagnostics = enableDemandDiagnostics;
+                DiagnosticsSamplesPerDay = diagnosticsSamplesPerDay;
+                CaptureStableEvidence = captureStableEvidence;
+                VerboseLogging = verboseLogging;
+            }
+
+            public bool EnableTradePatch { get; }
+            public bool EnablePhantomVacancyFix { get; }
+            public bool EnableDemandDiagnostics { get; }
+            public int DiagnosticsSamplesPerDay { get; }
+            public bool CaptureStableEvidence { get; }
+            public bool VerboseLogging { get; }
+
+            public bool Equals(DiagnosticsSettingsState other)
+            {
+                return EnableTradePatch == other.EnableTradePatch &&
+                       EnablePhantomVacancyFix == other.EnablePhantomVacancyFix &&
+                       EnableDemandDiagnostics == other.EnableDemandDiagnostics &&
+                       DiagnosticsSamplesPerDay == other.DiagnosticsSamplesPerDay &&
+                       CaptureStableEvidence == other.CaptureStableEvidence &&
+                       VerboseLogging == other.VerboseLogging;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is DiagnosticsSettingsState other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(
+                    EnableTradePatch,
+                    EnablePhantomVacancyFix,
+                    EnableDemandDiagnostics,
+                    DiagnosticsSamplesPerDay,
+                    CaptureStableEvidence,
+                    VerboseLogging);
+            }
+        }
+
         private struct DiagnosticSnapshot
         {
             public int Day;
+            public int SampleIndex;
+            public int SampleSlot;
+            public int SamplesPerDay;
+            public string ClockSource;
             public int OfficeBuildingDemand;
             public int OfficeCompanyDemand;
             public int EmptyBuildingsFactor;
@@ -57,39 +120,79 @@ namespace NoOfficeDemandFix.Systems
             public int SoftwareDemand;
             public int SoftwareProductionCompanies;
             public int SoftwarePropertylessCompanies;
-            public int SoftwareOfficeCompanies;
-            public int SoftwareOfficePropertylessCompanies;
-            public int SoftwareOfficeEfficiencyZero;
-            public int SoftwareOfficeLackResourcesZero;
+            public int ElectronicsProduction;
+            public int ElectronicsDemand;
+            public int ElectronicsProductionCompanies;
+            public int ElectronicsPropertylessCompanies;
+            public int SoftwareProducerOfficeCompanies;
+            public int SoftwareProducerOfficePropertylessCompanies;
+            public int SoftwareProducerOfficeEfficiencyZero;
+            public int SoftwareProducerOfficeLackResourcesZero;
+            public int SoftwareConsumerOfficeCompanies;
+            public int SoftwareConsumerOfficePropertylessCompanies;
+            public int SoftwareConsumerOfficeEfficiencyZero;
+            public int SoftwareConsumerOfficeLackResourcesZero;
+            public int SoftwareConsumerOfficeSoftwareInputZero;
             public string TopFactors;
             public string FreeSoftwareOfficePropertyDetails;
             public string OnMarketOfficePropertyDetails;
+            public string SoftwareOfficeDetails;
+        }
+
+        private readonly struct SampleWindowContext
+        {
+            public SampleWindowContext(int day, int sampleIndex, int sampleSlot, string clockSource)
+            {
+                Day = day;
+                SampleIndex = sampleIndex;
+                SampleSlot = sampleSlot;
+                ClockSource = clockSource;
+            }
+
+            public int Day { get; }
+            public int SampleIndex { get; }
+            public int SampleSlot { get; }
+            public string ClockSource { get; }
         }
 
         private SimulationSystem m_SimulationSystem;
+        private TimeSystem m_TimeSystem;
         private IndustrialDemandSystem m_IndustrialDemandSystem;
         private CountCompanyDataSystem m_CountCompanyDataSystem;
         private SignaturePropertyMarketGuardSystem m_SignaturePropertyMarketGuardSystem;
         private PrefabSystem m_PrefabSystem;
         private EntityQuery m_TimeDataQuery;
+        private EntityQuery m_TimeSettingsQuery;
         private EntityQuery m_FreeOfficePropertyQuery;
         private EntityQuery m_OnMarketPropertyQuery;
         private EntityQuery m_ToBeOnMarketPropertyQuery;
         private EntityQuery m_OfficeCompanyQuery;
-        private int m_LastLoggedDay = int.MinValue;
+        private int m_LastProcessedSampleIndex = int.MinValue;
+        private int m_LastObservedSampleIndex = int.MinValue;
+        private int m_DisplayedClockDay = int.MinValue;
+        private int m_LastComputedSampleSlot = int.MinValue;
         private bool m_LastDiagnosticsEnabled;
-        private bool m_LastVerboseLoggingEnabled;
+        private string m_SessionId = CreateSessionId();
+        private int m_RunSequence;
+        private int m_RunStartDay = int.MinValue;
+        private int m_RunStartSampleIndex = int.MinValue;
+        private int m_RunObservationCount;
+        private DiagnosticsSettingsState m_LastSettingsState;
+        private string m_LastSettingsSnapshot = string.Empty;
+        private string m_LastPatchState = string.Empty;
 
         [Preserve]
         protected override void OnCreate()
         {
             base.OnCreate();
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
+            m_TimeSystem = World.GetOrCreateSystemManaged<TimeSystem>();
             m_IndustrialDemandSystem = World.GetOrCreateSystemManaged<IndustrialDemandSystem>();
             m_CountCompanyDataSystem = World.GetOrCreateSystemManaged<CountCompanyDataSystem>();
             m_SignaturePropertyMarketGuardSystem = World.GetOrCreateSystemManaged<SignaturePropertyMarketGuardSystem>();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
             m_TimeDataQuery = GetEntityQuery(ComponentType.ReadOnly<TimeData>());
+            m_TimeSettingsQuery = GetEntityQuery(ComponentType.ReadOnly<TimeSettingsData>());
             m_FreeOfficePropertyQuery = GetEntityQuery(
                 ComponentType.ReadOnly<OfficeProperty>(),
                 ComponentType.ReadOnly<PropertyOnMarket>(),
@@ -120,14 +223,16 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.ReadOnly<PrefabRef>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
+            ResetEvidenceSession();
             RequireForUpdate(m_TimeDataQuery);
+            RequireForUpdate(m_TimeSettingsQuery);
         }
 
         public override int GetUpdateInterval(SystemUpdatePhase phase)
         {
             if (phase == SystemUpdatePhase.GameSimulation)
             {
-                return 256;
+                return 1;
             }
 
             return base.GetUpdateInterval(phase);
@@ -136,73 +241,159 @@ namespace NoOfficeDemandFix.Systems
         protected override void OnGamePreload(Purpose purpose, GameMode mode)
         {
             base.OnGamePreload(purpose, mode);
-            m_LastLoggedDay = int.MinValue;
-            m_LastDiagnosticsEnabled = false;
-            m_LastVerboseLoggingEnabled = false;
+            ResetEvidenceSession();
         }
 
         protected override void OnGameLoaded(Context serializationContext)
         {
             base.OnGameLoaded(serializationContext);
-            m_LastLoggedDay = int.MinValue;
-            m_LastDiagnosticsEnabled = false;
-            m_LastVerboseLoggingEnabled = false;
+            ResetEvidenceSession();
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
             bool diagnosticsEnabled = IsDiagnosticsEnabled();
-            bool verboseLoggingEnabled = IsVerboseLoggingEnabled();
-            if (diagnosticsEnabled && (!m_LastDiagnosticsEnabled || (verboseLoggingEnabled && !m_LastVerboseLoggingEnabled)))
-            {
-                m_LastLoggedDay = int.MinValue;
-            }
-
-            m_LastDiagnosticsEnabled = diagnosticsEnabled;
-            m_LastVerboseLoggingEnabled = verboseLoggingEnabled;
 
             if (!diagnosticsEnabled)
             {
+                if (!m_LastDiagnosticsEnabled &&
+                    (m_SimulationSystem.frameIndex % (uint)kDiagnosticsDisabledPollInterval) != 0u)
+                {
+                    return;
+                }
+
+                m_LastDiagnosticsEnabled = false;
+                m_LastSettingsState = default;
+                m_LastSettingsSnapshot = string.Empty;
+                m_LastPatchState = string.Empty;
+                m_DisplayedClockDay = int.MinValue;
+                m_LastComputedSampleSlot = int.MinValue;
                 return;
+            }
+
+            DiagnosticsSettingsState settingsState = CaptureSettingsState();
+            string patchState = FormatPatchState();
+            bool runStateChanged = !m_LastDiagnosticsEnabled ||
+                                   !settingsState.Equals(m_LastSettingsState) ||
+                                   patchState != m_LastPatchState;
+            if (runStateChanged)
+            {
+                BeginNewRun(settingsState, patchState);
             }
 
             TimeData timeData = m_TimeDataQuery.GetSingleton<TimeData>();
-            int day = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
-            if (day == m_LastLoggedDay)
+            TimeSettingsData timeSettings = m_TimeSettingsQuery.GetSingleton<TimeSettingsData>();
+            int samplesPerDay = settingsState.DiagnosticsSamplesPerDay;
+            SampleWindowContext sampleWindow = GetSampleWindowContext(timeSettings, timeData, samplesPerDay);
+            if (runStateChanged)
+            {
+                m_LastProcessedSampleIndex = sampleWindow.SampleIndex - 1;
+            }
+
+            m_LastDiagnosticsEnabled = true;
+            if (sampleWindow.SampleIndex <= m_LastProcessedSampleIndex)
             {
                 return;
             }
 
-            DiagnosticSnapshot snapshot = CaptureSnapshot(day);
-            m_LastLoggedDay = day;
+            DiagnosticSnapshot currentSnapshot = CaptureSnapshot(
+                sampleWindow.Day,
+                sampleWindow.SampleIndex,
+                sampleWindow.SampleSlot,
+                samplesPerDay,
+                sampleWindow.ClockSource);
+            int skippedSampleSlots = GetSkippedSampleSlots(sampleWindow.SampleIndex);
+            m_LastProcessedSampleIndex = sampleWindow.SampleIndex;
+            EmitObservationIfTriggered(currentSnapshot, settingsState, skippedSampleSlots);
+        }
 
-            if (!ShouldLog(snapshot))
+        private void EmitObservationIfTriggered(
+            DiagnosticSnapshot snapshot,
+            DiagnosticsSettingsState settingsState,
+            int skippedSampleSlots)
+        {
+            if (!TryGetObservationTrigger(snapshot, settingsState, out string trigger))
             {
                 return;
             }
+
+            if (m_RunObservationCount == 0)
+            {
+                m_RunStartDay = snapshot.Day;
+                m_RunStartSampleIndex = snapshot.SampleIndex;
+            }
+
+            int sampleCount = m_RunObservationCount + 1;
 
             Mod.log.Info(
-                $"Office demand diagnostics day {snapshot.Day}: demand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
-                $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
-                $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
-                $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
-                $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
-                $"softwareOffices(total={snapshot.SoftwareOfficeCompanies}, propertyless={snapshot.SoftwareOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareOfficeLackResourcesZero}); " +
-                $"topFactors=[{snapshot.TopFactors}]");
+                MachineParsedLogContract.FormatObservationWindow(
+                    m_SessionId,
+                    m_RunSequence,
+                    m_RunStartDay,
+                    snapshot.Day,
+                    m_RunStartSampleIndex,
+                    snapshot.SampleIndex,
+                    snapshot.Day,
+                    snapshot.SampleIndex,
+                    snapshot.SampleSlot,
+                    snapshot.SamplesPerDay,
+                    sampleCount,
+                    MachineParsedLogContract.ScheduledObservationKind,
+                    skippedSampleSlots,
+                    snapshot.ClockSource,
+                    trigger,
+                    m_LastSettingsSnapshot,
+                    m_LastPatchState,
+                    FormatDiagnosticCounters(snapshot),
+                    snapshot.TopFactors));
 
             if (!string.IsNullOrEmpty(snapshot.FreeSoftwareOfficePropertyDetails))
             {
-                Mod.log.Info($"Office demand diagnostics free software properties day {snapshot.Day}: {snapshot.FreeSoftwareOfficePropertyDetails}");
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.FreeSoftwareOfficePropertiesDetailType,
+                        snapshot.FreeSoftwareOfficePropertyDetails));
             }
 
             if (!string.IsNullOrEmpty(snapshot.OnMarketOfficePropertyDetails))
             {
-                Mod.log.Info($"Office demand diagnostics on-market office properties day {snapshot.Day}: {snapshot.OnMarketOfficePropertyDetails}");
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.OnMarketOfficePropertiesDetailType,
+                        snapshot.OnMarketOfficePropertyDetails));
             }
+
+            if (!string.IsNullOrEmpty(snapshot.SoftwareOfficeDetails))
+            {
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                    snapshot.SampleIndex,
+                    MachineParsedLogContract.SoftwareOfficeStatesDetailType,
+                    snapshot.SoftwareOfficeDetails));
+            }
+
+            m_RunObservationCount = sampleCount;
+            m_LastObservedSampleIndex = snapshot.SampleIndex;
         }
 
-        private DiagnosticSnapshot CaptureSnapshot(int day)
+        private DiagnosticSnapshot CaptureSnapshot(
+            int day,
+            int sampleIndex,
+            int sampleSlot,
+            int samplesPerDay,
+            string clockSource)
         {
             JobHandle officeDeps;
             NativeArray<int> officeFactors = m_IndustrialDemandSystem.GetOfficeDemandFactors(out officeDeps);
@@ -213,9 +404,14 @@ namespace NoOfficeDemandFix.Systems
             companyDeps.Complete();
 
             int softwareIndex = EconomyUtils.GetResourceIndex(Resource.Software);
+            int electronicsIndex = EconomyUtils.GetResourceIndex(Resource.Electronics);
             DiagnosticSnapshot snapshot = new DiagnosticSnapshot
             {
                 Day = day,
+                SampleIndex = sampleIndex,
+                SampleSlot = sampleSlot,
+                SamplesPerDay = samplesPerDay,
+                ClockSource = clockSource,
                 OfficeBuildingDemand = m_IndustrialDemandSystem.officeBuildingDemand,
                 OfficeCompanyDemand = m_IndustrialDemandSystem.officeCompanyDemand,
                 EmptyBuildingsFactor = officeFactors[(int)DemandFactor.EmptyBuildings],
@@ -224,6 +420,10 @@ namespace NoOfficeDemandFix.Systems
                 SoftwareDemand = industrialCompanyDatas.m_Demand[softwareIndex],
                 SoftwareProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[softwareIndex],
                 SoftwarePropertylessCompanies = industrialCompanyDatas.m_ProductionPropertyless[softwareIndex],
+                ElectronicsProduction = industrialCompanyDatas.m_Production[electronicsIndex],
+                ElectronicsDemand = industrialCompanyDatas.m_Demand[electronicsIndex],
+                ElectronicsProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[electronicsIndex],
+                ElectronicsPropertylessCompanies = industrialCompanyDatas.m_ProductionPropertyless[electronicsIndex],
                 GuardCorrections = m_SignaturePropertyMarketGuardSystem.ConsumeCorrectionCount(),
                 TopFactors = FormatTopFactors(officeFactors)
             };
@@ -363,6 +563,8 @@ namespace NoOfficeDemandFix.Systems
 
         private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot)
         {
+            StringBuilder details = new StringBuilder();
+            int detailCount = 0;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
             {
@@ -379,43 +581,335 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefabRef.m_Prefab);
-                if (processData.m_Output.m_Resource != Resource.Software)
+                bool isProducer = processData.m_Output.m_Resource == Resource.Software;
+                bool isConsumer = processData.m_Input1.m_Resource == Resource.Software ||
+                                  processData.m_Input2.m_Resource == Resource.Software;
+                if (!isProducer && !isConsumer)
                 {
                     continue;
                 }
 
-                snapshot.SoftwareOfficeCompanies++;
+                if (isProducer)
+                {
+                    snapshot.SoftwareProducerOfficeCompanies++;
+                }
+
+                if (isConsumer)
+                {
+                    snapshot.SoftwareConsumerOfficeCompanies++;
+                }
+
                 if (!EntityManager.HasComponent<PropertyRenter>(company))
                 {
-                    snapshot.SoftwareOfficePropertylessCompanies++;
+                    if (isProducer)
+                    {
+                        snapshot.SoftwareProducerOfficePropertylessCompanies++;
+                    }
+
+                    if (isConsumer)
+                    {
+                        snapshot.SoftwareConsumerOfficePropertylessCompanies++;
+                    }
+
                     continue;
                 }
 
                 PropertyRenter propertyRenter = EntityManager.GetComponentData<PropertyRenter>(company);
                 if (propertyRenter.m_Property == Entity.Null)
                 {
-                    snapshot.SoftwareOfficePropertylessCompanies++;
+                    if (isProducer)
+                    {
+                        snapshot.SoftwareProducerOfficePropertylessCompanies++;
+                    }
+
+                    if (isConsumer)
+                    {
+                        snapshot.SoftwareConsumerOfficePropertylessCompanies++;
+                    }
+
                     continue;
                 }
 
-                if (!EntityManager.HasBuffer<Efficiency>(propertyRenter.m_Property))
+                int softwareInputStock = isConsumer ? GetCompanyResourceAmount(company, Resource.Software) : 0;
+                bool softwareInputZero = isConsumer && softwareInputStock <= 0;
+
+                bool hasEfficiency = EntityManager.HasBuffer<Efficiency>(propertyRenter.m_Property);
+                float efficiency = float.NaN;
+                float lackResources = float.NaN;
+                bool efficiencyZero = false;
+                bool lackResourcesZero = false;
+                if (hasEfficiency)
                 {
-                    continue;
+                    DynamicBuffer<Efficiency> efficiencyBuffer = EntityManager.GetBuffer<Efficiency>(propertyRenter.m_Property, isReadOnly: true);
+                    efficiency = BuildingUtils.GetEfficiency(efficiencyBuffer);
+                    efficiencyZero = efficiency <= 0f;
+                    if (efficiencyZero)
+                    {
+                        if (isProducer)
+                        {
+                            snapshot.SoftwareProducerOfficeEfficiencyZero++;
+                        }
+
+                        if (isConsumer)
+                        {
+                            snapshot.SoftwareConsumerOfficeEfficiencyZero++;
+                        }
+                    }
+
+                    lackResources = BuildingUtils.GetEfficiencyFactor(efficiencyBuffer, EfficiencyFactor.LackResources);
+                    lackResourcesZero = lackResources <= 0f;
+                    if (lackResourcesZero)
+                    {
+                        if (isProducer)
+                        {
+                            snapshot.SoftwareProducerOfficeLackResourcesZero++;
+                        }
+
+                        if (isConsumer)
+                        {
+                            snapshot.SoftwareConsumerOfficeLackResourcesZero++;
+                        }
+                    }
                 }
 
-                DynamicBuffer<Efficiency> efficiencyBuffer = EntityManager.GetBuffer<Efficiency>(propertyRenter.m_Property, isReadOnly: true);
-                float efficiency = BuildingUtils.GetEfficiency(efficiencyBuffer);
-                if (efficiency <= 0f)
+                if (softwareInputZero)
                 {
-                    snapshot.SoftwareOfficeEfficiencyZero++;
+                    snapshot.SoftwareConsumerOfficeSoftwareInputZero++;
                 }
 
-                float lackResources = BuildingUtils.GetEfficiencyFactor(efficiencyBuffer, EfficiencyFactor.LackResources);
-                if (lackResources <= 0f)
+                if (efficiencyZero || lackResourcesZero || softwareInputZero)
                 {
-                    snapshot.SoftwareOfficeLackResourcesZero++;
+                    AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources));
                 }
             }
+
+            snapshot.SoftwareOfficeDetails = details.ToString();
+        }
+
+        private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("role=").Append(GetSoftwareOfficeRoleLabel(isProducer, isConsumer));
+            builder.Append(", ");
+            builder.Append("company=").Append(FormatEntity(company));
+            builder.Append(", prefab=").Append(GetPrefabLabel(companyPrefab));
+            builder.Append(", property=").Append(FormatEntity(property));
+            builder.Append(", output=").Append(processData.m_Output.m_Resource);
+            builder.Append(", outputStock=").Append(GetCompanyResourceAmount(company, processData.m_Output.m_Resource));
+            AppendCompanyResourceState(builder, company, "input1", processData.m_Input1.m_Resource);
+            AppendCompanyResourceState(builder, company, "input2", processData.m_Input2.m_Resource);
+            if (isConsumer)
+            {
+                builder.Append(", softwareInputZero=").Append(softwareInputZero);
+                AppendSoftwareConsumerTradeState(builder, company);
+            }
+
+            if (EntityManager.HasComponent<ResourceBuyer>(company))
+            {
+                ResourceBuyer buyer = EntityManager.GetComponentData<ResourceBuyer>(company);
+                builder.Append(", activeBuyer(");
+                builder.Append("resource=").Append(buyer.m_ResourceNeeded);
+                builder.Append(", amount=").Append(buyer.m_AmountNeeded);
+                builder.Append(')');
+            }
+
+            builder.Append(", efficiency=");
+            AppendMetricValue(builder, hasEfficiency, efficiency);
+            builder.Append(", lackResources=");
+            AppendMetricValue(builder, hasEfficiency, lackResources);
+            return builder.ToString();
+        }
+
+        private static void AppendMetricValue(StringBuilder builder, bool hasMetric, float value)
+        {
+            builder.Append(hasMetric ? value.ToString("0.###", CultureInfo.InvariantCulture) : "n/a");
+        }
+
+        private static string GetSoftwareOfficeRoleLabel(bool isProducer, bool isConsumer)
+        {
+            if (isProducer && isConsumer)
+            {
+                return "producer_consumer";
+            }
+
+            if (isProducer)
+            {
+                return "producer";
+            }
+
+            return "consumer";
+        }
+
+        private void AppendCompanyResourceState(StringBuilder builder, Entity company, string label, Resource resource)
+        {
+            if (resource == Resource.NoResource)
+            {
+                return;
+            }
+
+            builder.Append(", ").Append(label).Append('=').Append(resource);
+            builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource));
+
+            bool hasTradeCostBuffer = EntityManager.HasBuffer<TradeCost>(company);
+            builder.Append(", tradeCostBuffer=").Append(hasTradeCostBuffer);
+
+            float buyCost = 0f;
+            bool hasTradeCostEntry = hasTradeCostBuffer && TryGetCompanyTradeCost(company, resource, out buyCost);
+            builder.Append(", tradeCostEntry=").Append(hasTradeCostEntry);
+            if (hasTradeCostEntry)
+            {
+                builder.Append(", buyCost=").Append(buyCost.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+
+            builder.Append(')');
+        }
+
+        private int GetCompanyResourceAmount(Entity company, Resource resource)
+        {
+            if (resource == Resource.NoResource || !EntityManager.HasBuffer<Resources>(company))
+            {
+                return 0;
+            }
+
+            DynamicBuffer<Resources> resources = EntityManager.GetBuffer<Resources>(company, isReadOnly: true);
+            return EconomyUtils.GetResources(resource, resources);
+        }
+
+        private void AppendSoftwareConsumerTradeState(StringBuilder builder, Entity company)
+        {
+            bool softwareBuyerActive = TryGetActiveBuyer(company, Resource.Software, out int softwareBuyerAmount);
+            int softwareTripNeededAmount = GetCompanyTripNeededAmount(company, Resource.Software, out int softwareTripNeededCount);
+            int softwareCurrentTradingAmount = GetCompanyCurrentTradingAmount(company, Resource.Software, out int softwareCurrentTradingCount);
+
+            builder.Append(", softwareTrade(");
+            builder.Append("buyerActive=").Append(softwareBuyerActive);
+            if (softwareBuyerActive)
+            {
+                builder.Append(", buyerAmount=").Append(softwareBuyerAmount);
+            }
+
+            builder.Append(", tripNeededCount=").Append(softwareTripNeededCount);
+            builder.Append(", tripNeededAmount=").Append(softwareTripNeededAmount);
+            builder.Append(", currentTradingCount=").Append(softwareCurrentTradingCount);
+            builder.Append(", currentTradingAmount=").Append(softwareCurrentTradingAmount);
+
+            if (TryGetCompanyPathInformation(company, out PathInformation pathInformation))
+            {
+                builder.Append(", pathState=").Append(pathInformation.m_State);
+                builder.Append(", pathDestination=").Append(FormatEntity(pathInformation.m_Destination));
+                builder.Append(", pathMethods=").Append(pathInformation.m_Methods);
+                builder.Append(", pathDistance=").Append(pathInformation.m_Distance.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                builder.Append(", pathState=none");
+            }
+
+            builder.Append(')');
+        }
+
+        private bool TryGetCompanyTradeCost(Entity company, Resource resource, out float buyCost)
+        {
+            buyCost = 0f;
+            if (resource == Resource.NoResource || !EntityManager.HasBuffer<TradeCost>(company))
+            {
+                return false;
+            }
+
+            DynamicBuffer<TradeCost> costs = EntityManager.GetBuffer<TradeCost>(company, isReadOnly: true);
+            for (int i = 0; i < costs.Length; i++)
+            {
+                TradeCost tradeCost = costs[i];
+                if (tradeCost.m_Resource != resource)
+                {
+                    continue;
+                }
+
+                buyCost = tradeCost.m_BuyCost;
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryGetActiveBuyer(Entity company, Resource resource, out int amountNeeded)
+        {
+            amountNeeded = 0;
+            if (!EntityManager.HasComponent<ResourceBuyer>(company))
+            {
+                return false;
+            }
+
+            ResourceBuyer buyer = EntityManager.GetComponentData<ResourceBuyer>(company);
+            if (buyer.m_ResourceNeeded != resource)
+            {
+                return false;
+            }
+
+            amountNeeded = buyer.m_AmountNeeded;
+            return true;
+        }
+
+        private int GetCompanyTripNeededAmount(Entity company, Resource resource, out int tripCount)
+        {
+            tripCount = 0;
+            if (!EntityManager.HasBuffer<CitizenTripNeeded>(company))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DynamicBuffer<CitizenTripNeeded> trips = EntityManager.GetBuffer<CitizenTripNeeded>(company, isReadOnly: true);
+            for (int i = 0; i < trips.Length; i++)
+            {
+                CitizenTripNeeded trip = trips[i];
+                if (trip.m_Resource != resource)
+                {
+                    continue;
+                }
+
+                tripCount++;
+                amount += trip.m_Data;
+            }
+
+            return amount;
+        }
+
+        private int GetCompanyCurrentTradingAmount(Entity company, Resource resource, out int tradingCount)
+        {
+            tradingCount = 0;
+            if (!EntityManager.HasBuffer<CurrentTrading>(company))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DynamicBuffer<CurrentTrading> currentTrading = EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true);
+            for (int i = 0; i < currentTrading.Length; i++)
+            {
+                CurrentTrading trade = currentTrading[i];
+                if (trade.m_TradingResource != resource)
+                {
+                    continue;
+                }
+
+                tradingCount++;
+                amount += trade.m_TradingResourceAmount;
+            }
+
+            return amount;
+        }
+
+        private bool TryGetCompanyPathInformation(Entity company, out PathInformation pathInformation)
+        {
+            if (!EntityManager.HasComponent<PathInformation>(company))
+            {
+                pathInformation = default;
+                return false;
+            }
+
+            pathInformation = EntityManager.GetComponentData<PathInformation>(company);
+            return true;
         }
 
         private int GetCompanyRenterCount(Entity entity)
@@ -528,12 +1022,7 @@ namespace NoOfficeDemandFix.Systems
             return Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
         }
 
-        private static bool IsVerboseLoggingEnabled()
-        {
-            return Mod.Settings != null && Mod.Settings.VerboseLogging;
-        }
-
-        private static bool ShouldLog(DiagnosticSnapshot snapshot)
+        private static bool HasSuspiciousSignals(DiagnosticSnapshot snapshot)
         {
             return snapshot.OfficeBuildingDemand == 0 ||
                    snapshot.EmptyBuildingsFactor != 0 ||
@@ -546,9 +1035,223 @@ namespace NoOfficeDemandFix.Systems
                    snapshot.NonSignatureOccupiedOnMarketIndustrial > 0 ||
                    snapshot.GuardCorrections > 0 ||
                    snapshot.SoftwarePropertylessCompanies > 0 ||
-                   snapshot.SoftwareOfficeEfficiencyZero > 0 ||
-                   snapshot.SoftwareOfficeLackResourcesZero > 0 ||
-                   (Mod.Settings != null && Mod.Settings.VerboseLogging);
+                   snapshot.SoftwareProducerOfficeEfficiencyZero > 0 ||
+                   snapshot.SoftwareProducerOfficeLackResourcesZero > 0 ||
+                   snapshot.SoftwareConsumerOfficeEfficiencyZero > 0 ||
+                   snapshot.SoftwareConsumerOfficeLackResourcesZero > 0 ||
+                   snapshot.SoftwareConsumerOfficeSoftwareInputZero > 0;
+        }
+
+        private static DiagnosticsSettingsState CaptureSettingsState()
+        {
+            if (Mod.Settings == null)
+            {
+                return default;
+            }
+
+            return new DiagnosticsSettingsState(
+                Mod.Settings.EnableTradePatch,
+                Mod.Settings.EnablePhantomVacancyFix,
+                Mod.Settings.EnableDemandDiagnostics,
+                GetDiagnosticsSamplesPerDay(),
+                Mod.Settings.CaptureStableEvidence,
+                Mod.Settings.VerboseLogging);
+        }
+
+        private static string FormatSettingsSnapshot(DiagnosticsSettingsState settingsState)
+        {
+            return $"EnableTradePatch:{settingsState.EnableTradePatch}," +
+                   $"EnablePhantomVacancyFix:{settingsState.EnablePhantomVacancyFix}," +
+                   $"EnableDemandDiagnostics:{settingsState.EnableDemandDiagnostics}," +
+                   $"DiagnosticsSamplesPerDay:{settingsState.DiagnosticsSamplesPerDay}," +
+                   $"CaptureStableEvidence:{settingsState.CaptureStableEvidence}," +
+                   $"VerboseLogging:{settingsState.VerboseLogging}";
+        }
+
+        private static string FormatPatchState()
+        {
+#if DEBUG
+            return "debug-build";
+#else
+            return "unknown";
+#endif
+        }
+
+        private static string FormatDiagnosticCounters(DiagnosticSnapshot snapshot)
+        {
+            return
+                $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
+                $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
+                $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
+                $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
+                $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
+                $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
+                $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
+                $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero})";
+        }
+
+        private static bool TryGetObservationTrigger(
+            DiagnosticSnapshot snapshot,
+            DiagnosticsSettingsState settingsState,
+            out string trigger)
+        {
+            if (HasSuspiciousSignals(snapshot))
+            {
+                trigger = "suspicious_state";
+                return true;
+            }
+
+            if (settingsState.CaptureStableEvidence)
+            {
+                trigger = "capture_stable_evidence";
+                return true;
+            }
+
+            if (settingsState.VerboseLogging)
+            {
+                trigger = "verbose_logging";
+                return true;
+            }
+
+            trigger = null;
+            return false;
+        }
+
+        private void ResetEvidenceSession()
+        {
+            m_SessionId = CreateSessionId();
+            m_RunSequence = 0;
+            m_RunStartDay = int.MinValue;
+            m_RunStartSampleIndex = int.MinValue;
+            m_RunObservationCount = 0;
+            m_LastProcessedSampleIndex = int.MinValue;
+            m_LastObservedSampleIndex = int.MinValue;
+            m_DisplayedClockDay = int.MinValue;
+            m_LastComputedSampleSlot = int.MinValue;
+            m_LastDiagnosticsEnabled = false;
+            m_LastSettingsState = default;
+            m_LastSettingsSnapshot = string.Empty;
+            m_LastPatchState = string.Empty;
+        }
+
+        private static string CreateSessionId()
+        {
+            return DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff'Z'");
+        }
+
+        private void BeginNewRun(DiagnosticsSettingsState settingsState, string patchState)
+        {
+            m_RunSequence++;
+            m_RunStartDay = int.MinValue;
+            m_RunStartSampleIndex = int.MinValue;
+            m_RunObservationCount = 0;
+            m_LastObservedSampleIndex = int.MinValue;
+            m_DisplayedClockDay = int.MinValue;
+            m_LastComputedSampleSlot = int.MinValue;
+            m_LastSettingsState = settingsState;
+            m_LastSettingsSnapshot = FormatSettingsSnapshot(settingsState);
+            m_LastPatchState = patchState;
+        }
+
+        private int GetSkippedSampleSlots(int sampleIndex)
+        {
+            if (m_LastObservedSampleIndex == int.MinValue)
+            {
+                return 0;
+            }
+
+            return Math.Max(0, sampleIndex - m_LastObservedSampleIndex - 1);
+        }
+
+        private SampleWindowContext GetSampleWindowContext(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
+        {
+            int frameDay = TimeSystem.GetDay(m_SimulationSystem.frameIndex, timeData);
+            int sampleSlot = GetRuntimeTimeSystemSampleSlot(timeSettings, timeData, samplesPerDay);
+            int day = GetDisplayedClockDay(frameDay, sampleSlot, samplesPerDay);
+            return new SampleWindowContext(
+                day,
+                GetSampleIndex(day, sampleSlot, samplesPerDay),
+                sampleSlot,
+                MachineParsedLogContract.RuntimeTimeSystemClockSource);
+        }
+
+        /// <summary>
+        /// Derives the displayed-clock day from slot transitions so that day
+        /// and slot are always consistent with the same time source.
+        /// <para>
+        /// <c>GetDay()</c> (frame-tick-based) and <c>GetTimeOfDay()</c>
+        /// (runtime-time-system-based) are computed independently and can
+        /// disagree at day boundaries.  Time-scaling mods such as
+        /// RealisticTrips widen this disagreement window.  Rather than
+        /// relying on <c>GetDay()</c> for the composite sample index, we
+        /// detect displayed-clock midnight from the slot counter wrapping
+        /// backward while using <c>GetDay()</c> only for initialisation and
+        /// large-gap recovery.
+        /// </para>
+        /// </summary>
+        private int GetDisplayedClockDay(int frameDay, int sampleSlot, int samplesPerDay)
+        {
+            if (m_LastComputedSampleSlot == int.MinValue)
+            {
+                m_DisplayedClockDay = frameDay;
+                m_LastComputedSampleSlot = sampleSlot;
+                return frameDay;
+            }
+
+            int previousSlot = m_LastComputedSampleSlot;
+            m_LastComputedSampleSlot = sampleSlot;
+
+            // Large frame-day gap (long pause, save load, etc.): re-sync.
+            if (frameDay > m_DisplayedClockDay + 1)
+            {
+                m_DisplayedClockDay = frameDay;
+                return frameDay;
+            }
+
+            // With a single sample per day the slot is always 0, so wrap
+            // detection is impossible.  Boundary desync cannot produce a
+            // multi-slot jump either (index == day), so frameDay is safe.
+            if (samplesPerDay <= 1)
+            {
+                m_DisplayedClockDay = frameDay;
+                return frameDay;
+            }
+
+            // Slot decreased: the displayed clock crossed midnight.
+            if (sampleSlot < previousSlot)
+            {
+                m_DisplayedClockDay++;
+            }
+
+            return m_DisplayedClockDay;
+        }
+
+        private int GetRuntimeTimeSystemSampleSlot(TimeSettingsData timeSettings, TimeData timeData, int samplesPerDay)
+        {
+            float normalizedTimeOfDay = m_TimeSystem.GetTimeOfDay(timeSettings, timeData, m_SimulationSystem.frameIndex);
+            int ticksIntoDay = (int)Math.Floor(normalizedTimeOfDay * TimeSystem.kTicksPerDay);
+            return GetSampleSlotFromTicksIntoDay(ticksIntoDay, samplesPerDay);
+        }
+
+        private static int GetSampleSlotFromTicksIntoDay(int ticksIntoDay, int samplesPerDay)
+        {
+            int sampleSlot = (int)((long)ticksIntoDay * samplesPerDay / TimeSystem.kTicksPerDay);
+            return Math.Max(0, Math.Min(samplesPerDay - 1, sampleSlot));
+        }
+
+        private static int GetSampleIndex(int day, int sampleSlot, int samplesPerDay)
+        {
+            return unchecked(day * samplesPerDay + sampleSlot);
+        }
+
+        private static int GetDiagnosticsSamplesPerDay()
+        {
+            if (Mod.Settings == null)
+            {
+                return kDefaultDiagnosticsSamplesPerDay;
+            }
+
+            return Math.Max(kMinDiagnosticsSamplesPerDay, Math.Min(kMaxDiagnosticsSamplesPerDay, Mod.Settings.DiagnosticsSamplesPerDay));
         }
 
         private void AppendDetail(StringBuilder builder, ref int count, string detail)

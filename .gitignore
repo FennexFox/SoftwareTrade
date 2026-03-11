@@ -9,6 +9,9 @@
 *.user
 *.userosscache
 *.sln.docstates
+
+# Ignore the scripts folder, which contains local development scripts that should not be shared
+/scripts/
 .vscode/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
@@ -65,7 +68,6 @@ BenchmarkDotNet.Artifacts/
 # .NET Core
 project.lock.json
 project.fragment.lock.json
-artifacts/
 
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt

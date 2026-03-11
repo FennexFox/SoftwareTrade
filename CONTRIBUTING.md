@@ -1,10 +1,15 @@
 # Contributing
 
+Use this document for contributor-facing workflow and expectations.
+Maintainers operating releases or investigation workflows should start with
+[MAINTAINING.md](./MAINTAINING.md).
+
 ## Scope
 
 This repository is a Cities: Skylines II mod for investigating and mitigating
-no-office-demand failures. Keep changes narrow, evidence-driven, and explicit
-about what is confirmed versus still under investigation.
+no-office-demand failures plus adjacent `software`-track hypotheses that were
+originally suspected to explain them. Keep changes narrow, evidence-driven, and
+explicit about what is confirmed versus still under investigation.
 
 ## Branches
 
@@ -31,8 +36,8 @@ correctness, vacancy state cleanup, or reproductions tied to occupied
 properties being counted as available.
 
 Use the `track/software-instability` line when the change is about office
-resource flow, outside connection or cargo storage patching, office efficiency
-collapse, or diagnostics intended to validate the `software` hypothesis.
+resource flow, outside connection or cargo storage patching, software
+producer/consumer distress, or diagnostics investigating the `software` track.
 
 ## Commits and pull requests
 
@@ -61,13 +66,13 @@ If you could not test something, state that explicitly in the PR.
 ## Change boundaries
 
 - Do not claim the `software` track is solved without strong evidence
+- Do not describe `software` consumer distress as proof of lower office demand without direct demand evidence
 - Do not broaden vacancy fixes beyond confirmed cases without documenting risk
 - Call out settings changes and whether they require reload or restart
 - Keep diagnostics noise and verbose logging changes intentional
 
 ## Releases
 
-Maintainer releases are driven locally by
-[`scripts/release.ps1`](./scripts/release.ps1). If a change affects release
-packaging, versioning, or release notes, use the `Release checklist` issue
-template before tagging a release.
+If a change affects release packaging, versioning, or release notes, use the
+`Release checklist` issue template and follow [MAINTAINING.md](./MAINTAINING.md)
+for release operations.

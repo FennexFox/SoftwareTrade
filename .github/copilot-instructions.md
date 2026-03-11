@@ -21,5 +21,3 @@ repository. Task-specific templates are split by topic under
 - Commit messages: `.github/instructions/commit-message.instructions.md`
 - PR title and description:
   `.github/instructions/pull-request.instructions.md`
-- Maintainer direction-check discussions:
-  `.github/instructions/maintainer-collaboration.instructions.md`
