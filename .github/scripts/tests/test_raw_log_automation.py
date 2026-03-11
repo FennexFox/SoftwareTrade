@@ -1,12 +1,13 @@
+from pathlib import Path
 import sys
 import textwrap
 import unittest
-from pathlib import Path
 from unittest import mock
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / ".github" / "scripts"))
+SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = SCRIPTS_ROOT.parents[1]
+sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import raw_log_automation as automation  # noqa: E402
 

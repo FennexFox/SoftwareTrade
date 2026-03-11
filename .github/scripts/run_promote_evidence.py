@@ -27,6 +27,7 @@ from raw_log_automation import (
 
 PROMOTE_LABEL = "promote: evidence"
 PROMOTED_SOURCE_LABEL = "source: raw-log-promoted"
+
 def main() -> None:
     event = load_event_payload(os.environ["GITHUB_EVENT_PATH"])
     repo = os.environ["GITHUB_REPOSITORY"]
