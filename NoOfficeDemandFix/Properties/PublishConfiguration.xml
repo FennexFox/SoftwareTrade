@@ -4,7 +4,7 @@
 	<!--Name of the mod to display to players-->
 	<DisplayName Value="No Office Demand Fix" />
 	<!--Short description of the mod-->
-	<ShortDescription Value="Fixes confirmed Signature phantom vacancy and ships opt-in comparison tooling for the software-track office-demand investigation." />
+	<ShortDescription Value="Fixes Signature phantom vacancy and provides diagnostic tooling for software-track office-demand investigation." />
 	<!--Long description of the mod. Single line or multi line. Supports minimal markdown subset-->
 	<!--LongDescription Value="There is a notorious "No Office Demand" bug in the current game: the Efficient of some Office Buildings drops to 0, causing the game to mistakenly treat them as Vacant and therefore not generate Office Demand. The reason some Office Buildings' Efficient falls to 0 is known to be related to the production and consumption of software." /-->
 	<LongDescription>

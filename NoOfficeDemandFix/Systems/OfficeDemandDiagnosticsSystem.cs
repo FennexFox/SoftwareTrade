@@ -727,6 +727,9 @@ namespace NoOfficeDemandFix.Systems
             }
 
             builder.Append(", ").Append(label).Append('=').Append(resource);
+            // Note: We intentionally only log the current stock here to keep diagnostics concise.
+            // If additional detail (e.g., trade-cost buffer or entry information) is required for debugging,
+            // extend this formatter or use a more verbose diagnostic path instead of reintroducing it here.
             builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource)).Append(')');
         }
 

@@ -45,9 +45,9 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 Current evidence supports two distinct tracks:
 
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
-- `software` instability is still plausible, still tracked, and still best treated as investigation tooling plus a comparison aid rather than a solved user-facing fix
+- `software` instability is still plausible, still tracked, and still best treated as investigation tooling with diagnostics and an optional trade patch for comparison runs rather than a solved user-facing fix
 
-Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks, and the current focus is explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
+Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks. The current investigation focuses on explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
 
 Current evidence also does not support treating widespread `software` consumer efficiency collapse as a direct proxy for lower office demand. Demand response still has to be captured directly from the office-demand counters rather than inferred from software-office distress alone.
 
