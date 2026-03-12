@@ -193,7 +193,7 @@ EVIDENCE_STYLE_EXAMPLES = [
         "summary_style": "Start with the tested condition, then describe the bounded window outcome without causal claims.",
         "example_summary": "With `EnableTradePatch=False`, the same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
         "log_excerpt_style": "Use `### Day ...` subsections with fenced `text` blocks that quote only the selected producer or consumer detail lines.",
-        "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, peak distress, final sample, and any important trade-state cue.",
+        "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, recent anchored detail, final sample, and any important trade-state cue.",
     },
     {
         "name": "single bounded run",
@@ -706,11 +706,6 @@ def detail_role(detail: dict[str, Any] | None) -> str:
         return "producer"
     return ""
 
-
-def detail_type_name(detail: dict[str, Any] | None) -> str:
-    return str((detail or {}).get("detail_type", "")).strip()
-
-
 def counter_value(observation: dict[str, Any] | None, group_name: str, field_name: str) -> int:
     counter_groups = (observation or {}).get("diagnostic_counters", {})
     return safe_int(counter_groups.get(group_name, {}).get(field_name))
@@ -739,39 +734,6 @@ def format_relevant_counter_group(
     if not filtered:
         return ""
     return format_counter_group(name, filtered)
-
-
-def pick_peak_observation(
-    observations: list[dict[str, Any]],
-    score_builder: Any,
-) -> dict[str, Any] | None:
-    if not observations:
-        return None
-    return max(
-        observations,
-        key=lambda item: tuple(score_builder(item)) + (observation_sample_index(item),),
-    )
-
-
-def pick_latest_details_for_role(
-    details: list[dict[str, Any]],
-    role: str,
-    *,
-    limit: int = MAX_EXCERPT_DETAIL_LINES,
-) -> list[dict[str, Any]]:
-    role_details = [detail for detail in details if detail_role(detail) == role]
-    if not role_details:
-        return []
-
-    latest_detail = max(role_details, key=lambda item: (detail_day(item), detail_sample_index(item)))
-    target_sample_index = detail_sample_index(latest_detail)
-    target_day = detail_day(latest_detail)
-
-    matching = [detail for detail in role_details if detail_sample_index(detail) == target_sample_index]
-    if not matching:
-        matching = [detail for detail in role_details if detail_day(detail) == target_day]
-    return matching[:limit]
-
 
 def build_recent_detail_batches(
     details: list[dict[str, Any]],
@@ -833,35 +795,6 @@ def excerpt_recency_label(index: int) -> str:
     return f"recent_{index + 1}"
 
 
-def select_details_for_observation(
-    details: list[dict[str, Any]],
-    observation: dict[str, Any] | None,
-    *,
-    role: str,
-    limit: int = MAX_EXCERPT_DETAIL_LINES,
-) -> list[dict[str, Any]]:
-    if not observation:
-        return []
-
-    target_sample_index = observation_sample_index(observation)
-    target_day = observation_day(observation)
-
-    matching = [
-        detail
-        for detail in details
-        if detail_role(detail) == role and detail_sample_index(detail) == target_sample_index
-    ]
-    if not matching:
-        matching = [
-            detail
-            for detail in details
-            if detail_role(detail) == role and detail_day(detail) == target_day
-        ]
-    if not matching:
-        matching = [detail for detail in details if detail_role(detail) == role]
-    return matching[:limit]
-
-
 def build_excerpt_candidate(
     label: str,
     observation: dict[str, Any] | None,
@@ -908,6 +841,8 @@ def build_latest_run_candidates(
             "latest_run_observations": [],
             "latest_run_details": [],
             "final_observation": None,
+            "latest_consumer_detail_observation": None,
+            "latest_producer_detail_observation": None,
             "consumer_peak_observation": None,
             "producer_peak_observation": None,
             "log_excerpt_candidates": [],
@@ -929,11 +864,11 @@ def build_latest_run_candidates(
     consumer_batches = build_recent_detail_batches(latest_run_details, role="consumer")
     producer_batches = build_recent_detail_batches(latest_run_details, role="producer")
 
-    consumer_peak_observation = find_observation_for_detail(
+    latest_consumer_detail_observation = find_observation_for_detail(
         latest_run_observations,
         consumer_batches[0][0] if consumer_batches else None,
     )
-    producer_peak_observation = find_observation_for_detail(
+    latest_producer_detail_observation = find_observation_for_detail(
         latest_run_observations,
         producer_batches[0][0] if producer_batches else None,
     )
@@ -966,8 +901,10 @@ def build_latest_run_candidates(
         "latest_run_observations": latest_run_observations,
         "latest_run_details": latest_run_details,
         "final_observation": latest_observation,
-        "consumer_peak_observation": consumer_peak_observation,
-        "producer_peak_observation": producer_peak_observation,
+        "latest_consumer_detail_observation": latest_consumer_detail_observation,
+        "latest_producer_detail_observation": latest_producer_detail_observation,
+        "consumer_peak_observation": latest_consumer_detail_observation,
+        "producer_peak_observation": latest_producer_detail_observation,
         "log_excerpt_candidates": log_excerpt_candidates,
     }
 
@@ -1125,6 +1062,8 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
         "latest_run_details": latest_run_candidates["latest_run_details"],
         "final_observation": latest_run_candidates["final_observation"],
+        "latest_consumer_detail_observation": latest_run_candidates["latest_consumer_detail_observation"],
+        "latest_producer_detail_observation": latest_run_candidates["latest_producer_detail_observation"],
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
@@ -1294,8 +1233,12 @@ def build_deterministic_log_excerpt(parsed_log: dict[str, Any]) -> str:
 
 def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
     latest_run_observations = parsed_log.get("latest_run_observations", [])
-    consumer_peak = parsed_log.get("consumer_peak_observation")
-    producer_peak = parsed_log.get("producer_peak_observation")
+    latest_consumer_detail_observation = (
+        parsed_log.get("latest_consumer_detail_observation") or parsed_log.get("consumer_peak_observation")
+    )
+    latest_producer_detail_observation = (
+        parsed_log.get("latest_producer_detail_observation") or parsed_log.get("producer_peak_observation")
+    )
     final_observation = parsed_log.get("final_observation")
     log_excerpt_candidates = parsed_log.get("log_excerpt_candidates", [])
 
@@ -1306,18 +1249,20 @@ def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
         if start_snapshot:
             note_lines.append(f"Day {observation_day(first_observation)} started with `{start_snapshot}`.")
 
-    if consumer_peak:
-        peak_snapshot = compact_office_snapshot(consumer_peak)
-        if peak_snapshot:
+    if latest_consumer_detail_observation:
+        consumer_snapshot = compact_office_snapshot(latest_consumer_detail_observation)
+        if consumer_snapshot:
             note_lines.append(
-                f"Latest consumer detail anchor came from day {observation_day(consumer_peak)} with `{peak_snapshot}`."
+                "Latest consumer detail anchor came from day "
+                f"{observation_day(latest_consumer_detail_observation)} with `{consumer_snapshot}`."
             )
 
-    if producer_peak:
-        producer_snapshot = compact_office_snapshot(producer_peak)
+    if latest_producer_detail_observation:
+        producer_snapshot = compact_office_snapshot(latest_producer_detail_observation)
         if producer_snapshot:
             note_lines.append(
-                f"Latest producer detail anchor came from day {observation_day(producer_peak)} with `{producer_snapshot}`."
+                "Latest producer detail anchor came from day "
+                f"{observation_day(latest_producer_detail_observation)} with `{producer_snapshot}`."
             )
 
     if final_observation:
@@ -1640,6 +1585,9 @@ def build_summary_refinement_context(
 ) -> dict[str, Any]:
     excerpt_candidates = build_excerpt_candidates_for_llm(parsed_log)
     selected_candidate = excerpt_candidates[-1] if excerpt_candidates else {}
+    latest_consumer_detail_observation = (
+        parsed_log.get("latest_consumer_detail_observation") or parsed_log.get("consumer_peak_observation")
+    )
     return {
         "raw_issue": {
             "save_or_city_label": issue_fields.get("save_or_city_label", ""),
@@ -1652,7 +1600,7 @@ def build_summary_refinement_context(
         "final_observation": summarize_observation_for_llm(
             parsed_log.get("final_observation") or parsed_log.get("latest_observation")
         ),
-        "consumer_peak_observation": summarize_observation_for_llm(parsed_log.get("consumer_peak_observation")),
+        "latest_consumer_detail_observation": summarize_observation_for_llm(latest_consumer_detail_observation),
         "selected_excerpt_candidate": {
             "title": selected_candidate.get("title", ""),
             "day": safe_int(selected_candidate.get("day")),
@@ -1706,7 +1654,9 @@ def compact_excerpt_candidates_for_llm(
     candidate_line_limit: int,
 ) -> list[dict[str, Any]]:
     compacted: list[dict[str, Any]] = []
-    for candidate in candidates[:candidate_limit]:
+    if candidate_limit <= 0:
+        return compacted
+    for candidate in candidates[-candidate_limit:]:
         compact = dict(candidate)
         compact["observation_window"] = truncate_text(
             str(compact.get("observation_window", "")),
@@ -2311,7 +2261,7 @@ def has_unsupported_reasoning_summary_format(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    if "..." in stripped or "…" in stripped:
+    if "..." in stripped or "…" in stripped or "??" in stripped:
         return True
     if len(stripped) > LLM_REASONING_SUMMARY_MAX_LENGTH:
         return True
