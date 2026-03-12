@@ -825,18 +825,23 @@ def build_excerpt_candidate(
         return None
 
     detail_kind = detail_role(details[0])
+    day = observation_day(observation)
+    sample_index = observation_sample_index(observation)
+    day_prefix = f"Day {day}"
+    if sample_index > 0:
+        day_prefix += f" sample {sample_index}"
     if detail_kind == "consumer":
-        section_title = f"Day {observation_day(observation)} consumer-side detail"
+        section_title = f"{day_prefix} consumer-side detail"
     elif detail_kind == "producer":
-        section_title = f"Day {observation_day(observation)} producer-side detail"
+        section_title = f"{day_prefix} producer-side detail"
     else:
-        section_title = f"Day {observation_day(observation)} software detail"
+        section_title = f"{day_prefix} software detail"
 
     lines = [truncate_text(detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT) for detail in details]
     return {
         "label": label,
-        "day": observation_day(observation),
-        "sample_index": observation_sample_index(observation),
+        "day": day,
+        "sample_index": sample_index,
         "title": section_title,
         "observation_window": observation.get("observation_window_raw", ""),
         "diagnostic_counters": observation.get("diagnostic_counters_raw", ""),
