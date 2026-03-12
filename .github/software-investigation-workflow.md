@@ -1,8 +1,27 @@
 # Software Investigation Workflow
 
-This document defines the practical maintainer workflow for collecting, promoting, comparing, and summarizing `software`-track evidence without flooding the issue tracker.
+This document defines the maintainer workflow for collecting, promoting, comparing, and summarizing `software`-track evidence without flooding the issue tracker.
 
-It is the maintainer-facing companion to [`.github/software-evidence-schema.md`](./software-evidence-schema.md). The schema defines what a normalized evidence entry must contain. This workflow defines when to keep something as raw data, when to promote it into a reusable evidence issue, and where comparisons and conclusions should live.
+It is the workflow companion to [`.github/software-evidence-schema.md`](./software-evidence-schema.md). The schema defines what a normalized evidence entry must contain. This document defines when to keep material as raw capture, when to promote it into a reusable evidence issue, and where to record comparisons and conclusions.
+
+## Quick Start
+
+Treat investigation material as three levels:
+
+1. Raw capture
+   Logs, saves, screenshots, videos, and temporary notes. Do not open a new issue for every sample.
+
+2. Promoted evidence entry
+   A bounded observation window that is reusable later. This is when you open a `software evidence` issue.
+
+3. Umbrella investigation
+   The tracker for one hypothesis or investigation line. This is where linked evidence, comparison summaries, and the current conclusion live.
+
+Use the tracker this way:
+
+- keep raw captures local unless they are bounded and reusable
+- promote only evidence-worthy runs
+- keep checkpoint comparisons and the current conclusion in the umbrella issue, not scattered across raw captures
 
 ## Inputs
 
@@ -13,64 +32,109 @@ The workflow uses four inputs:
 - the reusable evidence issue form at [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./ISSUE_TEMPLATE/software_evidence.yml)
 - the reusable umbrella investigation issue form at [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./ISSUE_TEMPLATE/software_investigation.yml)
 
-## Working Levels
+## Workflow
 
-Treat the investigation as three levels of material:
+1. Choose or reproduce a scenario.
+   Select the save, city state, or bounded condition to observe.
 
-1. Raw capture
-   Diagnostics logs, temporary notes, saves, screenshots, and ad hoc observations. Do not create a new issue for every raw capture.
+2. Capture raw material.
+   Keep logs and artifacts without opening issues for every sample.
 
-2. Promoted evidence entry
-   A bounded observation window that is worth reusing later. This is when you open a `software evidence` issue.
+3. Promote reusable runs.
+   Open a `software evidence` issue only for bounded runs that will matter later.
 
-3. Umbrella investigation
-   The tracker for one hypothesis or investigation line. This is where evidence issues are linked, checkpoint comparisons are summarized, and the current conclusion is maintained.
+4. Link evidence under one umbrella.
+   Use one `software investigation` issue per hypothesis or investigation line.
 
-## When To Open A Software Evidence Issue
+5. Record checkpoint comparisons.
+   Summarize comparisons in the umbrella issue body or follow-up comments.
+
+6. Update the current conclusion.
+   Apply the decision rules after each meaningful comparison.
+
+7. Record repo-facing wording.
+   Keep README, release-note, and issue-summary wording aligned with the evidence category.
+
+## Promote Or Keep Raw
 
 Open a `software evidence` issue only when the run is evidence-worthy:
 
 - the observation window is bounded and specific
 - the run has enough context to stand on its own later
 - the run is likely to be reused in a later comparison
-- the run is more than a temporary note or raw sample
+- the run is more than a temporary note or ad hoc sample
 
-If those conditions are not met, keep the material in local artifacts or summarize it in the umbrella investigation issue instead of opening a new evidence issue.
+Keep the material as raw capture or summarize it only in the umbrella issue when:
 
-## Log-To-Evidence Capture
+- the window is too loose or poorly bounded
+- important context is missing
+- the run is unlikely to be reused
+- the material is still only a scratch note or local observation
 
-When promoting a run into a `software evidence` issue:
+## Capture Checklist
 
-1. copy `softwareEvidenceDiagnostics observation_window(...)`
-2. copy `settings=...`
-3. copy `patch_state=...`
-4. copy `diagnostic_counters(...)`
-5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters; prefer the newest anchored detail sample and include at most one or two immediately previous distinct samples only when they clearly improve chronology, for example:
-   - showing a state transition (e.g., office or property moving from one demand or configuration state to another between samples)
-   - documenting a persistent or oscillating pattern across samples that is central to the claim (not just noise)
-   - confirming that a state has stabilized after a change (e.g., counters or demand values converging to a steady pattern)
-6. add only the minimum investigator-written context needed to make the run reusable
+Use this section when turning a raw run into a reusable evidence entry.
 
-Capture guidance:
+### 1. Preserve The Required Anchors
 
-- prefer copying counters directly from logs rather than paraphrasing them
-- keep the full bounded observation window string when possible so `session_id`, `run_id`, `start_day`, `end_day`, `sample_index`, sample-slot fields, and `clock_source` stay available for later comparisons
+Always copy these items directly from the run when they exist:
+
+1. `softwareEvidenceDiagnostics observation_window(...)`
+2. `settings=...`
+3. `patch_state=...`
+4. `diagnostic_counters(...)`
+5. only the minimum investigator-written context needed to make the run reusable
+
+### 2. Select Detail Excerpts Deliberately
+
+Preserve `softwareEvidenceDiagnostics detail(...)` lines only when office-level or property-level state matters to the claim.
+
+Default excerpt rules:
+
+- prefer the newest anchored detail sample
+- add at most one or two immediately previous distinct samples only when short chronology matters
+- if both consumer-side and producer-side detail are available, use the latest anchored consumer excerpt plus the latest anchored producer excerpt as the default pair
+
+Add older distinct samples only when they clearly improve interpretation, for example:
+
+- they show a transition between states
+- they show a persistent or oscillating pattern that is central to the claim
+- they confirm that a state stabilized after a change
+
+### 3. Keep The Writeup Tight
+
+- copy counters directly from logs rather than paraphrasing them
+- keep the full bounded observation-window string when possible so `session_id`, `run_id`, day fields, sample-index fields, sample-slot fields, and `clock_source` remain available for later comparisons
 - treat `diagnostic_counters` as factual capture
 - treat `diagnostic_counters` as the sampled end-of-window state unless you explicitly note a wider aggregation method
-- when the claim touches office-demand response, preserve `officeDemand(...)` alongside the software counters instead of summarizing demand behavior in prose only
 - keep `evidence_summary` short and descriptive, not argumentative
-- use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
+- use `confidence` and `confounders` only for uncertainty that is not already represented by counters or metadata
 - do not treat `symptom_classification` as proof of root cause
-- treat raw-log automation symptom labels and prose as provisional drafting help; the observation-window anchor, copied counters, and selected detail excerpts remain the primary evidence
-- use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
+- treat raw-log automation symptom labels and prose as drafting help; the copied anchors and excerpts remain the hard evidence
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
-- when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
-- keep the concise producer `input1(...)` / `input2(...)` formatter stock-only by default; if producer-side trade-cost metadata becomes part of the active question, add or use a separate verbose diagnostic path instead of re-expanding the concise formatter
-- treat `sample_count` as emitted `softwareEvidenceDiagnostics observation_window(...)` density inside the current run, not as a replacement for the day fields
-- treat `skipped_sample_slots` as scheduled sample slots that were missed and honestly reported rather than backfilled
-- if raw-log automation preserved both consumer-side and producer-side detail, treat the latest anchored consumer excerpt plus the latest anchored producer excerpt as the default pair and include older anchored samples only when they preserve short local chronology that materially improves interpretation
-- treat changes to the machine-parsed log prefixes as parser-contract changes; when those prefixes are centralized in `NoOfficeDemandFix/MachineParsedLogContract.cs`, update the Python parser constants and fixtures in the same diff
+- use `analysis_basis` only when code reading actually informed the interpretation, and say whether the claim comes from vanilla decompile, mod code, or both
+
+### 4. Preserve The Right Counter Bundle For The Question
+
+When the active question is:
+
+- office-demand response: preserve `officeDemand(...)` together with the relevant software counters instead of describing demand movement only in prose
+- buyer-state anomaly on software consumers: preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` blocks
+- upstream input pressure vs downstream office-resource gating: preserve `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
+
+Producer-side trade-cost metadata is a special case:
+
+- keep the concise producer `input1(...)` / `input2(...)` formatter stock-only by default
+- if producer-side trade-cost metadata becomes part of the active question, add or use a separate verbose diagnostic path instead of re-expanding the concise formatter
+
+### 5. Keep Sampling Metadata Intact
+
+When diagnostics are sampled more than once per day, preserve the emitted sampling metadata rather than flattening it away.
+
+- treat `sample_count` as emitted observation density inside the current run, not as a replacement for the day fields
+- treat `skipped_sample_slots` as honest reporting for missed scheduled slots, not as backfilled observations
+
+## Diagnostics Vocabulary And Contract
 
 The current diagnostics vocabulary is:
 
@@ -78,171 +142,163 @@ The current diagnostics vocabulary is:
 - `environment(settings=..., patch_state=...)`
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` for software consumers
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; these detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` for software consumers
 
-When the raw-log automation prepares a draft, it uses deterministic parsing to
-extract these anchors and bound excerpt candidates, then uses LLM drafting for
-the initial semantic framing. Review the framing, but treat the copied anchors
-and excerpts as the hard evidence.
-Keep the mod-side contract strings and the Python parser constants and fixtures
-synchronized whenever the machine-parsed log contract changes.
+Use these contract rules:
 
-`diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
+- `diagnostic_context` is optional supporting context, not a required top-level evidence field
+- copy `diagnostic_context(...)` into `notes` or `log_excerpt` only when it adds useful non-primary context such as `topFactors`
+- raw-log automation uses deterministic parsing to extract anchors and excerpt candidates, then uses LLM drafting for initial framing; review the framing, but treat the copied anchors and excerpts as the source of truth
+- if machine-parsed log prefixes change, treat that as a parser-contract change; when those prefixes are centralized in `NoOfficeDemandFix/MachineParsedLogContract.cs`, update the Python parser constants and fixtures in the same diff
 
-## Analysis Source Guidance
+## Source And Interpretation Guardrails
 
-When code reading is part of the interpretation, keep the source of the claim explicit.
+### Source Discipline
 
-- use vanilla decompiled game code for claims about the base-game trade lifecycle, virtual-resource handling, `TripNeeded` / `CurrentTrading` semantics, and company update behavior
-- use this mod's code for claims about emitted diagnostics, local patches, release defaults, and any deviations that belong in `patch_state`
-- if one conclusion depends on both, say so explicitly in `analysis_basis`, `notes`, or the umbrella investigation summary
+When code reading informs the interpretation:
 
-## Interpretation Guidance
+- use vanilla decompiled game code for claims about base-game trade lifecycle, virtual-resource handling, `TripNeeded` / `CurrentTrading` semantics, and company update behavior
+- use this mod's code for claims about emitted diagnostics, local patches, release defaults, and deviations that belong in `patch_state`
+- if one conclusion depends on both, say so explicitly in `analysis_basis`, `notes`, or the umbrella summary
 
-Mixed-cause interpretations are allowed and should be recorded explicitly rather than collapsed into one presumed root cause.
+### Interpretation Guardrails
+
+Mixed-cause interpretations are allowed. Record them explicitly instead of forcing one root-cause story too early.
 
 - improvement after `EnableTradePatch` does not prove upstream input pressure was absent
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
-- persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
-- persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
-- do not infer an active buyer, in-flight trip, or current trading state from `tradeCostEntry=True` in `softwareTradeCost(...)` alone
-- if `softwareNeed(selected=true)` appears together with `softwareBuyerState(buyerActive=false, tripNeededCount=0, currentTradingCount=0, pathState=none)`, record that as a buyer-lifecycle anomaly rather than assuming the missing trade state is expected
+- persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` suggests upstream starvation may still be active
+- persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage may still be active
+- do not infer an active buyer, in-flight trip, or current trading state from `tradeCostEntry=True` alone
+- if `softwareNeed(selected=true)` appears together with `softwareBuyerState(buyerActive=false, tripNeededCount=0, currentTradingCount=0, pathState=none)`, record that as a buyer-lifecycle anomaly rather than assuming the empty trade state is expected
 - widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
-- if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption rather than hand-waving it away
-- keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
+- if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption
+- keep root-cause interpretation in `confounders`, `notes`, or the umbrella summary rather than inventing root-cause `symptom_classification` labels
 
-## Observation Window Guidance
+## Observation Windows And Capture Modes
 
-Default minimum window guidance:
+### Recommended Window Lengths
+
+Use day count as the primary rule for reusable windows:
 
 - `3 days`: minimum reusable bounded window for a promoted evidence entry
-- `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
+- `5 days`: preferred for `EnableTradePatch` off/on comparisons on the same save lineage
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
 
-At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with
-no skipped slots will usually yield roughly:
+At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with no skipped slots usually yield roughly:
 
 - `3 days`: about `6` emitted observation windows
 - `5 days`: about `10` emitted observation windows
 - `7 days`: about `14` emitted observation windows
 
-Use the day-count recommendation as the primary rule. Treat `sample_count` as
-emitted observation density inside the same day-count window, not as a
-replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set
-differently, scale the expected `sample_count` accordingly for baseline capture
-and read any `skipped_sample_slots` as honest gap reporting for missed
-scheduled slots that were not backfilled.
+### Reading Observation-Window Fields
 
-These day-count recommendations remain usable under time-scaling mods such as `RealisticTrips` / `Time2Work`, but they should be treated as lower-confidence comparisons than vanilla-speed runs.
-When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
-The current sampling code derives `sample_slot` from the runtime `TimeSystem` time-of-day path and advances a logical displayed-clock day when that slot wraps, seeding from the runtime day value and re-syncing after large gaps such as loads or long pauses, but it does not include explicit per-mod interoperability.
-When `CaptureStableEvidence` or `VerboseLogging` is keeping output active, emitted observations now stay tied to the slot that was actually sampled. If a slot is missed, the next emitted observation reports that gap through `skipped_sample_slots` instead of backfilling synthetic observations.
-The emitted `clock_source` field is normally `runtime_time_system`. Older logs
-may still show `displayed_clock`; treat that as legacy compatibility for older
-observation contracts rather than as a different current code path.
-That keeps the `3` / `5` / `7` day guidance conservative rather than weaker, while preserving honest slot timing in the raw log.
+Interpret the emitted fields this way:
 
-Comparability guidance:
+- `sample_slot`: the scheduled slot derived from the runtime `TimeSystem` time-of-day path
+- `sample_day`: the logical displayed-clock day reconstructed from slot progression
+- `sample_count`: the emitted `observation_window(...)` count in the current run, not a theoretical slot count
+- `skipped_sample_slots`: scheduled gaps that elapsed without a backfilled observation
+- `clock_source`: normally `runtime_time_system`; older logs may show `displayed_clock` as legacy compatibility for older observation contracts
 
-- evidence gathered with materially different time-scaling settings is weaker to compare directly, even if the observation window shows the same day count or `sample_count`
-- when a time-scaling mod is active, record the mod and any relevant factor in `other_mods`, `platform_notes`, or `notes`
+Practical rules:
 
-## Capture Modes
+- treat the day-count guidance as primary
+- scale expected `sample_count` with the configured diagnostics cadence
+- treat missed slots as honest gaps, not synthetic backfills
+
+### Time-Scaling Mods
+
+These window recommendations still work under time-scaling mods such as `RealisticTrips` or `Time2Work`, but those comparisons are lower confidence than vanilla-speed runs.
+
+Why:
+
+- the same reported day count can cover more simulation frames
+- more simulation frames mean more trade, storage, and company update cycles inside the same nominal day span
+
+When a time-scaling mod is active:
+
+- record the mod and any relevant factor in `other_mods`, `platform_notes`, or `notes`
+- treat direct comparisons against vanilla-speed runs as weaker even when day counts or `sample_count` look similar
+
+### Capture Modes
 
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
 - baseline capture: enable `CaptureStableEvidence=true` to emit bounded observation windows at the configured per-day cadence even while the city looks stable
-- escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction and patch traces beyond the normalized evidence lines
+- escalation capture: enable `VerboseLogging=true` only when you also need noisier correction and patch traces beyond the normalized evidence lines
 
 ## Standard Comparison Checkpoints
 
-### Core Checkpoints
+Use the checkpoint that matches the active question. Do not force every investigation through every checkpoint.
 
-#### 1. Trade patch toggle on the same save
+### 1. Trade Patch Toggle On The Same Save
 
-- baseline entry: evidence entry from a save with `EnableTradePatch=false`
-- comparison entry: evidence entry from the same save lineage after switching to `EnableTradePatch=true`
-- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window
-- variable under test: `EnableTradePatch`
-- primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle detail is part of the claim
-- invalid comparison cases: save changed in unrelated ways, multiple settings changed together, session-boundary effects mixed in without being noted
+- question: did toggling `EnableTradePatch` change the symptom on the same save lineage?
+- hold constant: same game version, same mod ref or equivalent release, same save lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window
+- primary evidence: `settings`, `symptom_classification`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when buyer-lifecycle detail matters
+- invalid when: unrelated save changes occurred, multiple settings changed together, or session-boundary effects were mixed in without being noted
 
-#### 2. Short-run vs long-run observation window
+### 2. Short-Run Vs Long-Run Observation Window
 
-- baseline entry: short bounded observation window on a stable save
-- comparison entry: longer bounded observation window on the same save and settings
-- required invariants: same game version, same mod ref, same settings, same save/scenario lineage, no intentional patch changes between windows
-- variable under test: observation window duration
-- primary fields / counters: persistence or disappearance of `software(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` counters, plus any repeated `symptom_classification`
-- invalid comparison cases: windows that include unrelated interventions, reloads, or major simulation changes not present in both windows
+- question: does the symptom persist or disappear when the same save is observed for longer?
+- hold constant: same game version, same mod ref, same settings, same save lineage, no intentional patch changes between windows
+- primary evidence: persistence or disappearance of `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and repeated `symptom_classification`
+- invalid when: the windows include unrelated interventions, reloads, or major simulation changes not present in both windows
 
-### Situational Checkpoints
+### 3. Session Boundary Effect On The Same Save
 
-#### 3. Session boundary effect on the same save
+- question: does reload or restart change the symptom without any intended behavior change?
+- hold constant: same game version, same mod ref, same settings, same save lineage, comparable observation window
+- primary evidence: `symptom_classification`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines when property state matters
+- invalid when: a patch toggle or code change happened between runs, or city state changed materially before capture
 
-- baseline entry: evidence entry before reload or restart
-- comparison entry: evidence entry from the same save after reload or restart with no intended behavior change
-- required invariants: same game version, same mod ref, same settings, same save/scenario lineage, comparable observation window
-- variable under test: session boundary transition
-- primary fields / counters: `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, relevant `softwareEvidenceDiagnostics detail(...)` lines if property state changes matter
-- invalid comparison cases: any patch toggle or code change between runs, or materially different city state before capture
+### 4. Outside-Connection Availability State
 
-#### 4. Outside-connection availability state
+- question: does a materially different outside-connection state explain the change?
+- hold constant: same save lineage, same game/mod/settings as far as possible, same general hypothesis under test
+- primary evidence: `software(resourceProduction, resourceDemand, companies, propertyless)`, `softwareProducerOffices(... lackResourcesZero ...)`, and `softwareConsumerOffices(... softwareInputZero ...)`
+- invalid when: outside-connection changes are confounded with patch toggles or unrelated city growth
 
-- baseline entry: evidence entry under one outside-connection availability state
-- comparison entry: evidence entry under a materially different outside-connection state
-- required invariants: same save lineage, same game/mod/settings as far as possible, same general hypothesis under test
-- variable under test: outside-connection availability state
-- primary fields / counters: `diagnostic_counters.software(resourceProduction, resourceDemand, companies, propertyless)`, `diagnostic_counters.softwareProducerOffices(... lackResourcesZero ...)`, `diagnostic_counters.softwareConsumerOffices(... softwareInputZero ...)`
-- invalid comparison cases: outside-connection change confounded with patch toggles or unrelated city growth
+### 5. Starvation Or Recovery Transition Within A Run
 
-#### 5. Starvation or recovery transition within a run
+- question: did the same run show a bounded starvation or recovery transition?
+- hold constant: same session or tightly bounded same-save sequence, same settings, same game/mod state
+- primary evidence: `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `diagnostic_context(topFactors=...)` when relevant
+- invalid when: the windows are too loose to attribute the shift to one transition, or the evidence is mostly anecdotal
 
-- baseline entry: bounded window before counters indicate starvation or recovery
-- comparison entry: bounded window after the change is visible in diagnostics
-- required invariants: same session or tightly bounded same-save sequence, same settings, same game/mod state
-- variable under test: observed starvation/recovery transition
-- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_context(topFactors=...)` when relevant
-- invalid comparison cases: windows too loose to attribute the change to one transition, or evidence mostly anecdotal rather than diagnostics-backed
+### 6. Upstream Input Pressure Vs Downstream Office-Resource Gating
 
-#### 6. Upstream input pressure vs downstream office-resource gating
+- question: is the observed shortage better explained by upstream input pressure, downstream office-resource gating, or a mixed state?
+- hold constant: same game/mod/settings except the variable under test, comparable observation window, no unrelated city change large enough to dominate the signal
+- primary evidence: `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- interpretation note: record whether the result looks like `mitigated downstream shortage`, `upstream pressure still present`, or `no clear separation`
+- invalid when: upstream and downstream conditions changed together, required office-level detail was not preserved, or the windows are too loose to attribute the shift
 
-- baseline entry: evidence entry from a run where the `software` symptom is present and the relevant raw counters or detail lines were preserved
-- comparison entry: a matched evidence entry on the same save lineage or tightly controlled scenario where downstream office-resource availability changed enough to test separation, without intentionally changing the rest of the scenario more than necessary
-- required invariants: same game/mod/settings except the variable under test, comparable observation window, and no unrelated city change large enough to dominate the signal
-- variable under test: whether the observed shortage is better explained by upstream input pressure, downstream office-resource gating, or a mixed state
-- primary fields / counters: `diagnostic_counters.software(...)`, `diagnostic_counters.electronics(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
-- interpretation guidance: use `notes` or the umbrella summary to record whether the comparison looks like `mitigated downstream shortage`, `upstream pressure still present`, or `no clear separation`
-- invalid comparison cases: upstream and downstream conditions changed together, office-level detail was needed but not preserved, or the windows are too loose to attribute the shift
+### 7. Software Consumer Distress Vs Office-Demand Response
 
-#### 7. Software consumer distress vs office-demand response
+- question: does software-consumer distress align with lower office demand, no material demand shift, or rising demand?
+- hold constant: same game/mod/settings except the variable under test, comparable observation window, no unrelated city change large enough to dominate office demand
+- primary evidence: `officeDemand(...)`, `softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- interpretation note: treat strong consumer distress with flat or rising `officeDemand(...)` as contradictory to the original direct-demand assumption unless another direct demand mechanism is separately evidenced
+- invalid when: office-demand counters were not preserved, unrelated interventions dominated city state, or the demand claim was inferred only from software counters
 
-- baseline entry: evidence entry from a run where `softwareConsumerOffices(...)` indicates clear consumer distress and `officeDemand(...)` was preserved
-- comparison entry: a matched evidence entry or later bounded window on the same save lineage where office-demand response was checked directly rather than inferred
-- required invariants: same game/mod/settings except the variable under test, comparable observation window, and no unrelated city change large enough to dominate office demand
-- variable under test: whether software-consumer distress aligns with lower office demand, no material demand shift, or rising demand
-- primary fields / counters: `diagnostic_counters.officeDemand(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
-- interpretation guidance: treat `softwareConsumerOffices` distress with flat or rising `officeDemand(...)` as contradictory to the original direct-demand assumption unless another direct demand mechanism is separately evidenced
-- invalid comparison cases: office-demand counters were not preserved, unrelated interventions dominated the city state, or the demand claim was inferred only from software counters
+### 8. Software Need Selection Vs Buyer Lifecycle State
 
-#### 8. Software need selection vs buyer lifecycle state
-
-- baseline entry: evidence entry from a run where `softwareConsumerBuyerState(...)` and consumer-side `softwareOfficeStates` detail were preserved
-- comparison entry: a matched evidence entry or later bounded window on the same save lineage where the software-consumer anomaly was sampled again
-- required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)`
-- variable under test: whether zero-software consumers are failing before buyer creation, during a transient buyer/path lifecycle, or after a path resolves without visible trade state
-- primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
-- interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is why `tradeCostEntry=True` coexists with `buyerActive=false`, `tripNeededCount=0`, `currentTradingCount=0`, and `pathState=none`
-- invalid comparison cases: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to tell same-sample buyer state from a transient trace
+- question: are zero-software consumers failing before buyer creation, during a transient buyer/path lifecycle, or after a path resolves without visible trade state?
+- hold constant: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)`
+- primary evidence: `softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- interpretation note: prefer this checkpoint over simply extending an off/on window when the active question is why `tradeCostEntry=True` coexists with `buyerActive=false`, `tripNeededCount=0`, `currentTradingCount=0`, and `pathState=none`
+- invalid when: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to distinguish same-sample buyer state from a transient trace
 
 ## Canonical Comparison Summary Shape
 
-Comparison summaries should use this small reusable shape inside the umbrella investigation issue body or a follow-up comment:
+Use this small reusable shape inside the umbrella investigation body or a follow-up comment:
 
 - `checkpoint`: which standard checkpoint was used
 - `baseline_ref`: the baseline evidence entry or run reference
 - `comparison_ref`: the comparison evidence entry or run reference
 - `invariant_status`: whether the required invariants held, and if not, what broke comparability
-- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle state is part of the claim, `diagnostic_counters.officeDemand(...)` when demand response is part of the claim, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
+- `observed_deltas`: the relevant changes in counters, symptom labels, and preserved detail lines
 - `outcome`: `supportive`, `contradictory`, `no material change`, or `invalid comparison`
 - `notes`: any narrow context that matters for later reuse
 
@@ -262,23 +318,16 @@ Example:
 
 ### Per-Comparison Outcomes
 
-Each valid comparison result should first be classified at the checkpoint level using one of these labels:
-
-- `supportive`
-- `contradictory`
-- `no material change`
-- `invalid comparison`
-
-Per-comparison entry conditions:
+Classify each comparison first:
 
 - `supportive`: the comparison meaningfully supports the hypothesis under test
 - `contradictory`: the comparison meaningfully undercuts the hypothesis under test
-- `no material change`: the comparison is valid but does not show a meaningful directional shift for the hypothesis under test
-- `invalid comparison`: the required invariants failed, so the result should not be used for directional interpretation
+- `no material change`: the comparison is valid but does not show a meaningful directional shift
+- `invalid comparison`: the required invariants failed, so the result should not drive interpretation
 
 ### Overall Conclusions
 
-After per-comparison outcomes are recorded, the overall conclusion should use one of these categories:
+After recording per-comparison outcomes, choose one overall conclusion:
 
 - `not reproduced`
 - `inconclusive`
@@ -287,13 +336,13 @@ After per-comparison outcomes are recorded, the overall conclusion should use on
 - `mitigated but not solved`
 - `contradicted by evidence`
 
-Overall conclusion entry conditions:
+Use these entry conditions:
 
 - `not reproduced`: valid targeted comparisons fail to show the expected symptom and there is no supportive evidence
-- `inconclusive`: all comparisons are `invalid comparison`, or valid comparisons point in mixed directions, or evidence is too sparse or confounded to choose a directional conclusion
+- `inconclusive`: all comparisons are `invalid comparison`, or valid comparisons point in mixed directions, or the evidence is too sparse or confounded
 - `plausible but weakly supported`: at least one valid `supportive` comparison exists, but the set is sparse, narrow, or materially confounded
 - `strongly supported`: multiple valid `supportive` comparisons, or one strong targeted comparison with minimal confounders, point in the same direction
-- `mitigated but not solved`: a valid intervention comparison shows improvement, but the symptom persists in the comparison set
+- `mitigated but not solved`: a valid intervention comparison shows improvement, but the symptom persists
 - `contradicted by evidence`: valid comparisons directly undercut the hypothesis and there is no meaningful supportive evidence
 
 Conservative precedence rules:
@@ -305,7 +354,7 @@ Conservative precedence rules:
 
 ## Repo-Facing Wording Map
 
-Use these phrasing examples when release notes, README text, or issue summaries need repository-facing wording:
+Use these phrasing examples when issue summaries, README text, or release notes need repository-facing wording:
 
 - `not reproduced` -> `not reproduced in the current investigation scope`
 - `inconclusive` -> `evidence remains inconclusive`
@@ -313,29 +362,6 @@ Use these phrasing examples when release notes, README text, or issue summaries 
 - `strongly supported` -> `strongly supported by current evidence`
 - `mitigated but not solved` -> `appears mitigated under tested conditions, not solved`
 - `contradicted by evidence` -> `current evidence contradicts the hypothesis`
-
-## Stage Workflow
-
-1. Choose or reproduce a scenario.
-   Select the save, city state, or bounded test condition that will be observed.
-
-2. Capture raw material.
-   Keep logs, saves, screenshots, and temporary notes without opening new issues for every sample.
-
-3. Promote evidence-worthy runs.
-   Open a `software evidence` issue only for bounded runs that are reusable later.
-
-4. Link evidence under one umbrella investigation.
-   Use a `software investigation` issue as the tracker for one hypothesis or investigation line.
-
-5. Record checkpoint comparisons in the umbrella issue.
-   Summarize comparisons in the umbrella issue body or follow-up comments using the canonical comparison shape.
-
-6. Derive and update the current conclusion.
-   Apply the precedence rules in the umbrella issue as evidence accumulates.
-
-7. Record the repo-facing implication.
-   Use the wording map so issue summaries, README language, and release-facing interpretation stay aligned with the underlying evidence category.
 
 ## Decision Record References
 

@@ -1,149 +1,137 @@
 # Contributing
 
 Use this document for contributor-facing workflow and expectations.
-Maintainers operating releases or investigation workflows should start with
-[MAINTAINING.md](./MAINTAINING.md).
 
-## Scope
+If you are operating releases, evidence promotion, or other maintainer-only processes, start with [MAINTAINING.md](./MAINTAINING.md) instead.
 
-This repository is a Cities: Skylines II mod for investigating and mitigating
-no-office-demand failures plus adjacent `software`-track hypotheses that were
-originally suspected to explain them.
+## Project Scope
 
-Keep changes narrow, evidence-driven, and explicit about what is confirmed
-versus still under investigation.
+This repository is a Cities: Skylines II mod for:
 
-## Branches
+- shipping confirmed fixes for reproduced no-office-demand-related failures
+- investigating adjacent `software`-track hypotheses without overstating them
 
-- `master`:
-  default branch and source of truth for released code, released documentation,
-  and repository state tied to actual releases
-- `develop`:
-  integration branch for ongoing work that is intended to converge toward the
-  next release
-- `track/phantom-vacancy`:
-  focused long-running branch for confirmed or suspected stale-market-state
-  work, especially around signature property occupancy and vacancy accounting
-- `track/software-instability`:
-  focused long-running branch for the office-resource / `software`
-  investigation path, including diagnostics, evidence collection, and
-  experimental mitigation work
+Keep changes narrow, evidence-driven, and explicit about what is confirmed versus still under investigation.
 
-## Branching model
+## Contributor Workflow
 
-Use short-lived topic branches for actual implementation work.
-Branch from the long-running branch you intend to merge into.
+Most contributions should follow this order:
 
-Examples:
+1. Decide what kind of change you are making.
+   Typical categories are runtime behavior, evidence/reporting workflow, or repo automation.
 
-- branch from `track/phantom-vacancy` for vacancy-state or signature-related work
-- branch from `track/software-instability` for office-resource, diagnostics,
-  evidence workflow, or `software`-track work
-- branch from `develop` only when the work is genuinely cross-track integration
-- branch from `master` for small release-facing repo metadata or documentation
-  fixes that belong directly on the released branch
+2. Choose the right base branch.
+   Branch from the long-running line that matches the work, not from whatever branch happens to be latest locally.
 
-## Merge strategy
+3. Create a short-lived topic branch.
+   Keep one main purpose per PR.
 
-- Topic branch -> `track/*`: use **Squash and merge** to keep track history clean.
-- `track/*` -> `develop`: use **Merge pull request** (merge commit) to preserve track-level integration history.
-- `develop` -> `master`: use **Merge pull request** (merge commit) to preserve release-level integration history.
+4. Make the smallest coherent change that solves the problem.
+   Avoid mixing runtime fixes, investigation wording, and repo automation unless one clearly supports the other.
 
-## Keeping PRs reviewable
+5. Verify as strongly as you can.
+   Build, test, reproduce, or document manual validation depending on the change type.
 
-A working branch may contain multiple kinds of changes, but each PR should have
-one primary purpose.
+6. Open a PR with clear scope.
+   Explain the behavior change, risk, settings impact, and any reload or restart expectations.
 
-As a rule of thumb, try to keep PRs centered on one of these categories:
+## Before You Open A PR
 
-- **runtime**: C# gameplay logic, diagnostics, settings behavior, save/load or
-  patch application behavior
-- **evidence-schema**: issue forms, schemas, reporting docs, evidence workflow
-  docs, maintainer instructions
-- **repo-ops**: GitHub Actions, automation scripts, test code for repo tooling,
-  promotion or triage workflows
+Make sure the PR answer is clear on these points:
 
-It is acceptable for one PR to include small supporting edits outside its main
-category, but the PR title and body must describe the dominant change honestly.
+- what changed
+- why it changed
+- what evidence or reproduction supports it
+- whether settings behavior changed
+- whether a reload or full restart matters
+- what you verified, and what you could not verify
 
-If a branch has grown too large or mixed, split it before opening PRs by using
-short-lived PR branches and moving only the relevant commits into each one.
+If the work touches an existing issue or investigation line, link it.
 
-## Choosing the right branch line
+## Pick The Right Branch Line
 
-Use the `track/phantom-vacancy` line when the change is about:
+Use the long-running branch that matches the work:
 
-- market-listing correctness
-- vacancy state cleanup
-- stale or occupied properties being counted as available
-- reproductions tied to signature buildings or phantom-vacancy behavior
+| Branch | Use it for |
+| --- | --- |
+| `master` | released code, released docs, and small release-facing repo fixes that belong directly on the released branch |
+| `develop` | cross-track integration work intended to converge toward the next release |
+| `track/phantom-vacancy` | vacancy-state cleanup, market-listing correctness, signature-building demand suppression, and related reproductions |
+| `track/software-instability` | office-resource flow, outside-connection or cargo storage patching, diagnostics, raw log intake, evidence promotion, and `software`-track investigation work |
 
-Use the `track/software-instability` line when the change is about:
+Practical rule:
 
-- office resource flow
-- outside connection or cargo storage patching
-- software producer/consumer distress
-- diagnostics investigating the `software` track
-- raw log intake, evidence promotion, or software-track reporting workflow
+- branch from `track/phantom-vacancy` for phantom-vacancy work
+- branch from `track/software-instability` for `software`-track and evidence workflow work
+- branch from `develop` only for genuine integration work
+- branch from `master` only for small release-facing fixes that really belong there
 
-## Syncing long-running branches
+## Keep PRs Reviewable
 
-Because `track/*`, `develop`, and `master` are long-running branches, they may
-diverge.
+Each PR should have one primary purpose.
 
-General guidance:
+As a rule of thumb, center the PR on one of these categories:
 
-- prefer **merge-based syncing** between long-running branches
-- when syncing a `track/*` branch with `develop`, merge `develop` into the track branch with `git merge --ff develop`
-- do not rewrite shared long-running branch history unless there is a strong,
-  explicit reason
-- before opening `develop -> master`, make sure you understand whether
-  `master` contains release-only commits that should first be merged back into
-  `develop`
+- `runtime`: C# gameplay logic, diagnostics, settings behavior, save/load behavior, or patch application behavior
+- `evidence-schema`: issue forms, schemas, reporting docs, evidence workflow docs, or maintainer instructions
+- `repo-ops`: GitHub Actions, automation scripts, and tests for repo tooling
 
-Avoid opening a PR into `master` from a branch that unintentionally includes
-unrelated commits.
+Small supporting edits outside the main category are fine, but the PR title and body must describe the dominant change honestly.
 
-## Commits and pull requests
+If the branch has grown too mixed, split it before opening PRs.
 
-- Use Conventional Commits: `type(scope): subject`
-- Keep the subject imperative, concise, and without a trailing period
-- Use the PR template at `.github/pull_request_template.md`
-- Explain changed defaults, reload or restart requirements, and save impact
-- Link the relevant issue or investigation when one exists
-- Make sure the PR title describes the main effect of the final diff, not just
-  the noisiest file or the first change you made
+## Branching And Merge Model
 
-Repository-specific instructions:
+Use short-lived topic branches for implementation work.
+
+Merge expectations:
+
+- topic branch -> `track/*`: use squash merge
+- `track/*` -> `develop`: use merge commit
+- `develop` -> `master`: use merge commit
+
+Because the long-running branches may diverge:
+
+- prefer merge-based syncing between long-running branches
+- when syncing a `track/*` branch with `develop`, merge `develop` into the track branch
+- do not rewrite shared long-running branch history unless there is a strong explicit reason
+- before opening `develop -> master`, check whether `master` has release-only commits that should first come back into `develop`
+
+## Commit And PR Expectations
+
+- use Conventional Commits: `type(scope): subject`
+- keep the subject imperative, concise, and without a trailing period
+- use the PR template at [`.github/pull_request_template.md`](./.github/pull_request_template.md)
+- explain changed defaults, reload or restart requirements, and save impact when relevant
+- make sure the PR title describes the main effect of the final diff, not just the first change you made
+
+Repository-specific writing instructions:
 
 - [`.github/instructions/commit-message.instructions.md`](./.github/instructions/commit-message.instructions.md)
 - [`.github/instructions/pull-request.instructions.md`](./.github/instructions/pull-request.instructions.md)
 
-## Testing expectations
+## Testing Expectations
 
-Before opening a PR, include the strongest verification you can realistically
-provide:
+Before opening a PR, provide the strongest realistic verification you can:
 
 - build validation if your local CSL2 toolchain is available
 - manual reproduction or regression steps for runtime behavior changes
 - logs, screenshots, or save context when behavior depends on in-game state
 - script or workflow test results when the PR changes repo automation
 
-If you could not test something, state that explicitly in the PR.
+If you could not test something important, say so explicitly in the PR.
 
-## Change boundaries
+## Change Boundaries
 
-- Do not claim the `software` track is solved without strong evidence
-- Do not describe `software` consumer distress as proof of lower office demand
-  without direct demand evidence
-- Do not broaden vacancy fixes beyond confirmed cases without documenting risk
-- Call out settings changes and whether they require reload or restart
-- Keep diagnostics noise and verbose logging changes intentional
-- Do not let evidence automation become unstated product behavior; keep the
-  distinction between deterministic capture and interpreted summary explicit
+Do not over-claim the current evidence.
 
-## Releases
+- do not claim the `software` track is solved without strong evidence
+- do not describe `software` consumer distress as proof of lower office demand without direct demand evidence
+- do not broaden vacancy fixes beyond confirmed cases without documenting risk
+- call out settings changes and whether they require reload or restart
+- keep diagnostics noise and verbose logging changes intentional
+- keep the distinction between deterministic capture and interpreted summary explicit in evidence tooling
 
-If a change affects release packaging, versioning, or release notes, use the
-`Release checklist` issue template and follow [MAINTAINING.md](./MAINTAINING.md)
-for release operations.
+## Release-Facing Changes
+
+If a change affects release packaging, versioning, or release notes, use the `Release checklist` issue template and follow [MAINTAINING.md](./MAINTAINING.md) for the release workflow.
