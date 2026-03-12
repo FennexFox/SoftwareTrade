@@ -19,14 +19,14 @@ Current release status:
 - keeps non-signature phantom vacancy under observation
 - keeps the software path available for comparison and diagnostics, not as a claimed full fix
 	</LongDescription>
-	<!--Thumbnail-->
-	<Thumbnail Value="Properties/Thumbnail.png" />
+	<!--Thumbnail. Path is relative to this PublishConfiguration.xml file, so keep it as Thumbnail.png, not Properties/Thumbnail.png.-->
+	<Thumbnail Value="Thumbnail.png" />
 	<!--Tag, can be set multiple times. PDX tags are fixed categories, not free-form keywords.-->
 	<Tag Value="Code Mod" />
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="https://forum.paradoxplaza.com/forum/threads/no-office-demand-fix-discussion-thread.1906822/" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.1.2" />
+	<ModVersion Value="0.1.3" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
