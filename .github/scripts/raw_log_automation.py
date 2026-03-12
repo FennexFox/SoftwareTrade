@@ -1057,6 +1057,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
         observations,
         software_office_details,
     )
+    latest_run_details = latest_run_candidates["latest_run_details"]
     latest_detail = None
     if latest_observation and software_office_details:
         latest_run_id = latest_observation["observation_window"].get("run_id")
@@ -1069,7 +1070,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
             and detail["metadata"].get("session_id") == latest_session_id
             and detail["metadata"].get("observation_end_sample_index") == latest_sample_index
         ]
-        latest_detail = matching_details[-1] if matching_details else software_office_details[-1]
+        latest_detail = matching_details[-1] if matching_details else (latest_run_details[-1] if latest_run_details else None)
 
     return {
         "anchors": anchors,
@@ -1082,7 +1083,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "observation_count": len(observations),
         "detail_count": len(software_office_details),
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
-        "latest_run_details": latest_run_candidates["latest_run_details"],
+        "latest_run_details": latest_run_details,
         "final_observation": latest_run_candidates["final_observation"],
         "latest_consumer_detail_observation": latest_run_candidates["latest_consumer_detail_observation"],
         "latest_producer_detail_observation": latest_run_candidates["latest_producer_detail_observation"],

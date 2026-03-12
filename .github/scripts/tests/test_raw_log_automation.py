@@ -84,6 +84,15 @@ RECENT_MIXED_HISTORY_LOG = textwrap.dedent(
 ).strip()
 
 
+CROSS_RUN_DETAIL_LEAK_LOG = textwrap.dedent(
+    """
+    [2026-03-10 15:00:00,000] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T150000000Z, run_id=1, start_day=20, end_day=20, start_sample_index=10, end_sample_index=10, sample_day=20, sample_index=10, sample_slot=1, samples_per_day=2, sample_count=1, observation_kind=scheduled, skipped_sample_slots=0, clock_source=runtime_time_system, trigger=suspicious_state); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:True,VerboseLogging:False, patch_state=debug-build); diagnostic_counters(officeDemand(building=10, company=10, emptyBuildings=1, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=1, resourceDemand=1, companies=1, propertyless=0); electronics(resourceProduction=1, resourceDemand=1, companies=1, propertyless=0); softwareProducerOffices(total=1, propertyless=0, efficiencyZero=1, lackResourcesZero=1); softwareConsumerOffices(total=1, propertyless=0, efficiencyZero=0, lackResourcesZero=0, softwareInputZero=0)); diagnostic_context(topFactors=[EmptyBuildings=1])
+    [2026-03-10 15:00:00,001] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T150000000Z, run_id=1, observation_end_day=20, observation_end_sample_index=10, detail_type=softwareOfficeStates, values=role=producer, company=1, prefab="Office_SoftwareCompany", property=1, output=Software, outputStock=0, input1=Electronics(stock=0), efficiency=0, lackResources=0)
+    [2026-03-10 16:00:00,000] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T150000000Z, run_id=2, start_day=21, end_day=21, start_sample_index=12, end_sample_index=12, sample_day=21, sample_index=12, sample_slot=1, samples_per_day=2, sample_count=1, observation_kind=scheduled, skipped_sample_slots=0, clock_source=runtime_time_system, trigger=suspicious_state); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:True,VerboseLogging:False, patch_state=debug-build); diagnostic_counters(officeDemand(building=11, company=11, emptyBuildings=2, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=1, resourceDemand=1, companies=1, propertyless=0); electronics(resourceProduction=1, resourceDemand=1, companies=1, propertyless=0); softwareProducerOffices(total=1, propertyless=0, efficiencyZero=0, lackResourcesZero=0); softwareConsumerOffices(total=1, propertyless=0, efficiencyZero=0, lackResourcesZero=0, softwareInputZero=0)); diagnostic_context(topFactors=[EmptyBuildings=2])
+    """
+).strip()
+
+
 RAW_ISSUE_BODY = textwrap.dedent(
     """
     <!-- raw-log-report -->
@@ -326,6 +335,20 @@ class RawLogAutomationTests(unittest.TestCase):
             automation.observation_day(parsed["latest_producer_detail_observation"]),
             automation.observation_day(parsed["producer_peak_observation"]),
         )
+
+    def test_parse_log_does_not_reuse_older_run_detail_when_latest_run_has_none(self) -> None:
+        parsed = automation.parse_log(CROSS_RUN_DETAIL_LEAK_LOG)
+        self.assertEqual(parsed["latest_run_details"], [])
+        self.assertIsNone(parsed["latest_software_office_detail"])
+        excerpt = automation.build_log_excerpt(
+            {
+                "llm_draft": {},
+                "deterministic_draft": {},
+                "parsed_log": parsed,
+            }
+        )
+        self.assertIn("officeDemand(building=11", excerpt)
+        self.assertNotIn("role=producer", excerpt)
 
     def test_build_deterministic_draft_includes_checklist_confounders(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
