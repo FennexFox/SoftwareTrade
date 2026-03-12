@@ -39,6 +39,16 @@ LEGACY_OBSERVATION_LOG = CURRENT_BRANCH_LOG.replace(
     "",
 )
 
+TRADE_LIFECYCLE_LOG = (
+    CURRENT_BRANCH_LOG
+    + "\n"
+    + textwrap.dedent(
+        """
+        [2026-03-10 15:28:36,543] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T052953590Z, run_id=1, observation_end_day=22, observation_end_sample_index=153, detail_type=softwareTradeLifecycle, values=role=consumer, company=275099:1, prefab="Office_Bank" (419:1), property=70367:1, capture=transition, transition(from=need_selected_no_buyer, to=path_pending, day=22, sampleIndex=153), softwareNeed(stock=0, buyingLoad=0, tripNeededAmount=0, effectiveStock=0, threshold=4000, selected=True, expensive=False), softwareBuyerState(buyerActive=False, buyerAmount=n/a, tripNeededCount=0, tripNeededAmount=0, currentTradingCount=0, currentTradingAmount=0, pathPending=True, pathState=Pending, pathDestination=144:1, pathDistance=125.5), softwareTripState(totalCount=0, totalAmount=0, shoppingCount=0, shoppingAmount=0, companyShoppingCount=0, companyShoppingAmount=0, otherCount=0, otherAmount=0), buyingCompany(lastTradePartner=none, meanInputTripLength=0), pathSeller(entity=144:1, kind=outside_connection, stock=8000, buyingLoad=0, availableStock=8000, tradeCostEntry=True, buyCost=0, sellCost=0.5, lastTransferRequestTime=0, outsideConnectionType=Road))
+        """
+    ).strip()
+)
+
 MULTI_OBSERVATION_LOG = textwrap.dedent(
     """
     [2026-03-10 14:28:15,189] [INFO]  Office resource storage patch applied for the current load. Outside connections: 6, cargo stations: 28.
@@ -295,6 +305,15 @@ class RawLogAutomationTests(unittest.TestCase):
         latest = parsed["latest_observation"]
         self.assertIsNotNone(latest)
         self.assertEqual(latest["observation_window"]["clock_source"], "displayed_clock")
+
+    def test_parse_log_keeps_trade_lifecycle_details_separate_from_office_excerpt_selection(self) -> None:
+        parsed = automation.parse_log(TRADE_LIFECYCLE_LOG)
+        self.assertEqual(parsed["detail_count"], 1)
+        self.assertEqual(parsed["trade_lifecycle_detail_count"], 1)
+        self.assertEqual(parsed["latest_trade_lifecycle_detail"]["detail_type"], "softwareTradeLifecycle")
+        self.assertEqual(parsed["latest_software_office_detail"]["detail_type"], "softwareOfficeStates")
+        self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["producer_latest"])
+        self.assertIn("softwareTradeLifecycle", parsed["latest_trade_lifecycle_detail"]["raw_line"])
 
     def test_parse_log_retains_latest_run_candidates_across_multiple_observations(self) -> None:
         parsed = automation.parse_log(MULTI_OBSERVATION_LOG)

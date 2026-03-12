@@ -26,11 +26,13 @@ PROMOTE_COMMAND = "/promote-evidence"
 DIAGNOSTICS_OBSERVATION_PREFIX = "softwareEvidenceDiagnostics observation_window("
 DIAGNOSTICS_DETAIL_PREFIX = "softwareEvidenceDiagnostics detail("
 SOFTWARE_OFFICE_STATES_DETAIL_MARKER = "detail_type=softwareOfficeStates"
+SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER = "detail_type=softwareTradeLifecycle"
 PHANTOM_CORRECTION_PREFIX = "Signature phantom vacancy guard corrected"
 PATCH_SUMMARY_PREFIXES = (
     "Office resource storage patch applied for the current load.",
     "Office resource storage patch applied.",
 )
+MAX_RECENT_TRADE_LIFECYCLE_DETAILS = 5
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
@@ -1053,6 +1055,7 @@ def build_selected_snippets(
 def parse_log(log_text: str) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     software_office_details: list[dict[str, Any]] = []
+    software_trade_lifecycle_details: list[dict[str, Any]] = []
     patch_summaries: list[str] = []
     phantom_corrections: list[str] = []
     anchors: list[dict[str, Any]] = []
@@ -1089,6 +1092,20 @@ def parse_log(log_text: str) -> dict[str, Any]:
                     message=extract_log_message(stripped),
                 )
             software_office_details.append(detail)
+            anchors.append(detail)
+            continue
+
+        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER in message:
+            try:
+                detail = parse_detail_line(stripped)
+            except Exception:
+                detail = build_anchor_record(
+                    "detail",
+                    stripped,
+                    parse_confidence="low",
+                    message=extract_log_message(stripped),
+                )
+            software_trade_lifecycle_details.append(detail)
             anchors.append(detail)
             continue
 
@@ -1138,16 +1155,36 @@ def parse_log(log_text: str) -> dict[str, Any]:
         ]
         latest_detail = matching_details[-1] if matching_details else (latest_run_details[-1] if latest_run_details else None)
 
+    latest_trade_lifecycle_detail = None
+    if latest_observation and software_trade_lifecycle_details:
+        latest_run_id = latest_observation["observation_window"].get("run_id")
+        latest_session_id = latest_observation["observation_window"].get("session_id")
+        latest_sample_index = latest_observation["observation_window"].get("sample_index")
+        matching_trade_lifecycle_details = [
+            detail
+            for detail in software_trade_lifecycle_details
+            if detail["metadata"].get("run_id") == latest_run_id
+            and detail["metadata"].get("session_id") == latest_session_id
+            and detail["metadata"].get("observation_end_sample_index") == latest_sample_index
+        ]
+        latest_trade_lifecycle_detail = (
+            matching_trade_lifecycle_details[-1]
+            if matching_trade_lifecycle_details
+            else software_trade_lifecycle_details[-1]
+        )
+
     return {
         "anchors": anchors,
         "anchor_index": build_anchor_index(anchors),
         "latest_observation": latest_observation,
         "latest_software_office_detail": latest_detail,
+        "latest_trade_lifecycle_detail": latest_trade_lifecycle_detail,
         "latest_patch_summary": patch_summaries[-1] if patch_summaries else "",
         "patch_summaries": patch_summaries[-5:],
         "phantom_corrections": phantom_corrections[-5:],
         "observation_count": len(observations),
         "detail_count": len(software_office_details),
+        "trade_lifecycle_detail_count": len(software_trade_lifecycle_details),
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
         "latest_run_details": latest_run_details,
         "final_observation": latest_run_candidates["final_observation"],
@@ -1155,6 +1192,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_producer_detail_observation": latest_run_candidates["latest_producer_detail_observation"],
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
+        "recent_trade_lifecycle_details": software_trade_lifecycle_details[-MAX_RECENT_TRADE_LIFECYCLE_DETAILS:],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
         "selected_snippets": build_selected_snippets(
             latest_run_candidates["log_excerpt_candidates"],
