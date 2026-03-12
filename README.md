@@ -13,7 +13,9 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - includes an opt-in prefab-level office-resource trade patch for outside connections and cargo stations when maintainers need software-track comparison data; setting changes are picked up on the next city/save load without a full restart in the normal case, but a restart is recommended for clean comparison runs if other mods may also modify the same storage resource definitions
-- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including need-selection and buyer-lifecycle signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer buyer-state anomalies
+- includes opt-in diagnostics:
+  - covers office demand, phantom vacancy, and `software` producer/consumer office health
+  - uses need-selection and buyer-lifecycle signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer buyer-state anomalies
 
 What it does not claim:
 
@@ -43,9 +45,9 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 ## Current Interpretation
 
 Current evidence supports two distinct tracks:
-
+- `software` instability is still plausible and still tracked. Current evidence suggests it is best treated as investigation tooling with diagnostics and an optional trade patch for comparison runs rather than a solved user-facing fix.
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
-- `software` instability is still plausible, still tracked, and still best treated as investigation tooling with diagnostics and an optional trade patch for comparison runs rather than a solved user-facing fix
+Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks. In particular, the current investigation focuses on explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
 
 Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks. The current investigation focuses on explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
 
