@@ -44,6 +44,16 @@ BUYER_STATE_ONLY_LOG = textwrap.dedent(
 ).strip()
 
 
+RECENT_CONSUMER_HISTORY_LOG = textwrap.dedent(
+    """
+    [2026-03-10 15:20:00,000] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T170000000Z, run_id=1, start_day=21, end_day=21, start_sample_index=152, end_sample_index=152, sample_day=21, sample_index=152, sample_slot=1, samples_per_day=2, sample_count=1, trigger=suspicious_state); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:True,VerboseLogging:True, patch_state=debug-build); diagnostic_counters(officeDemand(building=90, company=12000, emptyBuildings=90, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=925211, resourceDemand=411328, companies=27, propertyless=0); electronics(resourceProduction=109125, resourceDemand=351810, companies=11, propertyless=0); softwareProducerOffices(total=27, propertyless=0, efficiencyZero=0, lackResourcesZero=0); softwareConsumerOffices(total=28, propertyless=0, efficiencyZero=8, lackResourcesZero=0, softwareInputZero=8)); diagnostic_context(topFactors=[EmptyBuildings=90, Taxes=100, LocalDemand=58])
+    [2026-03-10 15:20:00,001] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T170000000Z, run_id=1, observation_end_day=21, observation_end_sample_index=152, detail_type=softwareOfficeStates, values=role=consumer, company=276439:1, prefab="Office_MediaCompany" (420:1), property=71688:1, output=Media, outputStock=0, input1=Software(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0), softwareInputZero=True, efficiency=0, lackResources=0)
+    [2026-03-10 15:28:36,542] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T170000000Z, run_id=1, start_day=21, end_day=22, start_sample_index=152, end_sample_index=160, sample_day=22, sample_index=160, sample_slot=2, samples_per_day=2, sample_count=2, trigger=suspicious_state); environment(settings=EnableTradePatch:False,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:True,VerboseLogging:True, patch_state=debug-build); diagnostic_counters(officeDemand(building=100, company=12482, emptyBuildings=100, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=1044875, resourceDemand=471676, companies=26, propertyless=0); electronics(resourceProduction=226375, resourceDemand=391863, companies=11, propertyless=0); softwareProducerOffices(total=26, propertyless=0, efficiencyZero=0, lackResourcesZero=0); softwareConsumerOffices(total=29, propertyless=0, efficiencyZero=0, lackResourcesZero=0, softwareInputZero=0); softwareConsumerBuyerState(selectedNeed=3, noBuyerDespiteNeed=3, tradeCostOnly=3, buyerActive=0)); diagnostic_context(topFactors=[EmptyBuildings=100, Taxes=100, LocalDemand=58])
+    [2026-03-10 15:28:36,543] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T170000000Z, run_id=1, observation_end_day=22, observation_end_sample_index=160, detail_type=softwareOfficeStates, values=role=consumer, company=276447:1, prefab="Office_Bank" (419:1), property=71715:1, output=Financial, outputStock=0, input1=Software(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0), softwareNeed(selected=Software, amount=16), softwareBuyerState(selectedNeed=True, buyerActive=False, noBuyerDespiteNeed=True), softwareTrace(tripNeededCount=1, currentTradingCount=0))
+    """
+).strip()
+
+
 RAW_ISSUE_BODY = textwrap.dedent(
     """
     <!-- raw-log-report -->
@@ -233,6 +243,16 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["consumer_latest"])
         self.assertIn("softwareNeed(selected=Software", parsed["log_excerpt_candidates"][0]["markdown"])
         self.assertTrue(parsed["selected_snippets"])
+
+    def test_parse_log_keeps_recent_consumer_detail_history(self) -> None:
+        parsed = automation.parse_log(RECENT_CONSUMER_HISTORY_LOG)
+        self.assertEqual(
+            [candidate["label"] for candidate in parsed["log_excerpt_candidates"]],
+            ["consumer_previous", "consumer_latest"],
+        )
+        self.assertIn("softwareInputZero=True", parsed["log_excerpt_candidates"][0]["markdown"])
+        self.assertIn("softwareNeed(selected=Software", parsed["log_excerpt_candidates"][1]["markdown"])
+        self.assertEqual(len([snippet for snippet in parsed["selected_snippets"] if snippet["kind"] == "detail_excerpt"]), 2)
 
     def test_build_deterministic_draft_includes_checklist_confounders(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)

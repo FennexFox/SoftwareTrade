@@ -44,6 +44,9 @@ LLM_REASONING_SUMMARY_MAX_LENGTH = 220
 LLM_MAX_PATCH_SUMMARIES = 2
 LLM_MAX_PHANTOM_CORRECTIONS = 2
 MAX_EXCERPT_DETAIL_LINES = 3
+MAX_EXCERPT_CANDIDATES_PER_GROUP = 2
+MAX_SELECTED_EXCERPT_CANDIDATES = 4
+MAX_DETERMINISTIC_EXCERPT_CANDIDATES = 2
 MAX_STYLE_EXAMPLES = 2
 LLM_CONTEXT_VARIANTS = (
     {
@@ -51,9 +54,9 @@ LLM_CONTEXT_VARIANTS = (
         "anchor_limit": 12,
         "anchor_excerpt_limit": LLM_SUMMARY_LINE_LIMIT,
         "anchor_detail_limit": DETAIL_PREVIEW_LIMIT,
-        "snippet_limit": 6,
+        "snippet_limit": 8,
         "snippet_text_limit": DETAIL_PREVIEW_LIMIT,
-        "candidate_limit": 2,
+        "candidate_limit": 4,
         "candidate_lines_per_item": MAX_EXCERPT_DETAIL_LINES,
         "candidate_line_limit": LLM_DETAIL_EXCERPT_LIMIT,
         "style_example_limit": MAX_STYLE_EXAMPLES,
@@ -73,7 +76,7 @@ LLM_CONTEXT_VARIANTS = (
         "anchor_detail_limit": 700,
         "snippet_limit": 4,
         "snippet_text_limit": 700,
-        "candidate_limit": 1,
+        "candidate_limit": 2,
         "candidate_lines_per_item": 2,
         "candidate_line_limit": 400,
         "style_example_limit": 1,
@@ -704,6 +707,10 @@ def detail_role(detail: dict[str, Any] | None) -> str:
     return ""
 
 
+def detail_type_name(detail: dict[str, Any] | None) -> str:
+    return str((detail or {}).get("detail_type", "")).strip()
+
+
 def counter_value(observation: dict[str, Any] | None, group_name: str, field_name: str) -> int:
     counter_groups = (observation or {}).get("diagnostic_counters", {})
     return safe_int(counter_groups.get(group_name, {}).get(field_name))
@@ -766,6 +773,40 @@ def pick_latest_details_for_role(
     return matching[:limit]
 
 
+def build_recent_detail_batches(
+    details: list[dict[str, Any]],
+    *,
+    role: str,
+    sample_limit: int = MAX_EXCERPT_CANDIDATES_PER_GROUP,
+    line_limit: int = MAX_EXCERPT_DETAIL_LINES,
+) -> list[list[dict[str, Any]]]:
+    role_details = [detail for detail in details if detail_role(detail) == role]
+    if not role_details:
+        return []
+
+    ordered_groups: list[list[dict[str, Any]]] = []
+    seen_samples: set[tuple[int, int]] = set()
+    ordered_details = sorted(
+        role_details,
+        key=lambda item: (detail_day(item), detail_sample_index(item)),
+        reverse=True,
+    )
+    for detail in ordered_details:
+        sample_key = (detail_day(detail), detail_sample_index(detail))
+        if sample_key in seen_samples:
+            continue
+        seen_samples.add(sample_key)
+        batch = [
+            item
+            for item in role_details
+            if detail_day(item) == sample_key[0] and detail_sample_index(item) == sample_key[1]
+        ]
+        ordered_groups.append(batch[:line_limit])
+        if len(ordered_groups) >= sample_limit:
+            break
+    return ordered_groups
+
+
 def find_observation_for_detail(
     observations: list[dict[str, Any]],
     detail: dict[str, Any] | None,
@@ -782,6 +823,14 @@ def find_observation_for_detail(
         if observation_day(observation) == target_day:
             return observation
     return observations[-1]
+
+
+def excerpt_recency_label(index: int) -> str:
+    if index <= 0:
+        return "latest"
+    if index == 1:
+        return "previous"
+    return f"recent_{index + 1}"
 
 
 def select_details_for_observation(
@@ -877,34 +926,38 @@ def build_latest_run_candidates(
         and str(detail.get("metadata", {}).get("run_id", "")) == latest_run_id
     ]
 
-    consumer_details = pick_latest_details_for_role(latest_run_details, "consumer")
-    producer_details = pick_latest_details_for_role(latest_run_details, "producer")
+    consumer_batches = build_recent_detail_batches(latest_run_details, role="consumer")
+    producer_batches = build_recent_detail_batches(latest_run_details, role="producer")
 
     consumer_peak_observation = find_observation_for_detail(
         latest_run_observations,
-        consumer_details[0] if consumer_details else None,
+        consumer_batches[0][0] if consumer_batches else None,
     )
     producer_peak_observation = find_observation_for_detail(
         latest_run_observations,
-        producer_details[0] if producer_details else None,
+        producer_batches[0][0] if producer_batches else None,
     )
 
     log_excerpt_candidates: list[dict[str, Any]] = []
-    consumer_candidate = build_excerpt_candidate(
-        "consumer_latest",
-        consumer_peak_observation,
-        consumer_details,
-    )
-    if consumer_candidate:
-        log_excerpt_candidates.append(consumer_candidate)
+    for index, batch in enumerate(reversed(consumer_batches)):
+        observation = find_observation_for_detail(latest_run_observations, batch[0] if batch else None)
+        consumer_candidate = build_excerpt_candidate(
+            f"consumer_{excerpt_recency_label(len(consumer_batches) - index - 1)}",
+            observation,
+            batch,
+        )
+        if consumer_candidate:
+            log_excerpt_candidates.append(consumer_candidate)
 
-    producer_candidate = build_excerpt_candidate(
-        "producer_latest",
-        producer_peak_observation,
-        producer_details,
-    )
-    if producer_candidate:
-        log_excerpt_candidates.append(producer_candidate)
+    for index, batch in enumerate(reversed(producer_batches)):
+        observation = find_observation_for_detail(latest_run_observations, batch[0] if batch else None)
+        producer_candidate = build_excerpt_candidate(
+            f"producer_{excerpt_recency_label(len(producer_batches) - index - 1)}",
+            observation,
+            batch,
+        )
+        if producer_candidate:
+            log_excerpt_candidates.append(producer_candidate)
 
     log_excerpt_candidates.sort(
         key=lambda item: (safe_int(item["day"]), safe_int(item["sample_index"]), item["label"])
@@ -934,7 +987,8 @@ def build_selected_snippets(
 ) -> list[dict[str, Any]]:
     snippets: list[dict[str, Any]] = []
 
-    for candidate in log_excerpt_candidates[:2]:
+    recent_candidates = log_excerpt_candidates[-MAX_SELECTED_EXCERPT_CANDIDATES:]
+    for candidate in recent_candidates:
         snippets.append(
             {
                 "label": candidate.get("label", ""),
@@ -1233,7 +1287,8 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
 
 
 def build_deterministic_log_excerpt(parsed_log: dict[str, Any]) -> str:
-    blocks = [candidate["markdown"] for candidate in parsed_log.get("log_excerpt_candidates", []) if candidate.get("markdown")]
+    recent_candidates = parsed_log.get("log_excerpt_candidates", [])[-MAX_DETERMINISTIC_EXCERPT_CANDIDATES:]
+    blocks = [candidate["markdown"] for candidate in recent_candidates if candidate.get("markdown")]
     return "\n\n".join(blocks)
 
 
@@ -1584,7 +1639,7 @@ def build_summary_refinement_context(
     draft: dict[str, Any],
 ) -> dict[str, Any]:
     excerpt_candidates = build_excerpt_candidates_for_llm(parsed_log)
-    selected_candidate = excerpt_candidates[0] if excerpt_candidates else {}
+    selected_candidate = excerpt_candidates[-1] if excerpt_candidates else {}
     return {
         "raw_issue": {
             "save_or_city_label": issue_fields.get("save_or_city_label", ""),
@@ -2839,7 +2894,7 @@ def render_managed_comment(
         compact_payload = dict(payload)
         compact_parsed = dict(payload["parsed_log"])
         compact_parsed["latest_software_office_detail"] = None
-        compact_parsed["log_excerpt_candidates"] = compact_parsed.get("log_excerpt_candidates", [])[:2]
+        compact_parsed["log_excerpt_candidates"] = compact_parsed.get("log_excerpt_candidates", [])[-2:]
         compact_parsed["patch_summaries"] = compact_parsed["patch_summaries"][-3:]
         compact_parsed["phantom_corrections"] = compact_parsed["phantom_corrections"][-3:]
         compact_payload["parsed_log"] = compact_parsed
