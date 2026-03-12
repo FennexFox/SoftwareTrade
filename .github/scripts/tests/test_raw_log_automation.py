@@ -36,6 +36,14 @@ MULTI_OBSERVATION_LOG = textwrap.dedent(
 ).strip()
 
 
+BUYER_STATE_ONLY_LOG = textwrap.dedent(
+    """
+    [2026-03-10 16:00:00,000] [INFO]  softwareEvidenceDiagnostics observation_window(session_id=20260310T160000000Z, run_id=1, start_day=22, end_day=22, start_sample_index=200, end_sample_index=200, sample_day=22, sample_index=200, sample_slot=1, samples_per_day=2, sample_count=1, trigger=suspicious_state); environment(settings=EnableTradePatch:True,EnablePhantomVacancyFix:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:True,VerboseLogging:True, patch_state=debug-build); diagnostic_counters(officeDemand(building=100, company=12000, emptyBuildings=120, buildingDemand=0); freeOfficeProperties(total=0, software=0, inOccupiedBuildings=0, softwareInOccupiedBuildings=0); onMarketOfficeProperties(total=0, activelyVacant=0, occupied=0, staleRenterOnly=0); phantomVacancy(signatureOccupiedOnMarketOffice=0, signatureOccupiedOnMarketIndustrial=0, signatureOccupiedToBeOnMarket=0, nonSignatureOccupiedOnMarketOffice=0, nonSignatureOccupiedOnMarketIndustrial=0, guardCorrections=0); software(resourceProduction=900000, resourceDemand=450000, companies=26, propertyless=0); electronics(resourceProduction=150000, resourceDemand=350000, companies=11, propertyless=0); softwareProducerOffices(total=26, propertyless=0, efficiencyZero=0, lackResourcesZero=0); softwareConsumerOffices(total=28, propertyless=0, efficiencyZero=0, lackResourcesZero=0, softwareInputZero=0); softwareConsumerBuyerState(selectedNeed=4, noBuyerDespiteNeed=4, tradeCostOnly=4, buyerActive=0)); diagnostic_context(topFactors=[EmptyBuildings=120, Taxes=100, LocalDemand=58])
+    [2026-03-10 16:00:00,001] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T160000000Z, run_id=1, observation_end_day=22, observation_end_sample_index=200, detail_type=softwareOfficeStates, values=role=consumer, company=276439:1, prefab="Office_MediaCompany" (420:1), property=71688:1, output=Media, outputStock=0, input1=Software(stock=0, tradeCostBuffer=True, tradeCostEntry=True, buyCost=0), softwareNeed(selected=Software, amount=16), softwareBuyerState(selectedNeed=True, buyerActive=False, noBuyerDespiteNeed=True), softwareTrace(tripNeededCount=1, currentTradingCount=0))
+    """
+).strip()
+
+
 RAW_ISSUE_BODY = textwrap.dedent(
     """
     <!-- raw-log-report -->
@@ -202,7 +210,7 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(parsed["latest_patch_summary"], "Office resource storage patch applied. Outside connections: 6, cargo stations: 28.")
         self.assertEqual(
             automation.derive_symptom_classification(latest["diagnostic_counters"]),
-            "software_office_propertyless",
+            "software_track_unclear",
         )
         self.assertIn("role=producer", parsed["latest_software_office_detail"]["values"])
         self.assertGreaterEqual(len(parsed["anchors"]), 4)
@@ -214,9 +222,17 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(len(parsed["latest_run_observations"]), 3)
         self.assertEqual(automation.observation_day(parsed["consumer_peak_observation"]), 21)
         self.assertEqual(automation.observation_day(parsed["producer_peak_observation"]), 22)
-        self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["consumer_peak", "producer_peak"])
+        self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["consumer_latest", "producer_latest"])
         self.assertIn("role=consumer", parsed["log_excerpt_candidates"][0]["markdown"])
         self.assertIn("role=producer", parsed["log_excerpt_candidates"][1]["markdown"])
+
+    def test_parse_log_keeps_latest_consumer_detail_without_distress_peak(self) -> None:
+        parsed = automation.parse_log(BUYER_STATE_ONLY_LOG)
+        self.assertEqual(automation.observation_day(parsed["consumer_peak_observation"]), 22)
+        self.assertIsNone(parsed["producer_peak_observation"])
+        self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["consumer_latest"])
+        self.assertIn("softwareNeed(selected=Software", parsed["log_excerpt_candidates"][0]["markdown"])
+        self.assertTrue(parsed["selected_snippets"])
 
     def test_build_deterministic_draft_includes_checklist_confounders(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -232,8 +248,8 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("trade patch enabled during capture", draft["confounders"])
         self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
         self.assertEqual(draft["platform_notes"], "Windows release build")
-        self.assertEqual(draft["symptom_classification"], "software_demand_mismatch")
-        self.assertIn("EnableTradePatch-enabled", draft["title"])
+        self.assertEqual(draft["symptom_classification"], "software_track_unclear")
+        self.assertEqual(draft["title"], "[Software Evidence] New Seoul evidence by day 22")
 
     def test_build_deterministic_draft_marks_disabled_trade_patch_in_confounders(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -256,8 +272,8 @@ class RawLogAutomationTests(unittest.TestCase):
             "buyerActive": 0,
         }
         summary = automation.build_deterministic_summary(parsed_log, "software_demand_mismatch")
-        self.assertIn("softwareConsumerBuyerState.noBuyerDespiteNeed=24", summary)
-        self.assertIn("buyerActive=0", summary)
+        self.assertIn("softwareConsumerBuyerState(noBuyerDespiteNeed=24, buyerActive=0)", summary)
+        self.assertIn("officeDemand(building=100", summary)
 
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
