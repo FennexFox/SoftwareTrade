@@ -29,13 +29,16 @@ The automation will:
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
-- preserve `clock_source`, `sample_count`, and `skipped_sample_slots` so maintainers can see that slot timing came from the runtime `TimeSystem` path, that `sample_day` was reconstructed as a logical displayed-clock day, and whether any scheduled gaps were not backfilled
+- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, using the newest relevant sample for each role as the default excerpt and adding at most one immediately previous distinct sample only when short chronology materially affects interpretation
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
-The machine-parsed prefixes used for those raw-log contracts are defined in
-`NoOfficeDemandFix/MachineParsedLogContract.cs`. Treat changes there as parser
-contract changes, not casual log wording edits.
+The draft is LLM-first for semantic framing, but the automation still treats the
+observation window, copied counters, and anchored detail excerpts as the hard
+evidence that excerpts and later validation must stay aligned to. Keep
+`start_day` / `end_day` as the primary window bounds; treat `sample_count` as
+emitted observation density and `skipped_sample_slots`, when present, as
+supporting gap context.
 
 ## Privacy Notes
 
@@ -64,6 +67,9 @@ until later evidence synthesis reviews the counters and excerpts together.
 - maintainers should copy the `maintainer_reply` YAML block into a new comment,
   paste the YAML directly or wrap it in fences, edit it there, and include
   `/promote-evidence` in that same comment
+- when the managed triage comment shows multiple excerpt candidates, prefer the
+  newest anchored excerpt unless the immediately previous sample adds important
+  chronology for the final evidence entry (for example, when it shows the onset of a condition that persists in the latest sample)
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
 

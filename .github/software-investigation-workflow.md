@@ -45,7 +45,10 @@ When promoting a run into a `software evidence` issue:
 2. copy `settings=...`
 3. copy `patch_state=...`
 4. copy `diagnostic_counters(...)`
-5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters
+5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters; prefer the newest anchored detail sample and include at most one or two immediately previous distinct samples only when they clearly improve chronology, for example:
+   - showing a state transition (e.g., office or property moving from one demand or configuration state to another between samples)
+   - documenting a persistent or oscillating pattern across samples that is central to the claim (not just noise)
+   - confirming that a state has stabilized after a change (e.g., counters or demand values converging to a steady pattern)
 6. add only the minimum investigator-written context needed to make the run reusable
 
 Capture guidance:
@@ -58,20 +61,30 @@ Capture guidance:
 - keep `evidence_summary` short and descriptive, not argumentative
 - use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
 - do not treat `symptom_classification` as proof of root cause
+- treat raw-log automation symptom labels and prose as provisional drafting help; the observation-window anchor, copied counters, and selected detail excerpts remain the primary evidence
 - use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- `sample_count` counts emitted `observation_window(...)` lines in the current run, not theoretical per-day slots, so use it as a density hint rather than a replacement for the day fields
-- `skipped_sample_slots` reports scheduled slots that elapsed between emitted observations without a backfilled log line
-- the machine-parsed log prefixes consumed by raw-log automation are defined in `NoOfficeDemandFix/MachineParsedLogContract.cs`; treat changes there as parser contract changes and update the Python parser constants and fixtures in the same diff
+- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
+- treat `sample_count` as emitted `softwareEvidenceDiagnostics observation_window(...)` density inside the current run, not as a replacement for the day fields
+- treat `skipped_sample_slots` as scheduled sample slots that were missed and honestly reported rather than backfilled
+- if raw-log automation produced multiple detail excerpts for one role, treat the latest anchored sample as the default excerpt and include at most one older anchored sample only when it preserves short local chronology that materially improves interpretation
+- treat changes to the machine-parsed log prefixes as parser-contract changes; when those prefixes are centralized in `NoOfficeDemandFix/MachineParsedLogContract.cs`, update the Python parser constants and fixtures in the same diff
 
 The current diagnostics vocabulary is:
 
-- `softwareEvidenceDiagnostics observation_window(...)`
+- `softwareEvidenceDiagnostics observation_window(...)`, including `observation_kind`, `skipped_sample_slots`, and `clock_source` when those fields are emitted
 - `environment(settings=..., patch_state=...)`
-- `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when those counter groups are emitted
+- `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may also include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues for software consumers
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` for software consumers
+
+When the raw-log automation prepares a draft, it uses deterministic parsing to
+extract these anchors and bound excerpt candidates, then uses LLM drafting for
+the initial semantic framing. Review the framing, but treat the copied anchors
+and excerpts as the hard evidence.
+Keep the mod-side contract strings and the Python parser constants and fixtures
+synchronized whenever the machine-parsed log contract changes.
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
 
@@ -91,6 +104,8 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
 - persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
 - persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
+- do not infer an active buyer, in-flight trip, or current trading state from `tradeCostEntry=True` in `softwareTradeCost(...)` alone
+- if `softwareNeed(selected=true)` appears together with `softwareBuyerState(buyerActive=false, tripNeededCount=0, currentTradingCount=0, pathState=none)`, record that as a buyer-lifecycle anomaly rather than assuming the missing trade state is expected
 - widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
 - if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption rather than hand-waving it away
 - keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
@@ -103,19 +118,27 @@ Default minimum window guidance:
 - `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
 
-At the default `DiagnosticsSamplesPerDay=2` cadence, those windows will usually yield roughly:
+At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with
+no skipped slots will usually yield roughly:
 
-- `3 days`: about `6` samples
-- `5 days`: about `10` samples
-- `7 days`: about `14` samples
+- `3 days`: about `6` emitted observation windows
+- `5 days`: about `10` emitted observation windows
+- `7 days`: about `14` emitted observation windows
 
-Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser emitted evidence inside the same day-count window, not as a replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set differently, scale the expected `sample_count` accordingly for baseline capture and read any `skipped_sample_slots` as a reminder that missed scheduled slots were not backfilled.
+Use the day-count recommendation as the primary rule. Treat `sample_count` as
+emitted observation density inside the same day-count window, not as a
+replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set
+differently, scale the expected `sample_count` accordingly for baseline capture
+and read any `skipped_sample_slots` as honest gap reporting for missed
+scheduled slots that were not backfilled.
 
 These day-count recommendations remain usable under time-scaling mods such as `RealisticTrips` / `Time2Work`, but they should be treated as lower-confidence comparisons than vanilla-speed runs.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
 The current sampling code derives `sample_slot` from the runtime `TimeSystem` time-of-day path and advances a logical displayed-clock day when that slot wraps, seeding from the runtime day value and re-syncing after large gaps such as loads or long pauses, but it does not include explicit per-mod interoperability.
 When `CaptureStableEvidence` or `VerboseLogging` is keeping output active, emitted observations now stay tied to the slot that was actually sampled. If a slot is missed, the next emitted observation reports that gap through `skipped_sample_slots` instead of backfilling synthetic observations.
-The emitted `clock_source` field is normally `runtime_time_system`. Older logs may still show `displayed_clock`; treat that as a legacy contract value rather than a different current code path.
+The emitted `clock_source` field is normally `runtime_time_system`. Older logs
+may still show `displayed_clock`; treat that as legacy compatibility for older
+observation contracts rather than as a different current code path.
 That keeps the `3` / `5` / `7` day guidance conservative rather than weaker, while preserving honest slot timing in the raw log.
 
 Comparability guidance:
@@ -139,7 +162,7 @@ Comparability guidance:
 - comparison entry: evidence entry from the same save lineage after switching to `EnableTradePatch=true`
 - required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window
 - variable under test: `EnableTradePatch`
-- primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`
+- primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle detail is part of the claim
 - invalid comparison cases: save changed in unrelated ways, multiple settings changed together, session-boundary effects mixed in without being noted
 
 #### 2. Short-run vs long-run observation window
@@ -200,6 +223,16 @@ Comparability guidance:
 - interpretation guidance: treat `softwareConsumerOffices` distress with flat or rising `officeDemand(...)` as contradictory to the original direct-demand assumption unless another direct demand mechanism is separately evidenced
 - invalid comparison cases: office-demand counters were not preserved, unrelated interventions dominated the city state, or the demand claim was inferred only from software counters
 
+#### 8. Software need selection vs buyer lifecycle state
+
+- baseline entry: evidence entry from a run where `softwareConsumerBuyerState(...)` and consumer-side `softwareOfficeStates` detail were preserved
+- comparison entry: a matched evidence entry or later bounded window on the same save lineage where the software-consumer anomaly was sampled again
+- required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)`
+- variable under test: whether zero-software consumers are failing before buyer creation, during a transient buyer/path lifecycle, or after a path resolves without visible trade state
+- primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
+- interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is why `tradeCostEntry=True` coexists with `buyerActive=false`, `tripNeededCount=0`, `currentTradingCount=0`, and `pathState=none`
+- invalid comparison cases: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to tell same-sample buyer state from a transient trace
+
 ## Canonical Comparison Summary Shape
 
 Comparison summaries should use this small reusable shape inside the umbrella investigation issue body or a follow-up comment:
@@ -208,7 +241,7 @@ Comparison summaries should use this small reusable shape inside the umbrella in
 - `baseline_ref`: the baseline evidence entry or run reference
 - `comparison_ref`: the comparison evidence entry or run reference
 - `invariant_status`: whether the required invariants held, and if not, what broke comparability
-- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.officeDemand(...)` when demand response is part of the claim, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
+- `observed_deltas`: the relevant changes in `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle state is part of the claim, `diagnostic_counters.officeDemand(...)` when demand response is part of the claim, office demand / vacancy counters when relevant, and any relevant `softwareEvidenceDiagnostics detail(...)` lines
 - `outcome`: `supportive`, `contradictory`, `no material change`, or `invalid comparison`
 - `notes`: any narrow context that matters for later reuse
 

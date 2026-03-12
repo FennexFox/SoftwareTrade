@@ -55,6 +55,9 @@ LLM_REASONING_SUMMARY_MAX_LENGTH = 220
 LLM_MAX_PATCH_SUMMARIES = 2
 LLM_MAX_PHANTOM_CORRECTIONS = 2
 MAX_EXCERPT_DETAIL_LINES = 3
+MAX_EXCERPT_CANDIDATES_PER_GROUP = 2
+MAX_SELECTED_EXCERPT_CANDIDATES = 4
+MAX_DETERMINISTIC_EXCERPT_CANDIDATES = 2
 MAX_STYLE_EXAMPLES = 2
 LLM_CONTEXT_VARIANTS = (
     {
@@ -62,9 +65,9 @@ LLM_CONTEXT_VARIANTS = (
         "anchor_limit": 12,
         "anchor_excerpt_limit": LLM_SUMMARY_LINE_LIMIT,
         "anchor_detail_limit": DETAIL_PREVIEW_LIMIT,
-        "snippet_limit": 6,
+        "snippet_limit": 8,
         "snippet_text_limit": DETAIL_PREVIEW_LIMIT,
-        "candidate_limit": 2,
+        "candidate_limit": 4,
         "candidate_lines_per_item": MAX_EXCERPT_DETAIL_LINES,
         "candidate_line_limit": LLM_DETAIL_EXCERPT_LIMIT,
         "style_example_limit": MAX_STYLE_EXAMPLES,
@@ -84,7 +87,7 @@ LLM_CONTEXT_VARIANTS = (
         "anchor_detail_limit": 700,
         "snippet_limit": 4,
         "snippet_text_limit": 700,
-        "candidate_limit": 1,
+        "candidate_limit": 2,
         "candidate_lines_per_item": 2,
         "candidate_line_limit": 400,
         "style_example_limit": 1,
@@ -201,7 +204,7 @@ EVIDENCE_STYLE_EXAMPLES = [
         "summary_style": "Start with the tested condition, then describe the bounded window outcome without causal claims.",
         "example_summary": "With `EnableTradePatch=False`, the same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
         "log_excerpt_style": "Use `### Day ...` subsections with fenced `text` blocks that quote only the selected producer or consumer detail lines.",
-        "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, peak distress, final sample, and any important trade-state cue.",
+        "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, recent anchored detail, final sample, and any important trade-state cue.",
     },
     {
         "name": "single bounded run",
@@ -732,45 +735,84 @@ def format_counter_group(name: str, values: dict[str, Any]) -> str:
     return f"{name}({joined})"
 
 
-def pick_peak_observation(
-    observations: list[dict[str, Any]],
-    score_builder: Any,
-) -> dict[str, Any] | None:
-    if not observations:
-        return None
-    return max(
-        observations,
-        key=lambda item: tuple(score_builder(item)) + (observation_sample_index(item),),
-    )
+def format_relevant_counter_group(
+    name: str,
+    values: dict[str, Any],
+    ordered_fields: tuple[str, ...],
+    *,
+    include_zero_fields: tuple[str, ...] = (),
+) -> str:
+    include_zero = set(include_zero_fields)
+    filtered: dict[str, int] = {}
+    for field_name in ordered_fields:
+        if field_name not in values:
+            continue
+        numeric_value = safe_int(values.get(field_name))
+        if numeric_value > 0 or field_name in include_zero:
+            filtered[field_name] = numeric_value
+    if not filtered:
+        return ""
+    return format_counter_group(name, filtered)
 
 
-def select_details_for_observation(
+def build_recent_detail_batches(
     details: list[dict[str, Any]],
-    observation: dict[str, Any] | None,
     *,
     role: str,
-    limit: int = MAX_EXCERPT_DETAIL_LINES,
-) -> list[dict[str, Any]]:
-    if not observation:
+    sample_limit: int = MAX_EXCERPT_CANDIDATES_PER_GROUP,
+    line_limit: int = MAX_EXCERPT_DETAIL_LINES,
+) -> list[list[dict[str, Any]]]:
+    role_details = [detail for detail in details if detail_role(detail) == role]
+    if not role_details:
         return []
 
-    target_sample_index = observation_sample_index(observation)
-    target_day = observation_day(observation)
-
-    matching = [
-        detail
-        for detail in details
-        if detail_role(detail) == role and detail_sample_index(detail) == target_sample_index
-    ]
-    if not matching:
-        matching = [
-            detail
-            for detail in details
-            if detail_role(detail) == role and detail_day(detail) == target_day
+    ordered_groups: list[list[dict[str, Any]]] = []
+    seen_samples: set[tuple[int, int]] = set()
+    ordered_details = sorted(
+        role_details,
+        key=lambda item: (detail_day(item), detail_sample_index(item)),
+        reverse=True,
+    )
+    for detail in ordered_details:
+        sample_key = (detail_day(detail), detail_sample_index(detail))
+        if sample_key in seen_samples:
+            continue
+        seen_samples.add(sample_key)
+        batch = [
+            item
+            for item in role_details
+            if detail_day(item) == sample_key[0] and detail_sample_index(item) == sample_key[1]
         ]
-    if not matching:
-        matching = [detail for detail in details if detail_role(detail) == role]
-    return matching[:limit]
+        ordered_groups.append(batch[:line_limit])
+        if len(ordered_groups) >= sample_limit:
+            break
+    return ordered_groups
+
+
+def find_observation_for_detail(
+    observations: list[dict[str, Any]],
+    detail: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not observations or not detail:
+        return None
+
+    target_sample_index = detail_sample_index(detail)
+    target_day = detail_day(detail)
+    for observation in reversed(observations):
+        if observation_sample_index(observation) == target_sample_index:
+            return observation
+    for observation in reversed(observations):
+        if observation_day(observation) == target_day:
+            return observation
+    return observations[-1]
+
+
+def excerpt_recency_label(index: int) -> str:
+    if index <= 0:
+        return "latest"
+    if index == 1:
+        return "previous"
+    return f"recent_{index + 1}"
 
 
 def build_excerpt_candidate(
@@ -781,26 +823,26 @@ def build_excerpt_candidate(
     if not observation or not details:
         return None
 
+    detail_kind = detail_role(details[0])
+    if detail_kind == "consumer":
+        section_title = f"Day {observation_day(observation)} consumer-side detail"
+    elif detail_kind == "producer":
+        section_title = f"Day {observation_day(observation)} producer-side detail"
+    else:
+        section_title = f"Day {observation_day(observation)} software detail"
+
     lines = [truncate_text(detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT) for detail in details]
     return {
         "label": label,
         "day": observation_day(observation),
         "sample_index": observation_sample_index(observation),
-        "title": (
-            f"Day {observation_day(observation)} consumer-side shortage detail"
-            if label == "consumer_peak"
-            else f"Day {observation_day(observation)} producer-side detail"
-        ),
+        "title": section_title,
         "observation_window": observation.get("observation_window_raw", ""),
         "diagnostic_counters": observation.get("diagnostic_counters_raw", ""),
         "lines": lines,
         "markdown": "\n".join(
             [
-                (
-                    f"### Day {observation_day(observation)} consumer-side shortage detail"
-                    if label == "consumer_peak"
-                    else f"### Day {observation_day(observation)} producer-side detail"
-                ),
+                f"### {section_title}",
                 "```text",
                 "\n".join(lines),
                 "```",
@@ -819,6 +861,8 @@ def build_latest_run_candidates(
             "latest_run_observations": [],
             "latest_run_details": [],
             "final_observation": None,
+            "latest_consumer_detail_observation": None,
+            "latest_producer_detail_observation": None,
             "consumer_peak_observation": None,
             "producer_peak_observation": None,
             "log_excerpt_candidates": [],
@@ -837,60 +881,50 @@ def build_latest_run_candidates(
         and str(detail.get("metadata", {}).get("run_id", "")) == latest_run_id
     ]
 
-    consumer_peak_observation = pick_peak_observation(
-        latest_run_observations,
-        lambda item: (
-            counter_value(item, "softwareConsumerOffices", "softwareInputZero"),
-            counter_value(item, "softwareConsumerOffices", "efficiencyZero"),
-        ),
-    )
-    if counter_value(consumer_peak_observation, "softwareConsumerOffices", "softwareInputZero") <= 0:
-        consumer_peak_observation = None
+    consumer_batches = build_recent_detail_batches(latest_run_details, role="consumer")
+    producer_batches = build_recent_detail_batches(latest_run_details, role="producer")
 
-    producer_peak_observation = pick_peak_observation(
+    latest_consumer_detail_observation = find_observation_for_detail(
         latest_run_observations,
-        lambda item: (
-            counter_value(item, "softwareProducerOffices", "lackResourcesZero"),
-            counter_value(item, "softwareProducerOffices", "efficiencyZero"),
-        ),
+        consumer_batches[0][0] if consumer_batches else None,
     )
-    if (
-        counter_value(producer_peak_observation, "softwareProducerOffices", "lackResourcesZero") <= 0
-        and counter_value(producer_peak_observation, "softwareProducerOffices", "efficiencyZero") <= 0
-    ):
-        producer_peak_observation = None
-
-    producer_target_observation = latest_observation
-    if (
-        counter_value(producer_target_observation, "softwareProducerOffices", "lackResourcesZero") <= 0
-        and counter_value(producer_target_observation, "softwareProducerOffices", "efficiencyZero") <= 0
-    ):
-        producer_target_observation = producer_peak_observation
+    latest_producer_detail_observation = find_observation_for_detail(
+        latest_run_observations,
+        producer_batches[0][0] if producer_batches else None,
+    )
 
     log_excerpt_candidates: list[dict[str, Any]] = []
-    consumer_candidate = build_excerpt_candidate(
-        "consumer_peak",
-        consumer_peak_observation,
-        select_details_for_observation(latest_run_details, consumer_peak_observation, role="consumer"),
-    )
-    if consumer_candidate:
-        log_excerpt_candidates.append(consumer_candidate)
+    for index, batch in enumerate(reversed(consumer_batches)):
+        observation = find_observation_for_detail(latest_run_observations, batch[0] if batch else None)
+        consumer_candidate = build_excerpt_candidate(
+            f"consumer_{excerpt_recency_label(len(consumer_batches) - index - 1)}",
+            observation,
+            batch,
+        )
+        if consumer_candidate:
+            log_excerpt_candidates.append(consumer_candidate)
 
-    producer_candidate = build_excerpt_candidate(
-        "producer_peak",
-        producer_target_observation,
-        select_details_for_observation(latest_run_details, producer_target_observation, role="producer"),
-    )
-    if producer_candidate:
-        log_excerpt_candidates.append(producer_candidate)
+    for index, batch in enumerate(reversed(producer_batches)):
+        observation = find_observation_for_detail(latest_run_observations, batch[0] if batch else None)
+        producer_candidate = build_excerpt_candidate(
+            f"producer_{excerpt_recency_label(len(producer_batches) - index - 1)}",
+            observation,
+            batch,
+        )
+        if producer_candidate:
+            log_excerpt_candidates.append(producer_candidate)
 
-    log_excerpt_candidates.sort(key=lambda item: (safe_int(item["day"]), item["label"]))
+    log_excerpt_candidates.sort(
+        key=lambda item: (safe_int(item["day"]), safe_int(item["sample_index"]), item["label"])
+    )
     return {
         "latest_run_observations": latest_run_observations,
         "latest_run_details": latest_run_details,
         "final_observation": latest_observation,
-        "consumer_peak_observation": consumer_peak_observation,
-        "producer_peak_observation": producer_peak_observation,
+        "latest_consumer_detail_observation": latest_consumer_detail_observation,
+        "latest_producer_detail_observation": latest_producer_detail_observation,
+        "consumer_peak_observation": latest_consumer_detail_observation,
+        "producer_peak_observation": latest_producer_detail_observation,
         "log_excerpt_candidates": log_excerpt_candidates,
     }
 
@@ -910,7 +944,8 @@ def build_selected_snippets(
 ) -> list[dict[str, Any]]:
     snippets: list[dict[str, Any]] = []
 
-    for candidate in log_excerpt_candidates[:2]:
+    recent_candidates = log_excerpt_candidates[-MAX_SELECTED_EXCERPT_CANDIDATES:]
+    for candidate in recent_candidates:
         snippets.append(
             {
                 "label": candidate.get("label", ""),
@@ -1049,6 +1084,8 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
         "latest_run_details": latest_run_candidates["latest_run_details"],
         "final_observation": latest_run_candidates["final_observation"],
+        "latest_consumer_detail_observation": latest_run_candidates["latest_consumer_detail_observation"],
+        "latest_producer_detail_observation": latest_run_candidates["latest_producer_detail_observation"],
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
@@ -1074,42 +1111,13 @@ def safe_int(value: Any) -> int:
 
 
 def derive_symptom_classification(counter_groups: dict[str, dict[str, Any]]) -> str:
-    software = counter_groups.get("software", {})
-    producers = counter_groups.get("softwareProducerOffices", {})
-    consumers = counter_groups.get("softwareConsumerOffices", {})
-
-    if (
-        safe_int(software.get("propertyless")) > 0
-        or safe_int(producers.get("propertyless")) > 0
-        or safe_int(consumers.get("propertyless")) > 0
-    ):
-        return "software_office_propertyless"
-
-    if (
-        safe_int(producers.get("lackResourcesZero")) > 0
-        or safe_int(consumers.get("lackResourcesZero")) > 0
-    ):
-        return "software_office_lack_resources_zero"
-
-    if (
-        safe_int(producers.get("efficiencyZero")) > 0
-        or safe_int(consumers.get("efficiencyZero")) > 0
-    ):
-        return "software_office_efficiency_zero"
-
+    _ = counter_groups
     return "software_track_unclear"
 
 
 def derive_fallback_symptom_classification(parsed_log: dict[str, Any]) -> str:
-    latest_observation = parsed_log.get("latest_observation") or {}
-    final_observation = parsed_log.get("final_observation") or latest_observation
-    consumer_peak = parsed_log.get("consumer_peak_observation") or {}
-    office_demand_building = counter_value(final_observation, "officeDemand", "building")
-    consumer_distress = counter_value(consumer_peak, "softwareConsumerOffices", "softwareInputZero")
-    producer_distress = counter_value(final_observation, "softwareProducerOffices", "lackResourcesZero")
-    if office_demand_building >= 50 and (consumer_distress > 0 or producer_distress > 0):
-        return "software_demand_mismatch"
-    return derive_symptom_classification((final_observation or latest_observation).get("diagnostic_counters", {}))
+    _ = parsed_log
+    return "software_track_unclear"
 
 
 def build_deterministic_title(
@@ -1121,20 +1129,19 @@ def build_deterministic_title(
     final_day = observation_day(final_observation)
     settings = final_observation.get("settings", {})
     trade_patch = settings.get("EnableTradePatch")
-    if derived_classification == "software_demand_mismatch" and final_day > 0:
-        if trade_patch is True:
-            return f"[Software Evidence] EnableTradePatch-enabled run still shows software-track distress by day {final_day}"
-        if trade_patch is False:
-            return f"[Software Evidence] EnableTradePatch-disabled run still shows software-track distress by day {final_day}"
-        return f"[Software Evidence] Software-track distress still visible by day {final_day}"
+    _ = derived_classification
 
     scenario_label = issue_fields.get("save_or_city_label", "").strip()
     if scenario_label and final_day > 0:
         return f"[Software Evidence] {scenario_label} evidence by day {final_day}"
     if scenario_label:
         return f"[Software Evidence] {scenario_label}"
+    if final_day > 0 and trade_patch is True:
+        return f"[Software Evidence] EnableTradePatch-enabled diagnostics by day {final_day}"
+    if final_day > 0 and trade_patch is False:
+        return f"[Software Evidence] EnableTradePatch-disabled diagnostics by day {final_day}"
     if final_day > 0:
-        return f"[Software Evidence] raw-log evidence by day {final_day}"
+        return f"[Software Evidence] raw-log diagnostics by day {final_day}"
     return "[Software Evidence] from raw log intake"
 
 
@@ -1203,29 +1210,57 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
     counter_groups = observation.get("diagnostic_counters", {})
     lines: list[str] = []
     office_demand = counter_groups.get("officeDemand", {})
-    if office_demand:
-        lines.append(format_counter_group("officeDemand", office_demand))
+    office_demand_snapshot = format_relevant_counter_group(
+        "officeDemand",
+        office_demand,
+        ("building", "company", "emptyBuildings", "buildingDemand"),
+    )
+    if office_demand_snapshot:
+        lines.append(office_demand_snapshot)
 
-    consumer_zero = counter_value(observation, "softwareConsumerOffices", "softwareInputZero")
-    producer_efficiency_zero = counter_value(observation, "softwareProducerOffices", "efficiencyZero")
-    producer_lack_resources_zero = counter_value(observation, "softwareProducerOffices", "lackResourcesZero")
-    if consumer_zero > 0:
-        lines.append(f"softwareConsumerOffices.softwareInputZero={consumer_zero}")
-    if producer_efficiency_zero > 0:
-        lines.append(f"softwareProducerOffices.efficiencyZero={producer_efficiency_zero}")
-    if producer_lack_resources_zero > 0:
-        lines.append(f"softwareProducerOffices.lackResourcesZero={producer_lack_resources_zero}")
+    producer_snapshot = format_relevant_counter_group(
+        "softwareProducerOffices",
+        counter_groups.get("softwareProducerOffices", {}),
+        ("propertyless", "efficiencyZero", "lackResourcesZero"),
+    )
+    if producer_snapshot:
+        lines.append(producer_snapshot)
+
+    consumer_snapshot = format_relevant_counter_group(
+        "softwareConsumerOffices",
+        counter_groups.get("softwareConsumerOffices", {}),
+        ("propertyless", "efficiencyZero", "lackResourcesZero", "softwareInputZero"),
+    )
+    if consumer_snapshot:
+        lines.append(consumer_snapshot)
+
+    buyer_state = counter_groups.get("softwareConsumerBuyerState", {})
+    if any(safe_int(value) > 0 for value in buyer_state.values()):
+        buyer_state_snapshot = format_relevant_counter_group(
+            "softwareConsumerBuyerState",
+            buyer_state,
+            ("needSelected", "noBuyerDespiteNeed", "tradeCostOnly", "buyerActive"),
+            include_zero_fields=("buyerActive",),
+        )
+        if buyer_state_snapshot:
+            lines.append(buyer_state_snapshot)
     return ", ".join(lines)
 
 
 def build_deterministic_log_excerpt(parsed_log: dict[str, Any]) -> str:
-    blocks = [candidate["markdown"] for candidate in parsed_log.get("log_excerpt_candidates", []) if candidate.get("markdown")]
+    recent_candidates = parsed_log.get("log_excerpt_candidates", [])[-MAX_DETERMINISTIC_EXCERPT_CANDIDATES:]
+    blocks = [candidate["markdown"] for candidate in recent_candidates if candidate.get("markdown")]
     return "\n\n".join(blocks)
 
 
 def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
     latest_run_observations = parsed_log.get("latest_run_observations", [])
-    consumer_peak = parsed_log.get("consumer_peak_observation")
+    latest_consumer_detail_observation = (
+        parsed_log.get("latest_consumer_detail_observation") or parsed_log.get("consumer_peak_observation")
+    )
+    latest_producer_detail_observation = (
+        parsed_log.get("latest_producer_detail_observation") or parsed_log.get("producer_peak_observation")
+    )
     final_observation = parsed_log.get("final_observation")
     log_excerpt_candidates = parsed_log.get("log_excerpt_candidates", [])
 
@@ -1236,11 +1271,20 @@ def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
         if start_snapshot:
             note_lines.append(f"Day {observation_day(first_observation)} started with `{start_snapshot}`.")
 
-    if consumer_peak:
-        peak_snapshot = compact_office_snapshot(consumer_peak)
-        if peak_snapshot:
+    if latest_consumer_detail_observation:
+        consumer_snapshot = compact_office_snapshot(latest_consumer_detail_observation)
+        if consumer_snapshot:
             note_lines.append(
-                f"Day {observation_day(consumer_peak)} peaked with `{peak_snapshot}`."
+                "Latest consumer detail anchor came from day "
+                f"{observation_day(latest_consumer_detail_observation)} with `{consumer_snapshot}`."
+            )
+
+    if latest_producer_detail_observation:
+        producer_snapshot = compact_office_snapshot(latest_producer_detail_observation)
+        if producer_snapshot:
+            note_lines.append(
+                "Latest producer detail anchor came from day "
+                f"{observation_day(latest_producer_detail_observation)} with `{producer_snapshot}`."
             )
 
     if final_observation:
@@ -1268,48 +1312,28 @@ def build_deterministic_summary(
     parsed_log: dict[str, Any],
     derived_classification: str,
 ) -> str:
-    consumer_peak = parsed_log.get("consumer_peak_observation")
-    final_observation = parsed_log.get("final_observation")
+    _ = derived_classification
+    latest_run_observations = parsed_log.get("latest_run_observations", [])
+    final_observation = parsed_log.get("final_observation") or parsed_log.get("latest_observation")
     summary_sentences: list[str] = []
-    final_day = observation_day(final_observation)
-    office_demand_building = counter_value(final_observation, "officeDemand", "building")
-    consumer_buyer_pressure = counter_value(final_observation, "softwareConsumerBuyerState", "noBuyerDespiteNeed")
-    consumer_buyer_active = counter_value(final_observation, "softwareConsumerBuyerState", "buyerActive")
-    consumer_input_zero = counter_value(final_observation, "softwareConsumerOffices", "softwareInputZero")
-    producer_distress = counter_value(final_observation, "softwareProducerOffices", "lackResourcesZero")
-
-    if consumer_peak and counter_value(consumer_peak, "softwareConsumerOffices", "softwareInputZero") > 0:
-        summary_sentences.append(
-            f"This bounded run captured day-{observation_day(consumer_peak)} consumer-side software distress counters."
-        )
+    if latest_run_observations:
+        first_observation = latest_run_observations[0]
+        last_observation = latest_run_observations[-1]
+        start_day = observation_day(first_observation)
+        end_day = observation_day(last_observation)
+        if start_day > 0 and end_day > 0:
+            summary_sentences.append(
+                f"This bounded run captured {len(latest_run_observations)} observation windows from day {start_day} to day {end_day}."
+            )
 
     if final_observation:
-        if consumer_buyer_pressure > 0:
-            summary_sentences.append(
-                f"The final day-{final_day} sample kept `softwareConsumerBuyerState.noBuyerDespiteNeed={consumer_buyer_pressure}`"
-                + (
-                    f" with `buyerActive={consumer_buyer_active}`"
-                    if consumer_buyer_active >= 0
-                    else ""
-                )
-                + f" while `officeDemand.building={office_demand_building}` remained high."
-            )
-        elif consumer_input_zero > 0 and office_demand_building > 0:
-            summary_sentences.append(
-                f"The final day-{final_day} sample kept `softwareConsumerOffices.softwareInputZero={consumer_input_zero}` while `officeDemand.building={office_demand_building}` remained high."
-            )
-        elif producer_distress > 0:
-            summary_sentences.append(
-                f"The final day-{final_day} sample still showed producer-side `lackResources=0` distress while `officeDemand.building={office_demand_building}` remained high."
-            )
-        elif derived_classification == "software_demand_mismatch" and office_demand_building > 0:
-            summary_sentences.append(
-                f"The final day-{final_day} sample kept office-demand counters high while software-track distress remained visible in the observed window."
-            )
-        else:
-            summary_sentences.append(
-                f"The final day-{final_day} sample preserved `{derived_classification}`-aligned counters in the latest observation window."
-            )
+        final_day = observation_day(final_observation)
+        final_snapshot = compact_office_snapshot(final_observation)
+        if final_snapshot:
+            if final_day > 0:
+                summary_sentences.append(f"The latest day-{final_day} observation kept `{final_snapshot}`.")
+            else:
+                summary_sentences.append(f"The latest observation kept `{final_snapshot}`.")
 
     if not summary_sentences:
         latest_observation = parsed_log.get("latest_observation") or {}
@@ -1526,8 +1550,8 @@ def build_deterministic_draft(
         "missing_user_input": list(dict.fromkeys(missing_user_input)),
         "confidence": "medium",
         "reasoning_summary": (
-            "Derived from high-confidence observation/detail anchors, selected raw snippets, "
-            "and conservative fallback heuristics."
+            "Derived from observation/detail anchors and literal snippet selection, "
+            "with conservative fallback wording."
         ),
     }
 
@@ -1587,7 +1611,10 @@ def build_summary_refinement_context(
     draft: dict[str, Any],
 ) -> dict[str, Any]:
     excerpt_candidates = build_excerpt_candidates_for_llm(parsed_log)
-    selected_candidate = excerpt_candidates[0] if excerpt_candidates else {}
+    selected_candidate = excerpt_candidates[-1] if excerpt_candidates else {}
+    latest_consumer_detail_observation = (
+        parsed_log.get("latest_consumer_detail_observation") or parsed_log.get("consumer_peak_observation")
+    )
     return {
         "raw_issue": {
             "save_or_city_label": issue_fields.get("save_or_city_label", ""),
@@ -1600,7 +1627,7 @@ def build_summary_refinement_context(
         "final_observation": summarize_observation_for_llm(
             parsed_log.get("final_observation") or parsed_log.get("latest_observation")
         ),
-        "consumer_peak_observation": summarize_observation_for_llm(parsed_log.get("consumer_peak_observation")),
+        "latest_consumer_detail_observation": summarize_observation_for_llm(latest_consumer_detail_observation),
         "selected_excerpt_candidate": {
             "title": selected_candidate.get("title", ""),
             "day": safe_int(selected_candidate.get("day")),
@@ -1654,7 +1681,9 @@ def compact_excerpt_candidates_for_llm(
     candidate_line_limit: int,
 ) -> list[dict[str, Any]]:
     compacted: list[dict[str, Any]] = []
-    for candidate in candidates[:candidate_limit]:
+    if candidate_limit <= 0:
+        return compacted
+    for candidate in candidates[-candidate_limit:]:
         compact = dict(candidate)
         compact["observation_window"] = truncate_text(
             str(compact.get("observation_window", "")),
@@ -1752,6 +1781,7 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
     consumers = counter_groups.get("softwareConsumerOffices", {})
     buyer_state = counter_groups.get("softwareConsumerBuyerState", {})
     facts = [
+        "Treat fallback_hints as conservative defaults; anchors, excerpt candidates, and selected snippets are the primary evidence.",
         "softwareProducerOffices.lackResourcesZero and softwareConsumerOffices.lackResourcesZero count offices where the diagnostic field lackResources=0.",
         "lackResourcesZero does not mean the office had zero resources, no resources, or a confirmed input shortage.",
         "softwareConsumerOffices.softwareInputZero counts consumer offices where the software input state was zero in diagnostics; it is not a citywide demand verdict by itself.",
@@ -1788,9 +1818,9 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
         )
 
     office_demand_building = safe_int(counter_groups.get("officeDemand", {}).get("building"))
-    if office_demand_building >= 50 and (producer_lack_resources_zero > 0 or software_input_zero > 0):
+    if office_demand_building > 0:
         facts.append(
-            f"Latest counters also kept officeDemand.building={office_demand_building} while software-track distress counters remained present, so software_demand_mismatch may be appropriate if the narrative stays factual."
+            f"Latest counters: officeDemand.building={office_demand_building} in the latest observation."
         )
 
     return facts
@@ -2258,7 +2288,7 @@ def has_unsupported_reasoning_summary_format(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    if "..." in stripped or "…" in stripped:
+    if "..." in stripped or "…" in stripped or "??" in stripped:
         return True
     if len(stripped) > LLM_REASONING_SUMMARY_MAX_LENGTH:
         return True
@@ -2841,7 +2871,7 @@ def render_managed_comment(
         compact_payload = dict(payload)
         compact_parsed = dict(payload["parsed_log"])
         compact_parsed["latest_software_office_detail"] = None
-        compact_parsed["log_excerpt_candidates"] = compact_parsed.get("log_excerpt_candidates", [])[:2]
+        compact_parsed["log_excerpt_candidates"] = compact_parsed.get("log_excerpt_candidates", [])[-2:]
         compact_parsed["patch_summaries"] = compact_parsed["patch_summaries"][-3:]
         compact_parsed["phantom_corrections"] = compact_parsed["phantom_corrections"][-3:]
         compact_payload["parsed_log"] = compact_parsed

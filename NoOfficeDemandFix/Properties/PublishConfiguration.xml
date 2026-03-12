@@ -4,20 +4,21 @@
 	<!--Name of the mod to display to players-->
 	<DisplayName Value="No Office Demand Fix" />
 	<!--Short description of the mod-->
-	<ShortDescription Value="Investigates and fixes the No Office Demand bug through office-resource and phantom-vacancy patches." />
+	<ShortDescription Value="Fixes Signature phantom vacancy and provides diagnostic tooling for software-track office-demand investigation." />
 	<!--Long description of the mod. Single line or multi line. Supports minimal markdown subset-->
 	<!--LongDescription Value="There is a notorious "No Office Demand" bug in the current game: the Efficient of some Office Buildings drops to 0, causing the game to mistakenly treat them as Vacant and therefore not generate Office Demand. The reason some Office Buildings' Efficient falls to 0 is known to be related to the production and consumption of software." /-->
 	<LongDescription>
 No Office Demand Fix targets two known causes behind stalled office demand in Cities: Skylines II.
 
 - Phantom Vacancy fix: removes stale PropertyOnMarket and PropertyToBeOnMarket state from occupied Signature office and industrial properties, preventing false free-space counts from suppressing demand.
-- Software track: includes an optional office-resource trade patch and diagnostics for the separate software supply problem that can still collapse office efficiency.
+- Software track: includes an optional office-resource trade patch plus diagnostics for a separate software buyer-state and resource-flow investigation.
 
 Current release status:
 
 - fixes the confirmed Signature Phantom Vacancy case
 - keeps non-signature Phantom Vacancy cases under diagnostics
-- keeps the software path available as an experimental mitigation, not a claimed full fix
+- keeps the software path available as comparison tooling, not a claimed full fix
+- current same-save current-build evidence shows no clear immediate trade-patch mitigation through day 22
 	</LongDescription>
 	<!--Thumbnail-->
 	<Thumbnail Value="Properties/Thumbnail.png" />
@@ -31,7 +32,7 @@ Current release status:
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-Added diagnostics for non-signature phantom vacancy cases, and an optional office-resource patch to mitigate the software supply issue that can also cause office efficiency to collapse.
+Added diagnostics for non-signature phantom vacancy cases and expanded the software-track investigation tooling with producer/consumer office diagnostics, buyer-state visibility, and an optional comparison patch for same-save evidence runs.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
