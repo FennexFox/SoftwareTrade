@@ -683,6 +683,87 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn(f"- LLM reasoning: `{short_reasoning}`", body)
         self.assertNotIn("see machine payload", body)
 
+    def test_render_managed_comment_compacts_large_machine_payload_below_github_limit(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        bloated_parsed_log = dict(parsed_log)
+        bloated_parsed_log["anchors"] = [
+            {
+                "kind": "observation",
+                "timestamp": f"2026-03-10 15:{index:02d}:00,000",
+                "raw_line": "A" * 3500,
+                "message": "B" * 2500,
+            }
+            for index in range(30)
+        ]
+        bloated_parsed_log["anchor_index"] = {f"anchor_{index}": index for index in range(400)}
+        bloated_parsed_log["selected_snippets"] = [
+            {
+                "kind": "detail_excerpt",
+                "label": f"snippet_{index}",
+                "text": "C" * 1800,
+            }
+            for index in range(20)
+        ]
+        deterministic = automation.build_deterministic_draft(21, issue_fields, bloated_parsed_log, log_source, [])
+        body, payload = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            bloated_parsed_log,
+            deterministic,
+            None,
+            {
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": deterministic["symptom_classification"],
+                "evidence_summary": deterministic["evidence_summary"],
+                "confounders": deterministic["confounders"],
+                "notes": deterministic["notes"],
+            },
+            [],
+            "skipped",
+            "no eligible observation",
+        )
+        self.assertLessEqual(len(body), automation.GITHUB_ISSUE_COMMENT_MAX_LENGTH)
+        self.assertIn("```yaml", body)
+        self.assertIn("```json", body)
+        self.assertIn("Plain pasted YAML is accepted.", body)
+        self.assertNotIn("A" * 500, body)
+        self.assertNotIn("B" * 500, body)
+        self.assertNotIn("C" * 500, body)
+        self.assertNotIn("anchors", payload["parsed_log"])
+        self.assertNotIn("selected_snippets", payload["parsed_log"])
+        parsed = automation.parse_managed_comment(body)
+        self.assertEqual(parsed["reply_template"]["scenario_label"], "New Seoul")
+        self.assertEqual(parsed["reply_template"]["scenario_type"], "existing save")
+        self.assertEqual(parsed["reply_template"]["evidence_summary"], deterministic["evidence_summary"])
+        self.assertIn("latest_observation", parsed["payload"]["parsed_log"])
+        self.assertEqual(parsed["payload"]["raw_issue"]["number"], 21)
+        self.assertEqual(parsed["payload"]["log_source"]["mode"], "inline")
+        self.assertEqual(parsed["payload"]["parsed_log"]["observation_count"], parsed_log["observation_count"])
+        self.assertEqual(parsed["payload"]["parsed_log"]["detail_count"], parsed_log["detail_count"])
+        self.assertEqual(
+            parsed["payload"]["parsed_log"]["latest_observation"]["observation_window"]["sample_day"],
+            parsed_log["latest_observation"]["observation_window"]["sample_day"],
+        )
+        self.assertEqual(
+            parsed["payload"]["parsed_log"]["latest_software_office_detail"]["values"],
+            parsed_log["latest_software_office_detail"]["values"],
+        )
+        self.assertEqual(
+            [candidate["label"] for candidate in parsed["payload"]["parsed_log"]["log_excerpt_candidates"]],
+            [candidate["label"] for candidate in parsed_log["log_excerpt_candidates"]],
+        )
+        self.assertEqual(parsed["payload"]["deterministic_draft"]["title"], deterministic["title"])
+        self.assertEqual(
+            parsed["payload"]["deterministic_draft"]["log_excerpt"],
+            deterministic["log_excerpt"],
+        )
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
@@ -1749,6 +1830,16 @@ class RawLogAutomationTests(unittest.TestCase):
         with mock.patch.object(automation, "http_request", return_value=(500, {"message": "boom"}, "boom")):
             with self.assertRaisesRegex(automation.AutomationError, r"Failed to fetch issue comments \(500\): boom"):
                 automation.get_issue_comments("FennexFox/NoOfficeDemandFix", 30, "token")
+
+    def test_create_issue_comment_rejects_oversized_body(self) -> None:
+        oversized_body = "X" * (automation.GITHUB_ISSUE_COMMENT_MAX_LENGTH + 1)
+        with mock.patch.object(automation, "http_request") as request_mock:
+            with self.assertRaisesRegex(
+                automation.AutomationError,
+                r"Issue comment body is too long",
+            ):
+                automation.create_issue_comment("FennexFox/NoOfficeDemandFix", 30, oversized_body, "token")
+        request_mock.assert_not_called()
 
     def test_http_request_wraps_url_error_in_automation_error(self) -> None:
         with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("dns fail")):
