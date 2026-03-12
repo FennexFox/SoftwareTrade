@@ -34,10 +34,11 @@ Promotion flow:
 
 Review defaults:
 
-- treat the latest bounded observation plus the newest anchored detail excerpt as the default evidence view
+- treat the latest bounded observation plus the latest anchored consumer excerpt and latest anchored producer excerpt as the default evidence view when both roles exist
 - include at most the immediately previous distinct sample when short chronology materially improves the evidence entry
 - treat copied observation anchors, counters, and selected detail excerpts as the hard evidence
 - keep `patch_state=unknown` unless you can replace it with an exact known local deviation set
+- treat missing producer-side trade-cost fields in the concise `input1(...)` / `input2(...)` formatter as intentional unless the change explicitly adds a separate verbose diagnostic path; see [LOG_REPORTING.md](./LOG_REPORTING.md) for formatter and diagnostic-path conventions
 
 Detailed capture rules, interpretation rules, and comparison checkpoints live in
 [LOG_REPORTING.md](./LOG_REPORTING.md),

@@ -29,7 +29,7 @@ Current setting defaults are documented in [README.md](./README.md).
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
-- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, using the newest relevant sample for each role as the default excerpt and adding at most one immediately previous distinct sample only when short chronology materially affects interpretation
+- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, using the latest consumer excerpt plus the latest producer excerpt as the default pair when both roles exist and adding at most one immediately previous distinct sample only when short chronology materially affects interpretation
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
@@ -68,8 +68,10 @@ until later evidence synthesis reviews the counters and excerpts together.
   paste the YAML directly or wrap it in fences, edit it there, and include
   `/promote-evidence` in that same comment
 - when the managed triage comment shows multiple excerpt candidates, prefer the
-  newest anchored excerpt unless the immediately previous sample adds important
-  chronology for the final evidence entry (for example, when it shows the onset of a condition that persists in the latest sample)
+  latest anchored consumer excerpt plus the latest anchored producer excerpt
+  when both exist; use an immediately previous sample only when it adds
+  important chronology for the final evidence entry (for example, when it
+  shows the onset of a condition that persists in the latest sample)
 - keep the copied observation window, counters, and selected detail excerpts aligned; do not swap in older detail lines unless the chronology is explicitly the point of the final evidence entry
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
