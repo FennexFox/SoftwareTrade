@@ -1126,7 +1126,7 @@ namespace NoOfficeDemandFix.Systems
                         }
 
                         Game.Vehicles.DeliveryTruck layoutTruck = EntityManager.GetComponentData<Game.Vehicles.DeliveryTruck>(layoutVehicle);
-                        if (layoutTruck.m_Resource == resource && (truck.m_State & DeliveryTruckFlags.Buying) != 0)
+                        if (layoutTruck.m_Resource == resource && (layoutTruck.m_State & DeliveryTruckFlags.Buying) != 0)
                         {
                             layoutAmount += layoutTruck.m_Amount;
                         }
