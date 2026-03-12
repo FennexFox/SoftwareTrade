@@ -69,8 +69,8 @@ Required:
 
 Optional:
 
-- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` cues for software consumers
+- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters; prefer copied anchored detail lines from the newest relevant sample, plus the immediately previous distinct sample only when short chronology matters
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues
 - `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields
 
@@ -82,6 +82,11 @@ The following fields are expected to come from raw diagnostics with little or no
 - `log_excerpt`
 - `settings`
 - parts of `patch_state` when local code or logging differs from the normal build, or the literal `unknown` when the runtime cannot name those deviations
+
+Raw-log automation may draft summaries and symptom labels with LLM assistance,
+but the normalized evidence entry should still treat copied counters,
+observation-window anchors, and selected detail excerpts as the primary factual
+payload.
 
 When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
 That usually means keeping `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and the shared `detail_type=softwareOfficeStates` lines with their role context.
