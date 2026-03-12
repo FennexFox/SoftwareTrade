@@ -724,6 +724,7 @@ def detail_role(detail: dict[str, Any] | None) -> str:
         return "producer"
     return ""
 
+
 def counter_value(observation: dict[str, Any] | None, group_name: str, field_name: str) -> int:
     counter_groups = (observation or {}).get("diagnostic_counters", {})
     return safe_int(counter_groups.get(group_name, {}).get(field_name))
@@ -752,6 +753,7 @@ def format_relevant_counter_group(
     if not filtered:
         return ""
     return format_counter_group(name, filtered)
+
 
 def build_recent_detail_batches(
     details: list[dict[str, Any]],
