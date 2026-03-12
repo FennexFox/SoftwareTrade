@@ -24,18 +24,21 @@ Current setting defaults are documented in [README.md](./README.md).
    - drag-and-drop a plain-text `.log` file into the field
 5. Submit the issue.
 
-The automation will:
+## What The Automation Does
 
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
-- preserve `clock_source`, `sample_count`, and `skipped_sample_slots` so maintainers can see that slot timing came from the runtime `TimeSystem` path, that `sample_day` was reconstructed as a logical displayed-clock day, and whether any scheduled gaps were not backfilled
+- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, using the latest consumer excerpt plus the latest producer excerpt as the default pair when both roles exist and adding at most one immediately previous distinct sample only when short chronology materially affects interpretation
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
-The machine-parsed prefixes used for those raw-log contracts are defined in
-`NoOfficeDemandFix/MachineParsedLogContract.cs`. Treat changes there as parser
-contract changes, not casual log wording edits.
+The draft is LLM-first for semantic framing, but the automation still treats the
+observation window, copied counters, and anchored detail excerpts as the hard
+evidence that excerpts and later validation must stay aligned to. Keep
+`start_day` / `end_day` as the primary window bounds; treat `sample_count` as
+emitted observation density and `skipped_sample_slots`, when present, as
+supporting gap context.
 
 ## Privacy Notes
 
@@ -58,12 +61,18 @@ maintainer-only fields. When a `Software evidence` issue is created from raw-log
 promotion, its initial symptom classification should be treated as provisional
 until later evidence synthesis reviews the counters and excerpts together.
 
-## After Submission
+## What Maintainers Do After Submission
 
 - a managed triage comment will be added or updated on the raw-log issue
 - maintainers should copy the `maintainer_reply` YAML block into a new comment,
   paste the YAML directly or wrap it in fences, edit it there, and include
   `/promote-evidence` in that same comment
+- when the managed triage comment shows multiple excerpt candidates, prefer the
+  latest anchored consumer excerpt plus the latest anchored producer excerpt
+  when both exist; use an immediately previous sample only when it adds
+  important chronology for the final evidence entry (for example, when it
+  shows the onset of a condition that persists in the latest sample)
+- keep the copied observation window, counters, and selected detail excerpts aligned; do not swap in older detail lines unless the chronology is explicitly the point of the final evidence entry
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
 

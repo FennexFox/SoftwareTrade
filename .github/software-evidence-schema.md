@@ -62,14 +62,14 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, and `softwareConsumerOffices(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
 - `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
 
 Optional:
 
-- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters
+- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters; when both roles exist, prefer the latest anchored consumer excerpt plus the latest anchored producer excerpt, then, when short chronology matters, also include the immediately previous distinct sample for each role (one older consumer excerpt and one older producer excerpt)
 - `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues
 - `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields
@@ -83,8 +83,16 @@ The following fields are expected to come from raw diagnostics with little or no
 - `settings`
 - parts of `patch_state` when local code or logging differs from the normal build, or the literal `unknown` when the runtime cannot name those deviations
 
+Raw-log automation may draft summaries and symptom labels with LLM assistance,
+but the normalized evidence entry should still treat copied counters,
+observation-window anchors, and selected detail excerpts as the primary factual
+payload.
+
 When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
 That usually means keeping `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and the shared `detail_type=softwareOfficeStates` lines with their role context.
+
+When the active question is why zero-software consumers show empty buyer state, preserve `softwareConsumerBuyerState(...)` and the consumer-side `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` blocks together.
+Treat `tradeCostEntry=True` as a trade-cost-cache fact, not as enough evidence by itself that an active buyer or in-flight trade exists.
 
 When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone.
 

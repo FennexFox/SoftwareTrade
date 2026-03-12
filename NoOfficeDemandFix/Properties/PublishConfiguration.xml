@@ -4,36 +4,36 @@
 	<!--Name of the mod to display to players-->
 	<DisplayName Value="No Office Demand Fix" />
 	<!--Short description of the mod-->
-	<ShortDescription Value="Investigates and fixes the No Office Demand bug through office-resource and phantom-vacancy patches." />
+	<ShortDescription Value="Fixes the confirmed Signature phantom vacancy case and adds optional software-track diagnostics." />
 	<!--Long description of the mod. Single line or multi line. Supports minimal markdown subset-->
 	<!--LongDescription Value="There is a notorious "No Office Demand" bug in the current game: the Efficient of some Office Buildings drops to 0, causing the game to mistakenly treat them as Vacant and therefore not generate Office Demand. The reason some Office Buildings' Efficient falls to 0 is known to be related to the production and consumption of software." /-->
 	<LongDescription>
-No Office Demand Fix targets two known causes behind stalled office demand in Cities: Skylines II.
+No Office Demand Fix currently covers one shipped office-demand fix and one separate software/resource investigation path in Cities: Skylines II.
 
-- Phantom Vacancy fix: removes stale PropertyOnMarket and PropertyToBeOnMarket state from occupied Signature office and industrial properties, preventing false free-space counts from suppressing demand.
-- Software track: includes an optional office-resource trade patch and diagnostics for the separate software supply problem that can still collapse office efficiency.
+- Signature Phantom Vacancy fix: removes stale PropertyOnMarket and PropertyToBeOnMarket state from occupied Signature office and industrial properties so false free-space counts stop suppressing demand.
+- Software track tools: includes an optional office-resource trade patch plus opt-in diagnostics for software producer/consumer investigation and evidence collection.
 
 Current release status:
 
-- fixes the confirmed Signature Phantom Vacancy case
-- keeps non-signature Phantom Vacancy cases under diagnostics
-- keeps the software path available as an experimental mitigation, not a claimed full fix
+- fixes the reproduced Signature phantom vacancy case
+- keeps non-signature phantom vacancy under observation
+- keeps the software path available for comparison and diagnostics, not as a claimed full fix
 	</LongDescription>
-	<!--Thumbnail-->
-	<Thumbnail Value="Properties/Thumbnail.png" />
+	<!--Thumbnail. Path is relative to this PublishConfiguration.xml file, so keep it as Thumbnail.png, not Properties/Thumbnail.png.-->
+	<Thumbnail Value="Thumbnail.png" />
 	<!--Tag, can be set multiple times. PDX tags are fixed categories, not free-form keywords.-->
 	<Tag Value="Code Mod" />
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="https://forum.paradoxplaza.com/forum/threads/no-office-demand-fix-discussion-thread.1906822/" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.1.2" />
+	<ModVersion Value="0.1.3" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-- Added diagnostics for additional phantom vacancy cases outside Signature properties.
-- Added an optional mitigation for software-supply-related office efficiency collapse.
-- Clarified that the software path is still experimental.
+- Expanded software-track diagnostics with clearer producer/consumer detail and buyer-state visibility.
+- Extended phantom-vacancy investigation coverage beyond the confirmed Signature case.
+- Kept the software path positioned as comparison tooling rather than a claimed full fix.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />

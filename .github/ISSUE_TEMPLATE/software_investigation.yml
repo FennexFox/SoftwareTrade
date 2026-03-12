@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Use this as the umbrella tracker for one `software`-track investigation line.
-        Link reusable bounded evidence runs here, then keep comparison summaries and the current conclusion in this issue.
+        Link reusable bounded `Software evidence` issues here, including entries promoted from raw-log intake when applicable, then keep comparison summaries and the current conclusion in this issue.
         Canonical workflow: `.github/software-investigation-workflow.md`
   - type: input
     id: core-question
@@ -52,13 +52,14 @@ body:
     id: linked-evidence-plan
     attributes:
       label: Linked evidence plan
-      description: Link the evidence issues already collected or the bounded runs that still need to be promoted into evidence issues.
+      description: Link the `Software evidence` issues already collected or the bounded runs and raw-log intakes that still need promotion.
       placeholder: |
         - baseline evidence: #21
         - trade patch comparison run: collect on same save with EnableTradePatch=True
         - reload check: collect before/after reload on same save lineage
         - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run
         - demand-response check: preserve officeDemand counters on the next consumer-distress run and compare against softwareConsumerOffices
+        - buyer-state check: preserve softwareConsumerBuyerState plus softwareNeed/softwareTradeCost/softwareBuyerState/softwareTrace on the next zero-software consumer run
     validations:
       required: true
   - type: textarea
@@ -85,6 +86,12 @@ body:
           invariant_status: same save lineage, comparable observation window, same DiagnosticsSamplesPerDay, sample_index fields preserved, electronics counters and software office detail preserved in both runs
           observed_deltas: electronics pressure persisted, softwareConsumerOffices.softwareInputZero improved, softwareOfficeStates still showed producer-side input buyer pressure
           outcome: mitigated but not solved
+        - checkpoint: software_need_vs_buyer_lifecycle_state
+          baseline_ref: #26
+          comparison_ref: #28
+          invariant_status: same save lineage, current-build off/on pair, consumer buyer-state detail preserved in both runs
+          observed_deltas: zero-software consumers kept softwareTradeCost.tradeCostEntry=true while softwareBuyerState still showed buyerActive=false, tripNeededCount=0, currentTradingCount=0, and pathState=none under both patch states
+          outcome: no material change
     validations:
       required: true
   - type: dropdown
