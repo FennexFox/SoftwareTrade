@@ -37,6 +37,7 @@ Recommended operating flow:
 - promote only reusable bounded runs into the software evidence form
 - use the `Raw log report` intake form for raw diagnostics, then copy the managed `maintainer_reply` YAML block into a new maintainer comment, paste the YAML directly or wrap it in fences, edit it there, and add `/promote-evidence` in that same comment when the intake issue is ready to become reusable evidence
 - treat the initial symptom classification on raw-log-promoted evidence issues as provisional; later synthesis may revise it after re-reading counters, excerpts, and comparison context
+- when reviewing raw-log triage output, default to the latest bounded observation plus the newest anchored detail excerpts selected by automation; only override those choices if you see clearly better excerpt candidates in the preserved raw logs, and keep at most the immediately previous distinct sample when that helps preserve chronology
 - keep one software investigation umbrella issue per hypothesis or investigation line, and record comparison summaries there
 - use vanilla decompiled game code for claims about base-game trade lifecycle, virtual-resource handling, and update behavior; use this mod's code for claims about diagnostics output, local patches, and release defaults
 - treat software-office distress and office-demand response as separate observed outcomes; do not infer falling office demand from `software` consumer efficiency collapse alone
@@ -48,7 +49,9 @@ Repository automation notes:
 
 - raw-log triage runs on raw-log intake issue open and edit events
 - evidence promotion runs primarily from maintainer reply comments that include `/promote-evidence`
-- optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow, and treat deterministic parsing as the source of truth if GitHub Models access is unavailable or the call fails
+- optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow
+- deterministic automation is responsible for redaction, anchor extraction, excerpt-candidate bounds, validation, and conservative fallbacks; do not treat it as the final semantic classifier when GitHub Models drafting is available
+- if GitHub Models access is unavailable or the call fails, keep the deterministic fallback wording conservative and re-read the preserved counters and anchored excerpts before promoting
 
 ## Contributor Process
 

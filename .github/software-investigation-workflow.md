@@ -45,7 +45,10 @@ When promoting a run into a `software evidence` issue:
 2. copy `settings=...`
 3. copy `patch_state=...`
 4. copy `diagnostic_counters(...)`
-5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters
+5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters; prefer the newest anchored detail sample and include at most one or two immediately previous distinct samples only when they clearly improve chronology, for example:
+   - showing a state transition (e.g., office or property moving from one demand or configuration state to another between samples)
+   - documenting a persistent or oscillating pattern across samples that is central to the claim (not just noise)
+   - confirming that a state has stabilized after a change (e.g., counters or demand values converging to a steady pattern)
 6. add only the minimum investigator-written context needed to make the run reusable
 
 Capture guidance:
@@ -58,11 +61,13 @@ Capture guidance:
 - keep `evidence_summary` short and descriptive, not argumentative
 - use `confidence` and `confounders` only for uncertainty that cannot be represented as counters or metadata
 - do not treat `symptom_classification` as proof of root cause
+- treat raw-log automation symptom labels and prose as provisional drafting help; the observation-window anchor, copied counters, and selected detail excerpts remain the primary evidence
 - use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
 - when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
 - `sample_count` now counts configured per-day samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
+- if raw-log automation produced multiple detail excerpts for one role, assume the latest anchored sample is the default excerpt and the older sample is included only to preserve a short local chronology
 
 The current diagnostics vocabulary is:
 
@@ -71,6 +76,11 @@ The current diagnostics vocabulary is:
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
 - `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` for software consumers
+
+When the raw-log automation prepares a draft, it uses deterministic parsing to
+extract these anchors and bound excerpt candidates, then uses LLM drafting for
+the initial semantic framing. Review the framing, but treat the copied anchors
+and excerpts as the hard evidence.
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
 
