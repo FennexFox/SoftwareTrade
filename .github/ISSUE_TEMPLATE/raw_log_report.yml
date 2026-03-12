@@ -7,9 +7,10 @@ body:
     attributes:
       value: |
         <!-- raw-log-report -->
-        Use this form when you want to share a raw diagnostics log and let maintainers normalize it into a comparable evidence draft.
+        Use this form when you want to share a raw diagnostics log and let maintainers triage it into a comparable evidence draft.
         Paste the relevant log text into the final field, or drag-and-drop a plain-text `.log` file into that field.
-        Do not use this form for every temporary sample if you already have a normalized software evidence issue.
+        The automation posts a managed triage comment with a copy-ready `maintainer_reply` block; maintainers then promote reusable bounded runs with `/promote-evidence`.
+        Do not use this form for every temporary sample if you already have a normalized `Software evidence` issue for the same bounded run.
   - type: input
     id: game_version
     attributes:
@@ -21,7 +22,7 @@ body:
     id: mod_version
     attributes:
       label: Mod version
-      placeholder: 0.1.1 or unreleased
+      placeholder: current release or unreleased
     validations:
       required: true
   - type: input
@@ -58,7 +59,7 @@ body:
     id: raw_log
     attributes:
       label: Raw log
-      description: Paste the relevant `softwareEvidenceDiagnostics` log text here, or drag-and-drop a plain-text `.log` file into this field.
+      description: Paste the relevant `softwareEvidenceDiagnostics` log text here, or drag-and-drop a plain-text `.log` file into this field. Include `detail(...)` lines when office-level evidence matters.
       placeholder: |
         [2026-03-10 15:36:14,138] [INFO]  softwareEvidenceDiagnostics observation_window(...)
         [2026-03-10 15:36:14,138] [INFO]  softwareEvidenceDiagnostics detail(...)

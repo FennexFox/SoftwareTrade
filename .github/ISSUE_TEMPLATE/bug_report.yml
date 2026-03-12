@@ -19,7 +19,7 @@ body:
     id: mod-version
     attributes:
       label: Mod version
-      placeholder: e.g. v0.1.1
+      placeholder: e.g. current release or local dev build
     validations:
       required: true
   - type: textarea

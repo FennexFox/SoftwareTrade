@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Use this as the umbrella tracker for one `software`-track investigation line.
-        Link reusable bounded evidence runs here, then keep comparison summaries and the current conclusion in this issue.
+        Link reusable bounded `Software evidence` issues here, including entries promoted from raw-log intake when applicable, then keep comparison summaries and the current conclusion in this issue.
         Canonical workflow: `.github/software-investigation-workflow.md`
   - type: input
     id: core-question
@@ -52,7 +52,7 @@ body:
     id: linked-evidence-plan
     attributes:
       label: Linked evidence plan
-      description: Link the evidence issues already collected or the bounded runs that still need to be promoted into evidence issues.
+      description: Link the `Software evidence` issues already collected or the bounded runs and raw-log intakes that still need promotion.
       placeholder: |
         - baseline evidence: #21
         - trade patch comparison run: collect on same save with EnableTradePatch=True

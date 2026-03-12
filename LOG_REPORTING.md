@@ -24,7 +24,7 @@ Current setting defaults are documented in [README.md](./README.md).
    - drag-and-drop a plain-text `.log` file into the field
 5. Submit the issue.
 
-The automation will:
+## What The Automation Does
 
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
@@ -61,7 +61,7 @@ maintainer-only fields. When a `Software evidence` issue is created from raw-log
 promotion, its initial symptom classification should be treated as provisional
 until later evidence synthesis reviews the counters and excerpts together.
 
-## After Submission
+## What Maintainers Do After Submission
 
 - a managed triage comment will be added or updated on the raw-log issue
 - maintainers should copy the `maintainer_reply` YAML block into a new comment,
@@ -70,6 +70,7 @@ until later evidence synthesis reviews the counters and excerpts together.
 - when the managed triage comment shows multiple excerpt candidates, prefer the
   newest anchored excerpt unless the immediately previous sample adds important
   chronology for the final evidence entry (for example, when it shows the onset of a condition that persists in the latest sample)
+- keep the copied observation window, counters, and selected detail excerpts aligned; do not swap in older detail lines unless the chronology is explicitly the point of the final evidence entry
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
 
