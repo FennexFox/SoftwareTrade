@@ -27,12 +27,14 @@ Current release status:
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="https://forum.paradoxplaza.com/forum/threads/no-office-demand-fix-discussion-thread.1906822/" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.1.1" />
+	<ModVersion Value="0.1.2" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
-Added diagnostics for non-signature phantom vacancy cases and expanded the software-track investigation tooling with producer/consumer office diagnostics, buyer-state visibility, and an optional comparison patch for same-save evidence runs.
+- Added diagnostics for additional phantom vacancy cases outside Signature properties.
+- Added an optional mitigation for software-supply-related office efficiency collapse.
+- Clarified that the software path is still experimental.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
