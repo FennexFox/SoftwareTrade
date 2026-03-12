@@ -2908,7 +2908,11 @@ def render_managed_comment(
     payload = {
         "raw_issue": {
             "number": issue_number,
-            "fields": issue_fields,
+            "fields": {
+                field_name: field_value
+                for field_name, field_value in issue_fields.items()
+                if field_name != "raw_log"
+            },
         },
         "log_source": {
             "mode": log_source["mode"],
@@ -2917,7 +2921,6 @@ def render_managed_comment(
         },
         "redaction_notes": redaction_notes,
         "parsed_log": {
-            "anchors": parsed_log.get("anchors", []),
             "anchor_index": parsed_log.get("anchor_index", {}),
             "latest_observation": latest_observation,
             "final_observation": parsed_log.get("final_observation"),
@@ -2929,9 +2932,8 @@ def render_managed_comment(
             "phantom_corrections": parsed_log.get("phantom_corrections", []),
             "observation_count": parsed_log.get("observation_count", 0),
             "detail_count": parsed_log.get("detail_count", 0),
+            "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
             "log_excerpt_candidates": parsed_log.get("log_excerpt_candidates", []),
-            "selected_snippets": parsed_log.get("selected_snippets", []),
-            "fallback_hints": parsed_log.get("fallback_hints", {}),
         },
         "deterministic_draft": deterministic_draft,
         "llm_draft": llm_draft,

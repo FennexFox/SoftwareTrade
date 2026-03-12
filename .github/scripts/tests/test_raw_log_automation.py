@@ -698,9 +698,44 @@ class RawLogAutomationTests(unittest.TestCase):
                 [],
                 "enabled",
                 automation.DEFAULT_GITHUB_MODELS_MODEL,
-            )
+        )
         self.assertIn(f"- LLM reasoning: `{short_reasoning}`", body)
         self.assertNotIn("see machine payload", body)
+
+    def test_render_managed_comment_omits_raw_log_and_anchor_dump_from_payload(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        issue_fields["raw_log"] = CURRENT_BRANCH_LOG * 40
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        parsed_log["anchors"] = parsed_log["anchors"] * 120
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+
+        body, payload = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            {
+                "title": deterministic["title"],
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": deterministic["symptom_classification"],
+                "evidence_summary": deterministic["evidence_summary"],
+                "confounders": deterministic["confounders"],
+                "notes": deterministic["notes"],
+            },
+            [],
+            "skipped",
+            "no eligible observation",
+        )
+
+        self.assertLessEqual(len(body), automation.COMMENT_BODY_LIMIT)
+        self.assertNotIn("raw_log", payload["raw_issue"]["fields"])
+        self.assertNotIn("anchors", payload["parsed_log"])
 
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
