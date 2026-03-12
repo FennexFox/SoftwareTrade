@@ -67,6 +67,8 @@ If you could not test something, state that explicitly in the PR.
 
 - Do not claim the `software` track is solved without strong evidence
 - Do not describe `software` consumer distress as proof of lower office demand without direct demand evidence
+- Do not infer an active buyer or in-flight software trade from `tradeCostEntry=True` alone; use the corresponding buyer-state fields
+- Do not describe the optional `software` trade patch as a proven mitigation when the evidence only supports it as a comparison aid
 - Do not broaden vacancy fixes beyond confirmed cases without documenting risk
 - Call out settings changes and whether they require reload or restart
 - Keep diagnostics noise and verbose logging changes intentional

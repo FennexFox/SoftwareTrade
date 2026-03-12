@@ -40,6 +40,9 @@ Recommended operating flow:
 - keep one software investigation umbrella issue per hypothesis or investigation line, and record comparison summaries there
 - use vanilla decompiled game code for claims about base-game trade lifecycle, virtual-resource handling, and update behavior; use this mod's code for claims about diagnostics output, local patches, and release defaults
 - treat software-office distress and office-demand response as separate observed outcomes; do not infer falling office demand from `software` consumer efficiency collapse alone
+- treat `tradeCostEntry=True` as a trade-cost-cache fact, not as enough evidence by itself for an active buyer or in-flight trade
+- when the active question is zero-software consumers with empty buyer state, preserve `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, `softwareTrace(...)`, and `softwareConsumerBuyerState(...)` together
+- current same-save current-build evidence shows no clear immediate trade-patch mitigation through day 22; the next investigation priority is explaining the consumer buyer-state anomaly under both patch states, not collecting longer off/on pairs by default
 
 Repository automation notes:
 
