@@ -15,6 +15,7 @@ using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
 using Game.Tools;
+using Game.Vehicles;
 using Game.Zones;
 using Unity.Collections;
 using Unity.Entities;
@@ -31,6 +32,16 @@ namespace NoOfficeDemandFix.Systems
         private const int kDefaultDiagnosticsSamplesPerDay = 2;
         private const int kMinDiagnosticsSamplesPerDay = 1;
         private const int kMaxDiagnosticsSamplesPerDay = 8;
+        private const float kNotificationCostLimit = 5f;
+        private const int kResourceLowStockAmount = 4000;
+        private const string kTraceNeedNotSelected = "need_not_selected";
+        private const string kTraceNeedSelectedNoBuyer = "need_selected_no_buyer";
+        private const string kTraceBuyerActive = "buyer_active";
+        private const string kTracePathPending = "path_pending";
+        private const string kTracePathResolvedNoTradeState = "path_resolved_no_trade_state";
+        private const string kTraceCurrentTradingPresent = "current_trading_present";
+        private const string kTraceTripReservedPresent = "trip_reserved_present";
+        private const string kTraceNeedCleared = "need_cleared";
 
         private struct FactorEntry
         {
@@ -79,10 +90,72 @@ namespace NoOfficeDemandFix.Systems
             public int SoftwareConsumerOfficeEfficiencyZero;
             public int SoftwareConsumerOfficeLackResourcesZero;
             public int SoftwareConsumerOfficeSoftwareInputZero;
+            public int SoftwareConsumerNeedSelected;
+            public int SoftwareConsumerBuyerActive;
+            public int SoftwareConsumerPathPending;
+            public int SoftwareConsumerTripNeededPresent;
+            public int SoftwareConsumerCurrentTradingPresent;
+            public int SoftwareConsumerNoBuyerDespiteNeed;
+            public int SoftwareConsumerTradeCostOnly;
             public string TopFactors;
             public string FreeSoftwareOfficePropertyDetails;
             public string OnMarketOfficePropertyDetails;
             public string SoftwareOfficeDetails;
+        }
+
+        private struct SoftwareNeedState
+        {
+            public int Stock;
+            public int BuyingLoad;
+            public int TripNeededAmount;
+            public int EffectiveStock;
+            public int Threshold;
+            public bool Selected;
+            public bool Expensive;
+        }
+
+        private struct SoftwareTradeCostState
+        {
+            public bool HasEntry;
+            public float BuyCost;
+            public long LastTransferRequestTime;
+        }
+
+        private struct SoftwareBuyerState
+        {
+            public bool BuyerActive;
+            public int BuyerAmount;
+            public int TripNeededCount;
+            public int TripNeededAmount;
+            public int CurrentTradingCount;
+            public int CurrentTradingAmount;
+            public bool HasPath;
+            public bool PathPending;
+            public PathFlags PathState;
+            public Entity PathDestination;
+            public float PathDistance;
+        }
+
+        private struct SoftwareConsumerTraceState
+        {
+            public string CurrentClassification;
+            public string LastTransitionLabel;
+            public int LastTransitionDay;
+            public int LastTransitionSampleIndex;
+            public Entity LastPathDestination;
+            public bool HasLastPathDestination;
+            public int LastPathDestinationSoftwareStock;
+            public bool HasLastPathDestinationSoftwareStock;
+        }
+
+        private struct SoftwareConsumerDiagnosticState
+        {
+            public SoftwareNeedState Need;
+            public SoftwareTradeCostState TradeCost;
+            public SoftwareBuyerState Buyer;
+            public SoftwareConsumerTraceState Trace;
+            public bool NoBuyerDespiteNeed;
+            public bool TradeCostOnly;
         }
 
         private SimulationSystem m_SimulationSystem;
@@ -91,6 +164,7 @@ namespace NoOfficeDemandFix.Systems
         private CountCompanyDataSystem m_CountCompanyDataSystem;
         private SignaturePropertyMarketGuardSystem m_SignaturePropertyMarketGuardSystem;
         private PrefabSystem m_PrefabSystem;
+        private ResourceSystem m_ResourceSystem;
         private EntityQuery m_TimeDataQuery;
         private EntityQuery m_TimeSettingsQuery;
         private EntityQuery m_FreeOfficePropertyQuery;
@@ -105,6 +179,7 @@ namespace NoOfficeDemandFix.Systems
         private int m_RunStartSampleIndex = int.MinValue;
         private string m_LastSettingsSnapshot = string.Empty;
         private string m_LastPatchState = string.Empty;
+        private readonly Dictionary<Entity, SoftwareConsumerTraceState> m_SoftwareConsumerTrace = new Dictionary<Entity, SoftwareConsumerTraceState>();
 
         [Preserve]
         protected override void OnCreate()
@@ -116,6 +191,7 @@ namespace NoOfficeDemandFix.Systems
             m_CountCompanyDataSystem = World.GetOrCreateSystemManaged<CountCompanyDataSystem>();
             m_SignaturePropertyMarketGuardSystem = World.GetOrCreateSystemManaged<SignaturePropertyMarketGuardSystem>();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
+            m_ResourceSystem = World.GetOrCreateSystemManaged<ResourceSystem>();
             m_TimeDataQuery = GetEntityQuery(ComponentType.ReadOnly<TimeData>());
             m_TimeSettingsQuery = GetEntityQuery(ComponentType.ReadOnly<TimeSettingsData>());
             m_FreeOfficePropertyQuery = GetEntityQuery(
@@ -230,7 +306,8 @@ namespace NoOfficeDemandFix.Systems
                 $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
                 $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
                 $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
-                $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero})" +
+                $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero}); " +
+                $"softwareConsumerBuyerState(needSelected={snapshot.SoftwareConsumerNeedSelected}, buyerActive={snapshot.SoftwareConsumerBuyerActive}, pathPending={snapshot.SoftwareConsumerPathPending}, tripNeededPresent={snapshot.SoftwareConsumerTripNeededPresent}, currentTradingPresent={snapshot.SoftwareConsumerCurrentTradingPresent}, noBuyerDespiteNeed={snapshot.SoftwareConsumerNoBuyerDespiteNeed}, tradeCostOnly={snapshot.SoftwareConsumerTradeCostOnly})" +
                 $"); " +
                 $"diagnostic_context(topFactors=[{snapshot.TopFactors}])");
 
@@ -487,6 +564,47 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 int softwareInputStock = isConsumer ? GetCompanyResourceAmount(company, Resource.Software) : 0;
+                SoftwareConsumerDiagnosticState softwareConsumerState = default;
+                if (isConsumer)
+                {
+                    softwareConsumerState = GetSoftwareConsumerDiagnosticState(company, prefabRef.m_Prefab, processData, snapshot.Day, snapshot.SampleIndex);
+                    softwareInputStock = softwareConsumerState.Need.Stock;
+                    if (softwareConsumerState.Need.Selected)
+                    {
+                        snapshot.SoftwareConsumerNeedSelected++;
+                    }
+
+                    if (softwareConsumerState.Buyer.BuyerActive)
+                    {
+                        snapshot.SoftwareConsumerBuyerActive++;
+                    }
+
+                    if (softwareConsumerState.Buyer.PathPending)
+                    {
+                        snapshot.SoftwareConsumerPathPending++;
+                    }
+
+                    if (softwareConsumerState.Buyer.TripNeededCount > 0)
+                    {
+                        snapshot.SoftwareConsumerTripNeededPresent++;
+                    }
+
+                    if (softwareConsumerState.Buyer.CurrentTradingCount > 0)
+                    {
+                        snapshot.SoftwareConsumerCurrentTradingPresent++;
+                    }
+
+                    if (softwareConsumerState.NoBuyerDespiteNeed)
+                    {
+                        snapshot.SoftwareConsumerNoBuyerDespiteNeed++;
+                    }
+
+                    if (softwareConsumerState.TradeCostOnly)
+                    {
+                        snapshot.SoftwareConsumerTradeCostOnly++;
+                    }
+                }
+
                 bool softwareInputZero = isConsumer && softwareInputStock <= 0;
 
                 bool hasEfficiency = EntityManager.HasBuffer<Efficiency>(propertyRenter.m_Property);
@@ -533,16 +651,16 @@ namespace NoOfficeDemandFix.Systems
                     snapshot.SoftwareConsumerOfficeSoftwareInputZero++;
                 }
 
-                if (efficiencyZero || lackResourcesZero || softwareInputZero)
+                if (efficiencyZero || lackResourcesZero || softwareInputZero || (isConsumer && softwareConsumerState.NoBuyerDespiteNeed))
                 {
-                    AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources));
+                    AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
                 }
             }
 
             snapshot.SoftwareOfficeDetails = details.ToString();
         }
 
-        private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources)
+        private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources, SoftwareConsumerDiagnosticState softwareConsumerState)
         {
             StringBuilder builder = new StringBuilder();
             builder.Append("role=").Append(GetSoftwareOfficeRoleLabel(isProducer, isConsumer));
@@ -557,7 +675,12 @@ namespace NoOfficeDemandFix.Systems
             if (isConsumer)
             {
                 builder.Append(", softwareInputZero=").Append(softwareInputZero);
-                AppendSoftwareConsumerTradeState(builder, company);
+                AppendSoftwareNeedState(builder, softwareConsumerState.Need);
+                AppendSoftwareTradeCostState(builder, softwareConsumerState.TradeCost);
+                AppendSoftwareBuyerState(builder, softwareConsumerState.Buyer);
+                AppendSoftwareTraceState(builder, softwareConsumerState.Trace);
+                builder.Append(", noBuyerDespiteNeed=").Append(softwareConsumerState.NoBuyerDespiteNeed);
+                builder.Append(", tradeCostOnly=").Append(softwareConsumerState.TradeCostOnly);
             }
 
             if (EntityManager.HasComponent<ResourceBuyer>(company))
@@ -604,20 +727,10 @@ namespace NoOfficeDemandFix.Systems
             }
 
             builder.Append(", ").Append(label).Append('=').Append(resource);
-            builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource));
-
-            bool hasTradeCostBuffer = EntityManager.HasBuffer<TradeCost>(company);
-            builder.Append(", tradeCostBuffer=").Append(hasTradeCostBuffer);
-
-            float buyCost = 0f;
-            bool hasTradeCostEntry = hasTradeCostBuffer && TryGetCompanyTradeCost(company, resource, out buyCost);
-            builder.Append(", tradeCostEntry=").Append(hasTradeCostEntry);
-            if (hasTradeCostEntry)
-            {
-                builder.Append(", buyCost=").Append(buyCost.ToString("0.###", CultureInfo.InvariantCulture));
-            }
-
-            builder.Append(')');
+            // Note: We intentionally only log the current stock here to keep diagnostics concise.
+            // If additional detail (e.g., trade-cost buffer or entry information) is required for debugging,
+            // extend this formatter or use a more verbose diagnostic path instead of reintroducing it here.
+            builder.Append("(stock=").Append(GetCompanyResourceAmount(company, resource)).Append(')');
         }
 
         private int GetCompanyResourceAmount(Entity company, Resource resource)
@@ -631,42 +744,69 @@ namespace NoOfficeDemandFix.Systems
             return EconomyUtils.GetResources(resource, resources);
         }
 
-        private void AppendSoftwareConsumerTradeState(StringBuilder builder, Entity company)
+        private void AppendSoftwareNeedState(StringBuilder builder, SoftwareNeedState state)
         {
-            bool softwareBuyerActive = TryGetActiveBuyer(company, Resource.Software, out int softwareBuyerAmount);
-            int softwareTripNeededAmount = GetCompanyTripNeededAmount(company, Resource.Software, out int softwareTripNeededCount);
-            int softwareCurrentTradingAmount = GetCompanyCurrentTradingAmount(company, Resource.Software, out int softwareCurrentTradingCount);
-
-            builder.Append(", softwareTrade(");
-            builder.Append("buyerActive=").Append(softwareBuyerActive);
-            if (softwareBuyerActive)
-            {
-                builder.Append(", buyerAmount=").Append(softwareBuyerAmount);
-            }
-
-            builder.Append(", tripNeededCount=").Append(softwareTripNeededCount);
-            builder.Append(", tripNeededAmount=").Append(softwareTripNeededAmount);
-            builder.Append(", currentTradingCount=").Append(softwareCurrentTradingCount);
-            builder.Append(", currentTradingAmount=").Append(softwareCurrentTradingAmount);
-
-            if (TryGetCompanyPathInformation(company, out PathInformation pathInformation))
-            {
-                builder.Append(", pathState=").Append(pathInformation.m_State);
-                builder.Append(", pathDestination=").Append(FormatEntity(pathInformation.m_Destination));
-                builder.Append(", pathMethods=").Append(pathInformation.m_Methods);
-                builder.Append(", pathDistance=").Append(pathInformation.m_Distance.ToString("0.###", CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                builder.Append(", pathState=none");
-            }
-
+            builder.Append(", softwareNeed(");
+            builder.Append("stock=").Append(state.Stock);
+            builder.Append(", buyingLoad=").Append(state.BuyingLoad);
+            builder.Append(", tripNeededAmount=").Append(state.TripNeededAmount);
+            builder.Append(", effectiveStock=").Append(state.EffectiveStock);
+            builder.Append(", threshold=").Append(state.Threshold);
+            builder.Append(", selected=").Append(state.Selected);
+            builder.Append(", expensive=").Append(state.Expensive);
             builder.Append(')');
         }
 
-        private bool TryGetCompanyTradeCost(Entity company, Resource resource, out float buyCost)
+        private void AppendSoftwareTradeCostState(StringBuilder builder, SoftwareTradeCostState state)
         {
-            buyCost = 0f;
+            builder.Append(", softwareTradeCost(");
+            builder.Append("tradeCostEntry=").Append(state.HasEntry);
+            builder.Append(", buyCost=");
+            builder.Append(state.HasEntry ? state.BuyCost.ToString("0.###", CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastTransferRequestTime=");
+            builder.Append(state.HasEntry ? state.LastTransferRequestTime.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(')');
+        }
+
+        private void AppendSoftwareBuyerState(StringBuilder builder, SoftwareBuyerState state)
+        {
+            builder.Append(", softwareBuyerState(");
+            builder.Append("buyerActive=").Append(state.BuyerActive);
+            builder.Append(", buyerAmount=");
+            builder.Append(state.BuyerActive ? state.BuyerAmount.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", tripNeededCount=").Append(state.TripNeededCount);
+            builder.Append(", tripNeededAmount=").Append(state.TripNeededAmount);
+            builder.Append(", currentTradingCount=").Append(state.CurrentTradingCount);
+            builder.Append(", currentTradingAmount=").Append(state.CurrentTradingAmount);
+            builder.Append(", pathPending=").Append(state.PathPending);
+            builder.Append(", pathState=");
+            builder.Append(state.HasPath ? state.PathState.ToString() : "none");
+            builder.Append(", pathDestination=");
+            builder.Append(state.HasPath ? FormatEntity(state.PathDestination) : "none");
+            builder.Append(", pathDistance=");
+            builder.Append(state.HasPath ? state.PathDistance.ToString("0.###", CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(')');
+        }
+
+        private void AppendSoftwareTraceState(StringBuilder builder, SoftwareConsumerTraceState state)
+        {
+            builder.Append(", softwareTrace(");
+            builder.Append("current=").Append(string.IsNullOrEmpty(state.CurrentClassification) ? kTraceNeedNotSelected : state.CurrentClassification);
+            builder.Append(", lastTransition=").Append(string.IsNullOrEmpty(state.LastTransitionLabel) ? kTraceNeedNotSelected : state.LastTransitionLabel);
+            builder.Append(", lastTransitionDay=");
+            builder.Append(state.LastTransitionDay == 0 && string.IsNullOrEmpty(state.LastTransitionLabel) ? "n/a" : state.LastTransitionDay.ToString(CultureInfo.InvariantCulture));
+            builder.Append(", lastTransitionSampleIndex=");
+            builder.Append(state.LastTransitionSampleIndex == 0 && string.IsNullOrEmpty(state.LastTransitionLabel) ? "n/a" : state.LastTransitionSampleIndex.ToString(CultureInfo.InvariantCulture));
+            builder.Append(", lastPathDestination=");
+            builder.Append(state.HasLastPathDestination ? FormatEntity(state.LastPathDestination) : "none");
+            builder.Append(", lastPathDestinationSoftwareStock=");
+            builder.Append(state.HasLastPathDestinationSoftwareStock ? state.LastPathDestinationSoftwareStock.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(')');
+        }
+
+        private bool TryGetCompanyTradeCost(Entity company, Resource resource, out SoftwareTradeCostState tradeCostState)
+        {
+            tradeCostState = default;
             if (resource == Resource.NoResource || !EntityManager.HasBuffer<TradeCost>(company))
             {
                 return false;
@@ -681,7 +821,9 @@ namespace NoOfficeDemandFix.Systems
                     continue;
                 }
 
-                buyCost = tradeCost.m_BuyCost;
+                tradeCostState.HasEntry = true;
+                tradeCostState.BuyCost = tradeCost.m_BuyCost;
+                tradeCostState.LastTransferRequestTime = tradeCost.m_LastTransferRequestTime;
                 return true;
             }
 
@@ -766,6 +908,260 @@ namespace NoOfficeDemandFix.Systems
 
             pathInformation = EntityManager.GetComponentData<PathInformation>(company);
             return true;
+        }
+
+        private SoftwareConsumerDiagnosticState GetSoftwareConsumerDiagnosticState(Entity company, Entity companyPrefab, IndustrialProcessData processData, int day, int sampleIndex)
+        {
+            SoftwareNeedState needState = GetSoftwareNeedState(company, companyPrefab, processData);
+            TryGetCompanyTradeCost(company, Resource.Software, out SoftwareTradeCostState tradeCostState);
+            SoftwareBuyerState buyerState = GetSoftwareBuyerState(company);
+            bool noBuyerDespiteNeed = needState.Selected &&
+                                      !buyerState.BuyerActive &&
+                                      !buyerState.PathPending &&
+                                      buyerState.TripNeededCount == 0 &&
+                                      buyerState.CurrentTradingCount == 0;
+            bool tradeCostOnly = tradeCostState.HasEntry && noBuyerDespiteNeed;
+            SoftwareConsumerTraceState traceState = UpdateSoftwareConsumerTrace(company, needState, buyerState, day, sampleIndex);
+            return new SoftwareConsumerDiagnosticState
+            {
+                Need = needState,
+                TradeCost = tradeCostState,
+                Buyer = buyerState,
+                Trace = traceState,
+                NoBuyerDespiteNeed = noBuyerDespiteNeed,
+                TradeCostOnly = tradeCostOnly
+            };
+        }
+
+        private SoftwareNeedState GetSoftwareNeedState(Entity company, Entity companyPrefab, IndustrialProcessData processData)
+        {
+            SoftwareNeedState state = default;
+            int storageLimit = int.MaxValue;
+            if (EntityManager.HasComponent<StorageLimitData>(companyPrefab))
+            {
+                storageLimit = EntityManager.GetComponentData<StorageLimitData>(companyPrefab).m_Limit;
+            }
+
+            bool hasSecondInput = processData.m_Input2.m_Resource != Resource.NoResource;
+            int slotCount = hasSecondInput ? 2 : 1;
+            if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource && ResourceHasWeight(processData.m_Output.m_Resource))
+            {
+                slotCount++;
+            }
+
+            int maxCapacityPerSlot = slotCount > 0 ? storageLimit / slotCount : storageLimit;
+            Resource needResource = Resource.NoResource;
+            EvaluateNeedSelection(company, processData.m_Input1.m_Resource, maxCapacityPerSlot, ref needResource, ref state);
+            if (hasSecondInput)
+            {
+                EvaluateNeedSelection(company, processData.m_Input2.m_Resource, maxCapacityPerSlot, ref needResource, ref state);
+            }
+
+            return state;
+        }
+
+        private void EvaluateNeedSelection(Entity company, Resource resource, int maxCapacity, ref Resource needResource, ref SoftwareNeedState softwareNeedState)
+        {
+            if (resource == Resource.NoResource)
+            {
+                return;
+            }
+
+            int stock = GetCompanyResourceAmount(company, resource);
+            int buyingLoad = GetCompanyBuyingLoad(company, resource);
+            int tripNeededAmount = GetCompanyTripNeededAmount(company, resource, out _);
+            int effectiveStock = stock + buyingLoad + tripNeededAmount;
+            int threshold = (int)Math.Max(kResourceLowStockAmount, maxCapacity * 0.25f);
+            bool expensive = TryGetCompanyTradeCost(company, resource, out SoftwareTradeCostState tradeCostState) &&
+                             tradeCostState.BuyCost > kNotificationCostLimit;
+            bool selected = needResource == Resource.NoResource && effectiveStock < threshold;
+            if (selected)
+            {
+                needResource = resource;
+            }
+
+            if (resource != Resource.Software)
+            {
+                return;
+            }
+
+            softwareNeedState.Stock = stock;
+            softwareNeedState.BuyingLoad = buyingLoad;
+            softwareNeedState.TripNeededAmount = tripNeededAmount;
+            softwareNeedState.EffectiveStock = effectiveStock;
+            softwareNeedState.Threshold = threshold;
+            softwareNeedState.Selected = selected;
+            softwareNeedState.Expensive = expensive;
+        }
+
+        private SoftwareBuyerState GetSoftwareBuyerState(Entity company)
+        {
+            SoftwareBuyerState state = default;
+            state.BuyerActive = TryGetActiveBuyer(company, Resource.Software, out state.BuyerAmount);
+            state.TripNeededAmount = GetCompanyTripNeededAmount(company, Resource.Software, out state.TripNeededCount);
+            state.CurrentTradingAmount = GetCompanyCurrentTradingAmount(company, Resource.Software, out state.CurrentTradingCount);
+            if (TryGetCompanyPathInformation(company, out PathInformation pathInformation))
+            {
+                state.HasPath = true;
+                state.PathState = pathInformation.m_State;
+                state.PathDestination = pathInformation.m_Destination;
+                state.PathDistance = pathInformation.m_Distance;
+                state.PathPending = (pathInformation.m_State & (PathFlags.Pending | PathFlags.Scheduled)) != 0;
+            }
+
+            return state;
+        }
+
+        private SoftwareConsumerTraceState UpdateSoftwareConsumerTrace(Entity company, SoftwareNeedState needState, SoftwareBuyerState buyerState, int day, int sampleIndex)
+        {
+            m_SoftwareConsumerTrace.TryGetValue(company, out SoftwareConsumerTraceState traceState);
+            if (buyerState.HasPath && buyerState.PathDestination != Entity.Null)
+            {
+                traceState.LastPathDestination = buyerState.PathDestination;
+                traceState.HasLastPathDestination = true;
+                if (TryGetEntityResourceAmount(buyerState.PathDestination, Resource.Software, out int destinationSoftwareStock))
+                {
+                    traceState.LastPathDestinationSoftwareStock = destinationSoftwareStock;
+                    traceState.HasLastPathDestinationSoftwareStock = true;
+                }
+                else
+                {
+                    traceState.HasLastPathDestinationSoftwareStock = false;
+                }
+            }
+
+            string currentClassification = ClassifySoftwareConsumerState(needState, buyerState, traceState);
+            if (!string.Equals(traceState.CurrentClassification, currentClassification, StringComparison.Ordinal))
+            {
+                traceState.LastTransitionLabel = currentClassification;
+                traceState.LastTransitionDay = day;
+                traceState.LastTransitionSampleIndex = sampleIndex;
+            }
+
+            traceState.CurrentClassification = currentClassification;
+            m_SoftwareConsumerTrace[company] = traceState;
+            return traceState;
+        }
+
+        private static string ClassifySoftwareConsumerState(SoftwareNeedState needState, SoftwareBuyerState buyerState, SoftwareConsumerTraceState traceState)
+        {
+            if (buyerState.CurrentTradingCount > 0)
+            {
+                return kTraceCurrentTradingPresent;
+            }
+
+            if (buyerState.TripNeededCount > 0)
+            {
+                return kTraceTripReservedPresent;
+            }
+
+            if (buyerState.BuyerActive)
+            {
+                return kTraceBuyerActive;
+            }
+
+            if (buyerState.PathPending)
+            {
+                return kTracePathPending;
+            }
+
+            if (needState.Selected)
+            {
+                if (traceState.HasLastPathDestination ||
+                    string.Equals(traceState.CurrentClassification, kTraceBuyerActive, StringComparison.Ordinal) ||
+                    string.Equals(traceState.CurrentClassification, kTracePathPending, StringComparison.Ordinal) ||
+                    string.Equals(traceState.CurrentClassification, kTraceTripReservedPresent, StringComparison.Ordinal) ||
+                    string.Equals(traceState.CurrentClassification, kTraceCurrentTradingPresent, StringComparison.Ordinal))
+                {
+                    return kTracePathResolvedNoTradeState;
+                }
+
+                return kTraceNeedSelectedNoBuyer;
+            }
+
+            if (!string.IsNullOrEmpty(traceState.CurrentClassification) &&
+                !string.Equals(traceState.CurrentClassification, kTraceNeedNotSelected, StringComparison.Ordinal) &&
+                !string.Equals(traceState.CurrentClassification, kTraceNeedCleared, StringComparison.Ordinal))
+            {
+                return kTraceNeedCleared;
+            }
+
+            return kTraceNeedNotSelected;
+        }
+
+        private int GetCompanyBuyingLoad(Entity company, Resource resource)
+        {
+            if (resource == Resource.NoResource || !EntityManager.HasBuffer<OwnedVehicle>(company))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DynamicBuffer<OwnedVehicle> vehicles = EntityManager.GetBuffer<OwnedVehicle>(company, isReadOnly: true);
+            for (int i = 0; i < vehicles.Length; i++)
+            {
+                amount += GetBuyingTruckLoad(vehicles[i].m_Vehicle, resource);
+            }
+
+            return amount;
+        }
+
+        private int GetBuyingTruckLoad(Entity vehicle, Resource resource)
+        {
+            if (!EntityManager.HasComponent<Game.Vehicles.DeliveryTruck>(vehicle))
+            {
+                return 0;
+            }
+
+            Game.Vehicles.DeliveryTruck truck = EntityManager.GetComponentData<Game.Vehicles.DeliveryTruck>(vehicle);
+            if (EntityManager.HasBuffer<LayoutElement>(vehicle))
+            {
+                DynamicBuffer<LayoutElement> layout = EntityManager.GetBuffer<LayoutElement>(vehicle, isReadOnly: true);
+                if (layout.Length > 0)
+                {
+                    int layoutAmount = 0;
+                    for (int i = 0; i < layout.Length; i++)
+                    {
+                        Entity layoutVehicle = layout[i].m_Vehicle;
+                        if (!EntityManager.HasComponent<Game.Vehicles.DeliveryTruck>(layoutVehicle))
+                        {
+                            continue;
+                        }
+
+                        Game.Vehicles.DeliveryTruck layoutTruck = EntityManager.GetComponentData<Game.Vehicles.DeliveryTruck>(layoutVehicle);
+                        if (layoutTruck.m_Resource == resource && (layoutTruck.m_State & DeliveryTruckFlags.Buying) != 0)
+                        {
+                            layoutAmount += layoutTruck.m_Amount;
+                        }
+                    }
+
+                    return layoutAmount;
+                }
+            }
+
+            if (truck.m_Resource == resource && (truck.m_State & DeliveryTruckFlags.Buying) != 0)
+            {
+                return truck.m_Amount;
+            }
+
+            return 0;
+        }
+
+        private bool TryGetEntityResourceAmount(Entity entity, Resource resource, out int amount)
+        {
+            amount = 0;
+            if (entity == Entity.Null || resource == Resource.NoResource || !EntityManager.HasBuffer<Resources>(entity))
+            {
+                return false;
+            }
+
+            amount = EconomyUtils.GetResources(resource, EntityManager.GetBuffer<Resources>(entity, isReadOnly: true));
+            return true;
+        }
+
+        private bool ResourceHasWeight(Resource resource)
+        {
+            return EconomyUtils.GetWeight(EntityManager, resource, m_ResourceSystem.GetPrefabs()) > 0f;
         }
 
         private int GetCompanyRenterCount(Entity entity)
@@ -905,7 +1301,9 @@ namespace NoOfficeDemandFix.Systems
                    snapshot.SoftwareProducerOfficeLackResourcesZero > 0 ||
                    snapshot.SoftwareConsumerOfficeEfficiencyZero > 0 ||
                    snapshot.SoftwareConsumerOfficeLackResourcesZero > 0 ||
-                   snapshot.SoftwareConsumerOfficeSoftwareInputZero > 0;
+                   snapshot.SoftwareConsumerOfficeSoftwareInputZero > 0 ||
+                   snapshot.SoftwareConsumerNoBuyerDespiteNeed > 0 ||
+                   snapshot.SoftwareConsumerTradeCostOnly > 0;
         }
 
         private static string FormatSettingsSnapshot()
@@ -966,6 +1364,7 @@ namespace NoOfficeDemandFix.Systems
             m_LastDiagnosticsEnabled = false;
             m_LastSettingsSnapshot = string.Empty;
             m_LastPatchState = string.Empty;
+            m_SoftwareConsumerTrace.Clear();
         }
 
         private static string CreateSessionId()
@@ -980,6 +1379,7 @@ namespace NoOfficeDemandFix.Systems
             m_RunStartSampleIndex = sampleIndex;
             m_LastSettingsSnapshot = settingsSnapshot;
             m_LastPatchState = patchState;
+            m_SoftwareConsumerTrace.Clear();
         }
 
         private int GetObservationSampleCount(int endSampleIndex)

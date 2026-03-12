@@ -13,7 +13,7 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - includes an opt-in prefab-level office-resource trade patch for outside connections and cargo stations when maintainers need software-track comparison data; setting changes are picked up on the next city/save load without a full restart in the normal case, but a restart is recommended for clean comparison runs if other mods may also modify the same storage resource definitions
-- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including enough signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer trade-state anomalies
+- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office health, including need-selection and buyer-lifecycle signal to help distinguish upstream input pressure, downstream software-consumer shortage, and consumer buyer-state anomalies
 
 What it does not claim:
 
@@ -45,11 +45,13 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 Current evidence supports two distinct tracks:
 
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
-- `software` instability is still plausible, still tracked, and still best treated as investigation tooling plus experimental mitigation rather than solved
+- `software` instability is still plausible, still tracked, and still best treated as investigation tooling with diagnostics and an optional trade patch for comparison runs rather than a solved user-facing fix
 
-Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks, but the track remains investigational rather than proven.
+Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks. The current investigation focuses on explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
 
 Current evidence also does not support treating widespread `software` consumer efficiency collapse as a direct proxy for lower office demand. Demand response still has to be captured directly from the office-demand counters rather than inferred from software-office distress alone.
+
+Current same-save current-build evidence also does not show clear immediate trade-patch mitigation through day 22. The optional trade patch remains useful as a comparison switch, but it is not currently described as a proven fix for the sampled software-consumer buyer-state anomaly.
 
 When code reading matters, the base-game lifecycle claims should come from vanilla decompiled game code. This mod's own code is the source of truth for runtime patch behavior and emitted diagnostics, not for every vanilla trade-path assumption.
 
@@ -75,3 +77,7 @@ promotion into a normalized evidence issue, start with
 
 - Contributors: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Maintainers and operators: [MAINTAINING.md](./MAINTAINING.md)
+- Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
+- Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
+- Software evidence form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
+- Software investigation umbrella form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)
