@@ -43,6 +43,7 @@ namespace NoOfficeDemandFix.Systems
         private const string kTraceCurrentTradingPresent = "current_trading_present";
         private const string kTraceTripReservedPresent = "trip_reserved_present";
         private const string kTraceNeedCleared = "need_cleared";
+        private const string kTraceTransitionUnobserved = "unobserved";
 
         private struct FactorEntry
         {
@@ -171,6 +172,7 @@ namespace NoOfficeDemandFix.Systems
             public string FreeSoftwareOfficePropertyDetails;
             public string OnMarketOfficePropertyDetails;
             public string SoftwareOfficeDetails;
+            public string SoftwareTradeLifecycleDetails;
         }
 
         private struct SoftwareNeedState
@@ -184,10 +186,23 @@ namespace NoOfficeDemandFix.Systems
             public bool Expensive;
         }
 
+        private struct ResourceTripState
+        {
+            public int TotalCount;
+            public int TotalAmount;
+            public int ShoppingCount;
+            public int ShoppingAmount;
+            public int CompanyShoppingCount;
+            public int CompanyShoppingAmount;
+            public int OtherCount;
+            public int OtherAmount;
+        }
+
         private struct SoftwareTradeCostState
         {
             public bool HasEntry;
             public float BuyCost;
+            public float SellCost;
             public long LastTransferRequestTime;
         }
 
@@ -197,6 +212,12 @@ namespace NoOfficeDemandFix.Systems
             public int BuyerAmount;
             public int TripNeededCount;
             public int TripNeededAmount;
+            public int ShoppingTripCount;
+            public int ShoppingTripAmount;
+            public int CompanyShoppingTripCount;
+            public int CompanyShoppingTripAmount;
+            public int OtherTripCount;
+            public int OtherTripAmount;
             public int CurrentTradingCount;
             public int CurrentTradingAmount;
             public bool HasPath;
@@ -210,6 +231,7 @@ namespace NoOfficeDemandFix.Systems
         {
             public string CurrentClassification;
             public string LastTransitionLabel;
+            public string LastTransitionFromLabel;
             public int LastTransitionDay;
             public int LastTransitionSampleIndex;
             public Entity LastPathDestination;
@@ -378,7 +400,8 @@ namespace NoOfficeDemandFix.Systems
                 sampleWindow.SampleIndex,
                 sampleWindow.SampleSlot,
                 samplesPerDay,
-                sampleWindow.ClockSource);
+                sampleWindow.ClockSource,
+                settingsState.VerboseLogging);
             int skippedSampleSlots = GetSkippedSampleSlots(sampleWindow.SampleIndex);
             m_LastProcessedSampleIndex = sampleWindow.SampleIndex;
             EmitObservationIfTriggered(currentSnapshot, settingsState, skippedSampleSlots);
@@ -460,6 +483,18 @@ namespace NoOfficeDemandFix.Systems
                         snapshot.SoftwareOfficeDetails));
             }
 
+            if (!string.IsNullOrEmpty(snapshot.SoftwareTradeLifecycleDetails))
+            {
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.SoftwareTradeLifecycleDetailType,
+                        snapshot.SoftwareTradeLifecycleDetails));
+            }
+
             m_RunObservationCount = sampleCount;
             m_LastObservedSampleIndex = snapshot.SampleIndex;
         }
@@ -469,7 +504,8 @@ namespace NoOfficeDemandFix.Systems
             int sampleIndex,
             int sampleSlot,
             int samplesPerDay,
-            string clockSource)
+            string clockSource,
+            bool verboseLogging)
         {
             JobHandle officeDeps;
             NativeArray<int> officeFactors = m_IndustrialDemandSystem.GetOfficeDemandFactors(out officeDeps);
@@ -507,7 +543,7 @@ namespace NoOfficeDemandFix.Systems
             CountFreeOfficeProperties(ref snapshot);
             CountOnMarketProperties(ref snapshot);
             CountToBeOnMarketProperties(ref snapshot);
-            CountSoftwareOffices(ref snapshot);
+            CountSoftwareOffices(ref snapshot, verboseLogging);
 
             return snapshot;
         }
@@ -637,10 +673,12 @@ namespace NoOfficeDemandFix.Systems
             }
         }
 
-        private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot)
+        private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot, bool verboseLogging)
         {
             StringBuilder details = new StringBuilder();
             int detailCount = 0;
+            StringBuilder lifecycleDetails = new StringBuilder();
+            int lifecycleDetailCount = 0;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
             {
@@ -798,9 +836,41 @@ namespace NoOfficeDemandFix.Systems
                 {
                     AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
                 }
+
+                if (verboseLogging && isConsumer && ShouldCaptureConsumerTradeLifecycle(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
+                {
+                    AppendDetail(
+                        lifecycleDetails,
+                        ref lifecycleDetailCount,
+                        DescribeConsumerTradeLifecycle(
+                            company,
+                            prefabRef.m_Prefab,
+                            propertyRenter.m_Property,
+                            processData,
+                            hasEfficiency,
+                            efficiency,
+                            lackResources,
+                            softwareConsumerState));
+                }
+
+                if (verboseLogging && isProducer && (efficiencyZero || lackResourcesZero))
+                {
+                    AppendDetail(
+                        lifecycleDetails,
+                        ref lifecycleDetailCount,
+                        DescribeProducerTradeLifecycle(
+                            company,
+                            prefabRef.m_Prefab,
+                            propertyRenter.m_Property,
+                            processData,
+                            hasEfficiency,
+                            efficiency,
+                            lackResources));
+                }
             }
 
             snapshot.SoftwareOfficeDetails = details.ToString();
+            snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails.ToString();
         }
 
         private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources, SoftwareConsumerDiagnosticState softwareConsumerState)
@@ -826,15 +896,105 @@ namespace NoOfficeDemandFix.Systems
                 builder.Append(", tradeCostOnly=").Append(softwareConsumerState.TradeCostOnly);
             }
 
-            if (EntityManager.HasComponent<ResourceBuyer>(company))
+            AppendCurrentResourceBuyerSnapshot(builder, company);
+
+            builder.Append(", efficiency=");
+            AppendMetricValue(builder, hasEfficiency, efficiency);
+            builder.Append(", lackResources=");
+            AppendMetricValue(builder, hasEfficiency, lackResources);
+            return builder.ToString();
+        }
+
+        private static bool ShouldCaptureConsumerTradeLifecycle(SoftwareConsumerDiagnosticState state, int day, int sampleIndex)
+        {
+            if (state.Trace.LastTransitionDay != day || state.Trace.LastTransitionSampleIndex != sampleIndex)
             {
-                ResourceBuyer buyer = EntityManager.GetComponentData<ResourceBuyer>(company);
-                builder.Append(", activeBuyer(");
-                builder.Append("resource=").Append(buyer.m_ResourceNeeded);
-                builder.Append(", amount=").Append(buyer.m_AmountNeeded);
-                builder.Append(')');
+                return false;
             }
 
+            return IsLifecycleTraceState(state.Trace.CurrentClassification) ||
+                   IsLifecycleTraceState(state.Trace.LastTransitionFromLabel);
+        }
+
+        private static bool IsLifecycleTraceState(string classification)
+        {
+            return string.Equals(classification, kTraceNeedSelectedNoBuyer, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTracePathPending, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceTripReservedPresent, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceCurrentTradingPresent, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTracePathResolvedNoTradeState, StringComparison.Ordinal);
+        }
+
+        private string DescribeConsumerTradeLifecycle(
+            Entity company,
+            Entity companyPrefab,
+            Entity property,
+            IndustrialProcessData processData,
+            bool hasEfficiency,
+            float efficiency,
+            float lackResources,
+            SoftwareConsumerDiagnosticState softwareConsumerState)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("role=consumer");
+            builder.Append(", company=").Append(FormatEntity(company));
+            builder.Append(", prefab=").Append(GetPrefabLabel(companyPrefab));
+            builder.Append(", property=").Append(FormatEntity(property));
+            builder.Append(", capture=transition");
+            builder.Append(", output=").Append(processData.m_Output.m_Resource);
+            builder.Append(", outputStock=").Append(GetCompanyResourceAmount(company, processData.m_Output.m_Resource));
+            AppendCompanyResourceState(builder, company, "input1", processData.m_Input1.m_Resource);
+            AppendCompanyResourceState(builder, company, "input2", processData.m_Input2.m_Resource);
+            AppendSoftwareTransitionState(builder, softwareConsumerState.Trace);
+            AppendSoftwareNeedState(builder, softwareConsumerState.Need);
+            AppendSoftwareTradeCostState(builder, softwareConsumerState.TradeCost);
+            AppendSoftwareBuyerState(builder, softwareConsumerState.Buyer);
+            AppendResourceTripState(builder, "softwareTripState", softwareConsumerState.Buyer);
+            AppendSoftwareTraceState(builder, softwareConsumerState.Trace);
+            AppendCurrentResourceBuyerSnapshot(builder, company);
+            AppendBuyingCompanyState(builder, company);
+            if (softwareConsumerState.Buyer.HasPath && softwareConsumerState.Buyer.PathDestination != Entity.Null)
+            {
+                AppendSellerSnapshot(builder, "pathSeller", softwareConsumerState.Buyer.PathDestination, Resource.Software);
+            }
+
+            if (TryGetLastTradePartner(company, out Entity lastTradePartner))
+            {
+                AppendSellerSnapshot(builder, "lastTradePartnerSeller", lastTradePartner, Resource.Software);
+            }
+
+            builder.Append(", noBuyerDespiteNeed=").Append(softwareConsumerState.NoBuyerDespiteNeed);
+            builder.Append(", tradeCostOnly=").Append(softwareConsumerState.TradeCostOnly);
+            builder.Append(", efficiency=");
+            AppendMetricValue(builder, hasEfficiency, efficiency);
+            builder.Append(", lackResources=");
+            AppendMetricValue(builder, hasEfficiency, lackResources);
+            return builder.ToString();
+        }
+
+        private string DescribeProducerTradeLifecycle(
+            Entity company,
+            Entity companyPrefab,
+            Entity property,
+            IndustrialProcessData processData,
+            bool hasEfficiency,
+            float efficiency,
+            float lackResources)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("role=producer");
+            builder.Append(", company=").Append(FormatEntity(company));
+            builder.Append(", prefab=").Append(GetPrefabLabel(companyPrefab));
+            builder.Append(", property=").Append(FormatEntity(property));
+            builder.Append(", capture=suspicious_producer");
+            builder.Append(", output=").Append(processData.m_Output.m_Resource);
+            builder.Append(", outputStock=").Append(GetCompanyResourceAmount(company, processData.m_Output.m_Resource));
+            AppendCompanyResourceState(builder, company, "input1", processData.m_Input1.m_Resource);
+            AppendCompanyResourceState(builder, company, "input2", processData.m_Input2.m_Resource);
+            AppendTradeCostSnapshot(builder, "outputTradeCost", processData.m_Output.m_Resource, company);
+            AppendTradeCostSnapshot(builder, "input1TradeCost", processData.m_Input1.m_Resource, company);
+            AppendTradeCostSnapshot(builder, "input2TradeCost", processData.m_Input2.m_Resource, company);
+            AppendCurrentResourceBuyerSnapshot(builder, company);
             builder.Append(", efficiency=");
             AppendMetricValue(builder, hasEfficiency, efficiency);
             builder.Append(", lackResources=");
@@ -947,6 +1107,120 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(')');
         }
 
+        private void AppendSoftwareTransitionState(StringBuilder builder, SoftwareConsumerTraceState state)
+        {
+            builder.Append(", transition(");
+            builder.Append("from=").Append(string.IsNullOrEmpty(state.LastTransitionFromLabel) ? kTraceTransitionUnobserved : state.LastTransitionFromLabel);
+            builder.Append(", to=").Append(string.IsNullOrEmpty(state.CurrentClassification) ? kTraceNeedNotSelected : state.CurrentClassification);
+            builder.Append(", day=").Append(state.LastTransitionDay == 0 ? "n/a" : state.LastTransitionDay.ToString(CultureInfo.InvariantCulture));
+            builder.Append(", sampleIndex=").Append(state.LastTransitionSampleIndex == 0 ? "n/a" : state.LastTransitionSampleIndex.ToString(CultureInfo.InvariantCulture));
+            builder.Append(')');
+        }
+
+        private void AppendResourceTripState(StringBuilder builder, string label, SoftwareBuyerState state)
+        {
+            builder.Append(", ").Append(label).Append('(');
+            builder.Append("totalCount=").Append(state.TripNeededCount);
+            builder.Append(", totalAmount=").Append(state.TripNeededAmount);
+            builder.Append(", shoppingCount=").Append(state.ShoppingTripCount);
+            builder.Append(", shoppingAmount=").Append(state.ShoppingTripAmount);
+            builder.Append(", companyShoppingCount=").Append(state.CompanyShoppingTripCount);
+            builder.Append(", companyShoppingAmount=").Append(state.CompanyShoppingTripAmount);
+            builder.Append(", otherCount=").Append(state.OtherTripCount);
+            builder.Append(", otherAmount=").Append(state.OtherTripAmount);
+            builder.Append(')');
+        }
+
+        private void AppendCurrentResourceBuyerSnapshot(StringBuilder builder, Entity company)
+        {
+            if (!EntityManager.HasComponent<ResourceBuyer>(company))
+            {
+                return;
+            }
+
+            ResourceBuyer buyer = EntityManager.GetComponentData<ResourceBuyer>(company);
+            builder.Append(", activeBuyer(");
+            builder.Append("resource=").Append(buyer.m_ResourceNeeded);
+            builder.Append(", amount=").Append(buyer.m_AmountNeeded);
+            builder.Append(')');
+        }
+
+        private void AppendBuyingCompanyState(StringBuilder builder, Entity company)
+        {
+            builder.Append(", buyingCompany(");
+            if (EntityManager.HasComponent<BuyingCompany>(company))
+            {
+                BuyingCompany buyingCompany = EntityManager.GetComponentData<BuyingCompany>(company);
+                builder.Append("lastTradePartner=");
+                builder.Append(buyingCompany.m_LastTradePartner == Entity.Null ? "none" : FormatEntity(buyingCompany.m_LastTradePartner));
+                builder.Append(", meanInputTripLength=").Append(buyingCompany.m_MeanInputTripLength.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                builder.Append("lastTradePartner=n/a, meanInputTripLength=n/a");
+            }
+
+            builder.Append(')');
+        }
+
+        private void AppendTradeCostSnapshot(StringBuilder builder, string label, Resource resource, Entity company)
+        {
+            if (resource == Resource.NoResource)
+            {
+                return;
+            }
+
+            TryGetCompanyTradeCost(company, resource, out SoftwareTradeCostState tradeCostState);
+            builder.Append(", ").Append(label).Append('(');
+            builder.Append("resource=").Append(resource);
+            builder.Append(", tradeCostEntry=").Append(tradeCostState.HasEntry);
+            builder.Append(", buyCost=").Append(tradeCostState.HasEntry ? tradeCostState.BuyCost.ToString("0.###", CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", sellCost=").Append(tradeCostState.HasEntry ? tradeCostState.SellCost.ToString("0.###", CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastTransferRequestTime=").Append(tradeCostState.HasEntry ? tradeCostState.LastTransferRequestTime.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(')');
+        }
+
+        private void AppendSellerSnapshot(StringBuilder builder, string label, Entity seller, Resource resource)
+        {
+            if (seller == Entity.Null)
+            {
+                return;
+            }
+
+            builder.Append(", ").Append(label).Append('(');
+            builder.Append("entity=").Append(FormatEntity(seller));
+            builder.Append(", kind=").Append(GetSellerKindLabel(seller));
+            if (TryGetEntityResourceAmount(seller, resource, out int stock))
+            {
+                int buyingLoad = GetCompanyBuyingLoad(seller, resource);
+                builder.Append(", stock=").Append(stock);
+                builder.Append(", buyingLoad=").Append(buyingLoad);
+                builder.Append(", availableStock=").Append(Math.Max(0, stock - buyingLoad));
+            }
+            else
+            {
+                builder.Append(", stock=n/a, buyingLoad=n/a, availableStock=n/a");
+            }
+
+            if (TryGetCompanyTradeCost(seller, resource, out SoftwareTradeCostState tradeCostState))
+            {
+                builder.Append(", tradeCostEntry=True");
+                builder.Append(", buyCost=").Append(tradeCostState.BuyCost.ToString("0.###", CultureInfo.InvariantCulture));
+                builder.Append(", sellCost=").Append(tradeCostState.SellCost.ToString("0.###", CultureInfo.InvariantCulture));
+                builder.Append(", lastTransferRequestTime=").Append(tradeCostState.LastTransferRequestTime.ToString(CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                builder.Append(", tradeCostEntry=False, buyCost=n/a, sellCost=n/a, lastTransferRequestTime=n/a");
+            }
+
+            builder.Append(", outsideConnectionType=");
+            builder.Append(TryGetOutsideConnectionType(seller, out OutsideConnectionTransferType outsideConnectionType)
+                ? outsideConnectionType.ToString()
+                : "none");
+            builder.Append(')');
+        }
+
         private bool TryGetCompanyTradeCost(Entity company, Resource resource, out SoftwareTradeCostState tradeCostState)
         {
             tradeCostState = default;
@@ -966,6 +1240,7 @@ namespace NoOfficeDemandFix.Systems
 
                 tradeCostState.HasEntry = true;
                 tradeCostState.BuyCost = tradeCost.m_BuyCost;
+                tradeCostState.SellCost = tradeCost.m_SellCost;
                 tradeCostState.LastTransferRequestTime = tradeCost.m_LastTransferRequestTime;
                 return true;
             }
@@ -991,15 +1266,14 @@ namespace NoOfficeDemandFix.Systems
             return true;
         }
 
-        private int GetCompanyTripNeededAmount(Entity company, Resource resource, out int tripCount)
+        private ResourceTripState GetCompanyTripState(Entity company, Resource resource)
         {
-            tripCount = 0;
+            ResourceTripState state = default;
             if (!EntityManager.HasBuffer<CitizenTripNeeded>(company))
             {
-                return 0;
+                return state;
             }
 
-            int amount = 0;
             DynamicBuffer<CitizenTripNeeded> trips = EntityManager.GetBuffer<CitizenTripNeeded>(company, isReadOnly: true);
             for (int i = 0; i < trips.Length; i++)
             {
@@ -1009,11 +1283,27 @@ namespace NoOfficeDemandFix.Systems
                     continue;
                 }
 
-                tripCount++;
-                amount += trip.m_Data;
+                state.TotalCount++;
+                state.TotalAmount += trip.m_Data;
+                if (trip.m_Purpose == Game.Citizens.Purpose.Shopping)
+                {
+                    state.ShoppingCount++;
+                    state.ShoppingAmount += trip.m_Data;
+                    continue;
+                }
+
+                if (trip.m_Purpose == Game.Citizens.Purpose.CompanyShopping)
+                {
+                    state.CompanyShoppingCount++;
+                    state.CompanyShoppingAmount += trip.m_Data;
+                    continue;
+                }
+
+                state.OtherCount++;
+                state.OtherAmount += trip.m_Data;
             }
 
-            return amount;
+            return state;
         }
 
         private int GetCompanyCurrentTradingAmount(Entity company, Resource resource, out int tradingCount)
@@ -1112,7 +1402,9 @@ namespace NoOfficeDemandFix.Systems
 
             int stock = GetCompanyResourceAmount(company, resource);
             int buyingLoad = GetCompanyBuyingLoad(company, resource);
-            int tripNeededAmount = GetCompanyTripNeededAmount(company, resource, out _);
+            // BuyingCompanySystem only adds Purpose.Shopping to need selection.
+            ResourceTripState tripState = GetCompanyTripState(company, resource);
+            int tripNeededAmount = tripState.ShoppingAmount;
             int effectiveStock = stock + buyingLoad + tripNeededAmount;
             int threshold = (int)Math.Max(kResourceLowStockAmount, maxCapacity * 0.25f);
             bool expensive = TryGetCompanyTradeCost(company, resource, out SoftwareTradeCostState tradeCostState) &&
@@ -1141,7 +1433,15 @@ namespace NoOfficeDemandFix.Systems
         {
             SoftwareBuyerState state = default;
             state.BuyerActive = TryGetActiveBuyer(company, Resource.Software, out state.BuyerAmount);
-            state.TripNeededAmount = GetCompanyTripNeededAmount(company, Resource.Software, out state.TripNeededCount);
+            ResourceTripState tripState = GetCompanyTripState(company, Resource.Software);
+            state.TripNeededCount = tripState.TotalCount;
+            state.TripNeededAmount = tripState.TotalAmount;
+            state.ShoppingTripCount = tripState.ShoppingCount;
+            state.ShoppingTripAmount = tripState.ShoppingAmount;
+            state.CompanyShoppingTripCount = tripState.CompanyShoppingCount;
+            state.CompanyShoppingTripAmount = tripState.CompanyShoppingAmount;
+            state.OtherTripCount = tripState.OtherCount;
+            state.OtherTripAmount = tripState.OtherAmount;
             state.CurrentTradingAmount = GetCompanyCurrentTradingAmount(company, Resource.Software, out state.CurrentTradingCount);
             if (TryGetCompanyPathInformation(company, out PathInformation pathInformation))
             {
@@ -1176,6 +1476,7 @@ namespace NoOfficeDemandFix.Systems
             string currentClassification = ClassifySoftwareConsumerState(needState, buyerState, traceState);
             if (!string.Equals(traceState.CurrentClassification, currentClassification, StringComparison.Ordinal))
             {
+                traceState.LastTransitionFromLabel = traceState.CurrentClassification;
                 traceState.LastTransitionLabel = currentClassification;
                 traceState.LastTransitionDay = day;
                 traceState.LastTransitionSampleIndex = sampleIndex;
@@ -1305,6 +1606,56 @@ namespace NoOfficeDemandFix.Systems
         private bool ResourceHasWeight(Resource resource)
         {
             return EconomyUtils.GetWeight(EntityManager, resource, m_ResourceSystem.GetPrefabs()) > 0f;
+        }
+
+        private bool TryGetLastTradePartner(Entity company, out Entity lastTradePartner)
+        {
+            lastTradePartner = Entity.Null;
+            if (!EntityManager.HasComponent<BuyingCompany>(company))
+            {
+                return false;
+            }
+
+            lastTradePartner = EntityManager.GetComponentData<BuyingCompany>(company).m_LastTradePartner;
+            return lastTradePartner != Entity.Null;
+        }
+
+        private bool TryGetOutsideConnectionType(Entity entity, out OutsideConnectionTransferType outsideConnectionType)
+        {
+            outsideConnectionType = default;
+            if (!EntityManager.HasComponent<Game.Objects.OutsideConnection>(entity) || !EntityManager.HasComponent<PrefabRef>(entity))
+            {
+                return false;
+            }
+
+            PrefabRef prefabRef = EntityManager.GetComponentData<PrefabRef>(entity);
+            if (!EntityManager.HasComponent<OutsideConnectionData>(prefabRef.m_Prefab))
+            {
+                return false;
+            }
+
+            outsideConnectionType = EntityManager.GetComponentData<OutsideConnectionData>(prefabRef.m_Prefab).m_Type;
+            return true;
+        }
+
+        private string GetSellerKindLabel(Entity entity)
+        {
+            if (EntityManager.HasComponent<Game.Objects.OutsideConnection>(entity))
+            {
+                return "outside_connection";
+            }
+
+            if (EntityManager.HasComponent<Game.Companies.StorageCompany>(entity))
+            {
+                return "storage_company";
+            }
+
+            if (EntityManager.HasComponent<ServiceAvailable>(entity))
+            {
+                return "service_company";
+            }
+
+            return "other";
         }
 
         private int GetCompanyRenterCount(Entity entity)
