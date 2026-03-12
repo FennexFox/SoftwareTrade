@@ -49,8 +49,6 @@ Current evidence supports two distinct tracks:
 - `Signature` phantom vacancy is a confirmed bug and the shipped guard fixes the reproduced case
 Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks. In particular, the current investigation focuses on explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
 
-Current `software`-track diagnostics are meant to help separate upstream input pressure from downstream software-consumer shortage or office-resource trade bottlenecks. The current investigation focuses on explaining why some zero-software consumers retain trade-cost cache entries while still showing no active buyer, trip, current-trading, or path state.
-
 Current evidence also does not support treating widespread `software` consumer efficiency collapse as a direct proxy for lower office demand. Demand response still has to be captured directly from the office-demand counters rather than inferred from software-office distress alone.
 
 Current same-save current-build evidence also does not show clear immediate trade-patch mitigation through day 22. The optional trade patch remains useful as a comparison switch, but it is not currently described as a proven fix for the sampled software-consumer buyer-state anomaly.

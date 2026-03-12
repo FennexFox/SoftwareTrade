@@ -1217,7 +1217,7 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
         buyer_state_snapshot = format_relevant_counter_group(
             "softwareConsumerBuyerState",
             buyer_state,
-            ("selectedNeed", "noBuyerDespiteNeed", "tradeCostOnly", "buyerActive"),
+            ("needSelected", "noBuyerDespiteNeed", "tradeCostOnly", "buyerActive"),
             include_zero_fields=("buyerActive",),
         )
         if buyer_state_snapshot:
