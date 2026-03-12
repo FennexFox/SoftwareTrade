@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import textwrap
+from typing import Any
 import unittest
 from unittest import mock
 
@@ -197,7 +198,7 @@ class RawLogAutomationTests(unittest.TestCase):
             def read(self) -> bytes:
                 return b"attachment-body"
 
-        def fake_urlopen(request: object) -> FakeResponse:
+        def fake_urlopen(request: Any) -> FakeResponse:
             nonlocal request_headers
             request_headers = dict(request.header_items())
             return FakeResponse()
@@ -835,6 +836,7 @@ class RawLogAutomationTests(unittest.TestCase):
             return_value=(200, response_payload, ""),
         ) as request_mock:
             suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
+        assert suggestions is not None
         self.assertEqual(suggestions["symptom_classification"], "software_track_unclear")
         self.assertEqual(request_mock.call_args.args[1], automation.GITHUB_MODELS_CHAT_COMPLETIONS_URL)
 
@@ -908,6 +910,7 @@ class RawLogAutomationTests(unittest.TestCase):
             return_value=(200, response_payload, ""),
         ):
             suggestions = automation.generate_llm_suggestions({"foo": "bar"}, "gh-token")
+        assert suggestions is not None
         self.assertNotIn("zero resources", suggestions["evidence_summary"].lower())
         self.assertIn("lackResources=0", suggestions["evidence_summary"])
 
@@ -948,6 +951,7 @@ class RawLogAutomationTests(unittest.TestCase):
             ],
         ) as request_mock:
             suggestions = automation.generate_llm_suggestions(context, "gh-token")
+        assert suggestions is not None
         self.assertEqual(suggestions["title"], "[Software Evidence] compact retry title")
         self.assertEqual(request_mock.call_count, 2)
         first_payload = request_mock.call_args_list[0].kwargs["payload"]
@@ -1546,6 +1550,7 @@ class RawLogAutomationTests(unittest.TestCase):
         ]
         latest = automation.find_latest_reply_comment(comments)
         self.assertIsNotNone(latest)
+        assert latest is not None
         self.assertEqual(latest["id"], 3)
 
     def test_find_latest_reply_comment_accepts_plain_yaml_reply(self) -> None:
@@ -1561,6 +1566,7 @@ class RawLogAutomationTests(unittest.TestCase):
         ]
         latest = automation.find_latest_reply_comment(comments)
         self.assertIsNotNone(latest)
+        assert latest is not None
         self.assertEqual(latest["id"], 1)
 
     def test_get_issue_comments_paginates_until_short_page(self) -> None:
@@ -1602,6 +1608,7 @@ class RawLogAutomationTests(unittest.TestCase):
         ) as request_mock:
             issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
         self.assertIsNotNone(issue)
+        assert issue is not None
         self.assertEqual(issue["number"], 44)
         request_url = request_mock.call_args.args[1]
         self.assertIn("/search/issues?", request_url)
@@ -1629,6 +1636,7 @@ class RawLogAutomationTests(unittest.TestCase):
         ):
             issue = automation.find_existing_promoted_issue("FennexFox/NoOfficeDemandFix", 123, "token")
         self.assertIsNotNone(issue)
+        assert issue is not None
         self.assertEqual(issue["number"], 45)
 
     def test_find_existing_promoted_issue_returns_none_when_search_has_no_match(self) -> None:
