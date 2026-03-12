@@ -7,19 +7,20 @@ body:
     attributes:
       value: |
         Use this form for confirmed or at least reproducible problems.
-        For open-ended theories, use the Investigation form or Discussions.
+        For raw diagnostics intake, use the `Raw log report` form.
+        For open-ended theories, use the Investigation form, the `Software investigation` form, or Discussions.
   - type: input
     id: game-version
     attributes:
       label: Game version
-      placeholder: e.g. 1.3.xf1
+      placeholder: e.g. 1.5.xf1
     validations:
       required: true
   - type: input
     id: mod-version
     attributes:
       label: Mod version
-      placeholder: e.g. current release or local dev build
+      placeholder: e.g. current release, unreleased, or local dev build
     validations:
       required: true
   - type: textarea

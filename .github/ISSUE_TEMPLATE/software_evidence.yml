@@ -18,14 +18,14 @@ body:
     id: game-version
     attributes:
       label: Game version
-      placeholder: 1.3.xf1
+      placeholder: 1.5.xf1
     validations:
       required: true
   - type: input
     id: mod-version
     attributes:
       label: Mod version
-      placeholder: current release or unreleased
+      placeholder: current release, unreleased, or local dev build
     validations:
       required: true
   - type: input

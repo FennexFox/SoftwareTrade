@@ -887,6 +887,53 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("## Platform notes", issue_body)
         self.assertIn("Windows release build", issue_body)
 
+    def test_same_day_consumer_history_round_trips_sample_index_titles_into_evidence_issue_body(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": SAME_DAY_CONSUMER_HISTORY_LOG}
+        parsed_log = automation.parse_log(SAME_DAY_CONSUMER_HISTORY_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        body, _ = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            {
+                "title": deterministic["title"],
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and captured two suspicious-state samples on day 22.",
+                "symptom_classification": deterministic["symptom_classification"],
+                "evidence_summary": deterministic["evidence_summary"],
+                "confounders": deterministic["confounders"],
+                "notes": deterministic["notes"],
+            },
+            [],
+            "skipped",
+            "no eligible observation",
+        )
+        parsed = automation.parse_managed_comment(body)
+        fields = automation.merge_evidence_fields(
+            parsed["payload"],
+            parsed["reply_template"],
+            "https://github.com/example/repo/issues/21#issuecomment-1",
+            "https://github.com/example/repo/issues/21",
+            "https://github.com/example/repo/issues/21#issuecomment-2",
+        )
+
+        issue_body = automation.render_evidence_issue_body(21, 1, fields)
+
+        self.assertIn("## Log excerpt", issue_body)
+        self.assertIn("### Day 22 sample 182 consumer-side detail", issue_body)
+        self.assertIn("### Day 22 sample 183 consumer-side detail", issue_body)
+        self.assertEqual(issue_body.count("### Day 22 sample 182 consumer-side detail"), 1)
+        self.assertEqual(issue_body.count("### Day 22 sample 183 consumer-side detail"), 1)
+        self.assertLess(
+            issue_body.index("### Day 22 sample 183 consumer-side detail"),
+            issue_body.index("### Day 22 sample 182 consumer-side detail"),
+        )
+
     def test_merge_evidence_fields_prefers_deterministic_confounders_format(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": MULTI_OBSERVATION_LOG}

@@ -9,10 +9,11 @@ This is for raw intake. It is not the same thing as opening a finalized `Softwar
 If you only want the shortest safe setup:
 
 1. turn on `EnableDemandDiagnostics`
-2. leave `CaptureStableEvidence=false`
-3. leave `VerboseLogging=false`
-4. reproduce the problem
-5. submit a `Raw log report` issue with the relevant log text or `.log` file
+2. leave `EnableTradePatch=false` unless you are deliberately collecting a comparison run
+3. leave `CaptureStableEvidence=false`
+4. leave `VerboseLogging=false`
+5. reproduce the problem
+6. submit a `Raw log report` issue with the relevant log text or `.log` file
 
 Use the longer options below only when you specifically need baseline windows or verbose patch traces.
 
@@ -22,6 +23,7 @@ Use the longer options below only when you specifically need baseline windows or
 
 Use this for most reports:
 
+- `EnableTradePatch=false`
 - `EnableDemandDiagnostics=true`
 - `CaptureStableEvidence=false`
 - `VerboseLogging=false`
@@ -32,6 +34,7 @@ This keeps logging focused on suspicious-state output.
 
 Use this when you need a bounded window even while the city looks stable:
 
+- `EnableTradePatch=false` unless the run is a deliberate trade-patch comparison
 - `EnableDemandDiagnostics=true`
 - `CaptureStableEvidence=true`
 - `VerboseLogging=false`
@@ -40,6 +43,7 @@ Use this when you need a bounded window even while the city looks stable:
 
 Use this only when maintainers need the noisier correction or patch traces:
 
+- `EnableTradePatch=false` unless the run is a deliberate trade-patch comparison
 - `EnableDemandDiagnostics=true`
 - `VerboseLogging=true`
 

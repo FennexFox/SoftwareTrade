@@ -7,7 +7,8 @@ body:
     attributes:
       value: |
         Use this for unresolved theories, suspicious patterns, or evidence collection.
-        For a `software`-track umbrella investigation, use `.github/ISSUE_TEMPLATE/software_investigation.yml` instead.
+        For raw diagnostics intake, use the `Raw log report` form.
+        For a `software`-track umbrella investigation, use the `Software investigation` form instead.
   - type: input
     id: question
     attributes:
