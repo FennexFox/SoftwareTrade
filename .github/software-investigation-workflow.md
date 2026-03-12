@@ -65,11 +65,15 @@ Capture guidance:
 - use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- `sample_count` now counts configured per-day samples rather than whole in-game days, so use it as a density hint rather than a replacement for the day fields
+- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
+- treat `sample_count` as emitted `softwareEvidenceDiagnostics observation_window(...)` density inside the current run, not as a replacement for the day fields
+- treat `skipped_sample_slots` as scheduled sample slots that were missed and honestly reported rather than backfilled
+- if raw-log automation produced multiple detail excerpts for one role, treat the latest anchored sample as the default excerpt and include at most one older anchored sample only when it preserves short local chronology that materially improves interpretation
+- treat changes to the machine-parsed log prefixes as parser-contract changes; when those prefixes are centralized in `NoOfficeDemandFix/MachineParsedLogContract.cs`, update the Python parser constants and fixtures in the same diff
 
 The current diagnostics vocabulary is:
 
-- `softwareEvidenceDiagnostics observation_window(...)`
+- `softwareEvidenceDiagnostics observation_window(...)`, including `observation_kind`, `skipped_sample_slots`, and `clock_source` when those fields are emitted
 - `environment(settings=..., patch_state=...)`
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
@@ -79,6 +83,8 @@ When the raw-log automation prepares a draft, it uses deterministic parsing to
 extract these anchors and bound excerpt candidates, then uses LLM drafting for
 the initial semantic framing. Review the framing, but treat the copied anchors
 and excerpts as the hard evidence.
+Keep the mod-side contract strings and the Python parser constants and fixtures
+synchronized whenever the machine-parsed log contract changes.
 
 `diagnostic_context` is not itself a required top-level evidence field, but it can be copied into `notes` or `log_excerpt` when it adds useful non-primary context such as `topFactors`.
 
@@ -112,19 +118,27 @@ Default minimum window guidance:
 - `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
 
-At the default `DiagnosticsSamplesPerDay=2` cadence, those windows will usually yield roughly:
+At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with
+no skipped slots will usually yield roughly:
 
-- `3 days`: about `6` samples
-- `5 days`: about `10` samples
-- `7 days`: about `14` samples
+- `3 days`: about `6` emitted observation windows
+- `5 days`: about `10` emitted observation windows
+- `7 days`: about `14` emitted observation windows
 
-Use the day-count recommendation as the primary rule. Treat the higher `sample_count` as denser emitted evidence inside the same day-count window, not as a replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set differently, scale the expected `sample_count` accordingly for baseline capture and read any `skipped_sample_slots` as a reminder that missed scheduled slots were not backfilled.
+Use the day-count recommendation as the primary rule. Treat `sample_count` as
+emitted observation density inside the same day-count window, not as a
+replacement for the day count itself. If `DiagnosticsSamplesPerDay` is set
+differently, scale the expected `sample_count` accordingly for baseline capture
+and read any `skipped_sample_slots` as honest gap reporting for missed
+scheduled slots that were not backfilled.
 
 These day-count recommendations remain usable under time-scaling mods such as `RealisticTrips` / `Time2Work`, but they should be treated as lower-confidence comparisons than vanilla-speed runs.
 When such a mod lengthens the in-game day, the same reported day count spans more simulation frames and therefore more trade, storage, and company update cycles.
 The current sampling code derives `sample_slot` from the runtime `TimeSystem` time-of-day path and advances a logical displayed-clock day when that slot wraps, seeding from the runtime day value and re-syncing after large gaps such as loads or long pauses, but it does not include explicit per-mod interoperability.
 When `CaptureStableEvidence` or `VerboseLogging` is keeping output active, emitted observations now stay tied to the slot that was actually sampled. If a slot is missed, the next emitted observation reports that gap through `skipped_sample_slots` instead of backfilling synthetic observations.
-The emitted `clock_source` field is normally `runtime_time_system`. Older logs may still show `displayed_clock`; treat that as a legacy contract value rather than a different current code path.
+The emitted `clock_source` field is normally `runtime_time_system`. Older logs
+may still show `displayed_clock`; treat that as legacy compatibility for older
+observation contracts rather than as a different current code path.
 That keeps the `3` / `5` / `7` day guidance conservative rather than weaker, while preserving honest slot timing in the raw log.
 
 Comparability guidance:
