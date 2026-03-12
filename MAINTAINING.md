@@ -11,9 +11,9 @@ for contributor-facing branch, commit, PR, and testing expectations.
 
 ## Release Operations
 
-- Local release flow is authoritative.
-- Use [scripts/release.ps1](./scripts/release.ps1) for maintainer releases.
-- GitHub release automation is defined in [`.github/workflows/release.yml`](./.github/workflows/release.yml).
+- Treat [`.github/workflows/release.yml`](./.github/workflows/release.yml) as the authoritative release definition.
+- There is no dedicated `scripts/release.ps1` helper script in the current repo state.
+- For maintainer releases and local dry-runs, follow the same inputs and sequence defined in the release workflow.
 
 ## Software Investigation
 

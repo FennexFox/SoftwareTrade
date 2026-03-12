@@ -29,13 +29,8 @@ The automation will:
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
-- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, usually the newest relevant sample and, when showing a state transition or when temporal ordering affects interpretation, also the immediately previous distinct sample
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
-
-The draft is LLM-first for semantic framing, but the automation still treats the
-copied counters, observation window, and anchored detail excerpts as the hard
-evidence that excerpts and later validation must stay aligned to.
 
 ## Privacy Notes
 

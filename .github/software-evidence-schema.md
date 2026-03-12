@@ -108,7 +108,14 @@ The following fields usually require explicit investigator input:
 - `patch_state` when the runtime emitted `unknown` but the maintainer knows the exact local deviations
 - `analysis_basis` when code reading was part of the interpretation
 
-When diagnostics are sampled more than once per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_index`, `sample_slot`, `samples_per_day`, and the raw `sample_count` so later readers can tell same-day samples apart and interpret density correctly.
+When diagnostics are sampled more than once per day, the copied `observation_window` should usually retain `start_sample_index`, `end_sample_index`, `sample_day`, `sample_index`, `sample_slot`, `samples_per_day`, `sample_count`, and `skipped_sample_slots` so later readers can tell same-day samples apart and interpret density correctly.
+
+Interpret those fields with the current diagnostics contract:
+
+- `sample_slot`: the scheduled slot derived from the runtime `TimeSystem` time-of-day path
+- `sample_day`: the logical displayed-clock day reconstructed from slot progression
+- `sample_count`: emitted `observation_window(...)` count in the current run, not a theoretical slot count
+- `skipped_sample_slots`: scheduled gaps that elapsed without a backfilled observation
 
 The following fields should stay normalized and constrained even when they are chosen by a maintainer:
 

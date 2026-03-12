@@ -21,7 +21,7 @@ Current release status:
 - current same-save current-build evidence shows no clear immediate trade-patch mitigation through day 22
 	</LongDescription>
 	<!--Thumbnail-->
-	<Thumbnail Value="Thumbnail.png" />
+	<Thumbnail Value="Properties/Thumbnail.png" />
 	<!--Tag, can be set multiple times. PDX tags are fixed categories, not free-form keywords.-->
 	<Tag Value="Code Mod" />
 	<!--Link to the forum post where the mod can be discussed-->

@@ -21,6 +21,17 @@ SOURCE_RAW_ISSUE_MARKER = "<!-- source-raw-log-issue:{issue_number} -->"
 SOURCE_RAW_COMMENT_MARKER = "<!-- source-raw-log-comment:{comment_id} -->"
 PROMOTE_COMMAND = "/promote-evidence"
 
+# MachineParsedLogContract.cs is the source of truth for these machine-parsed
+# prefixes. Keep the Python parser in sync with that contract.
+DIAGNOSTICS_OBSERVATION_PREFIX = "softwareEvidenceDiagnostics observation_window("
+DIAGNOSTICS_DETAIL_PREFIX = "softwareEvidenceDiagnostics detail("
+SOFTWARE_OFFICE_STATES_DETAIL_MARKER = "detail_type=softwareOfficeStates"
+PHANTOM_CORRECTION_PREFIX = "Signature phantom vacancy guard corrected"
+PATCH_SUMMARY_PREFIXES = (
+    "Office resource storage patch applied for the current load.",
+    "Office resource storage patch applied.",
+)
+
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
 GITHUB_ATTACHMENT_HOST_SUFFIX = ".githubusercontent.com"
@@ -381,6 +392,11 @@ def http_request(
         raw = error.read().decode("utf-8")
         parsed = json.loads(raw) if raw else {}
         return error.code, parsed, raw
+    except urllib.error.URLError as error:
+        host = urllib.parse.urlsplit(url).netloc or url
+        raise AutomationError(
+            f"HTTP {method.upper()} request to {host} failed: {error.reason}"
+        ) from error
 
 
 def download_attachment(url: str) -> str:
@@ -581,7 +597,7 @@ def build_anchor_record(
 def parse_observation_line(line: str) -> dict[str, Any]:
     message = extract_log_message(line)
     markers = {
-        "observation_window": "softwareEvidenceDiagnostics observation_window(",
+        "observation_window": DIAGNOSTICS_OBSERVATION_PREFIX,
         "environment": "); environment(settings=",
         "patch_state": ", patch_state=",
         "diagnostic_counters": "); diagnostic_counters(",
@@ -634,6 +650,9 @@ def parse_observation_line(line: str) -> dict[str, Any]:
         sample_slot=safe_int(observation_window.get("sample_slot")),
         samples_per_day=safe_int(observation_window.get("samples_per_day")),
         sample_count=safe_int(observation_window.get("sample_count")),
+        observation_kind=str(observation_window.get("observation_kind", "")),
+        skipped_sample_slots=safe_int(observation_window.get("skipped_sample_slots")),
+        clock_source=str(observation_window.get("clock_source", "")),
         trigger=str(observation_window.get("trigger", "")),
         extras={
             "diagnostic_counter_groups": list(diagnostic_counters.keys()),
@@ -643,8 +662,7 @@ def parse_observation_line(line: str) -> dict[str, Any]:
 
 def parse_detail_line(line: str) -> dict[str, Any]:
     message = extract_log_message(line)
-    prefix = "softwareEvidenceDiagnostics detail("
-    start = message.index(prefix) + len(prefix)
+    start = message.index(DIAGNOSTICS_DETAIL_PREFIX) + len(DIAGNOSTICS_DETAIL_PREFIX)
     values_marker = ", values="
     values_index = message.index(values_marker)
     metadata_raw = message[start:values_index]
@@ -976,7 +994,9 @@ def parse_log(log_text: str) -> dict[str, Any]:
         if not stripped:
             continue
 
-        if "softwareEvidenceDiagnostics observation_window(" in stripped:
+        message = extract_log_message(stripped)
+
+        if message.startswith(DIAGNOSTICS_OBSERVATION_PREFIX):
             try:
                 observation = parse_observation_line(stripped)
             except Exception:
@@ -990,7 +1010,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
             anchors.append(observation)
             continue
 
-        if "softwareEvidenceDiagnostics detail(" in stripped and "detail_type=softwareOfficeStates" in stripped:
+        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_OFFICE_STATES_DETAIL_MARKER in message:
             try:
                 detail = parse_detail_line(stripped)
             except Exception:
@@ -1004,8 +1024,8 @@ def parse_log(log_text: str) -> dict[str, Any]:
             anchors.append(detail)
             continue
 
-        if "Office resource storage patch applied." in stripped:
-            patch_message = extract_log_message(stripped)
+        if any(message.startswith(prefix) for prefix in PATCH_SUMMARY_PREFIXES):
+            patch_message = message
             patch_summaries.append(patch_message)
             anchors.append(
                 build_anchor_record(
@@ -1017,8 +1037,8 @@ def parse_log(log_text: str) -> dict[str, Any]:
             )
             continue
 
-        if "Signature phantom vacancy guard corrected" in stripped:
-            correction = extract_log_message(stripped)
+        if message.startswith(PHANTOM_CORRECTION_PREFIX):
+            correction = message
             phantom_corrections.append(correction)
             anchors.append(
                 build_anchor_record(
@@ -1353,6 +1373,7 @@ def build_anchor_summaries_for_llm(parsed_log: dict[str, Any]) -> list[dict[str,
                     "run_id": safe_int(anchor.get("run_id")),
                     "sample_day": safe_int(anchor.get("sample_day")),
                     "sample_index": safe_int(anchor.get("sample_index")),
+                    "clock_source": str(anchor.get("clock_source", "")),
                     "trigger": str(anchor.get("trigger", "")),
                     "settings": truncate_text(str(anchor.get("settings_raw", "")), LLM_SUMMARY_LINE_LIMIT),
                     "patch_state": str(anchor.get("patch_state", "")),
@@ -1436,6 +1457,10 @@ def build_deterministic_confounders(
 
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
+
+    clock_source = str((latest_observation or {}).get("observation_window", {}).get("clock_source", "")).strip()
+    if clock_source and clock_source not in {"displayed_clock", "runtime_time_system"}:
+        confounder_lines.append(f"clock_source={clock_source}")
 
     if safe_int(parsed_log.get("observation_count", 0)) <= 1:
         confounder_lines.append("single observation window in raw intake")
@@ -2938,6 +2963,16 @@ def get_issue_comments(repo: str, issue_number: int, token: str) -> list[dict[st
         page += 1
 
 
+def get_issue(repo: str, issue_number: int, token: str) -> dict[str, Any]:
+    issue_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}"
+    status, payload, raw = http_request("GET", issue_url, token=token)
+    if status >= 400:
+        raise AutomationError(f"Failed to fetch issue ({status}): {raw}")
+    if not isinstance(payload, dict):
+        raise AutomationError("Failed to fetch issue: invalid payload.")
+    return payload
+
+
 def create_issue_comment(repo: str, issue_number: int, body: str, token: str) -> dict[str, Any]:
     comments_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}/comments"
     status, payload, raw = http_request("POST", comments_url, token=token, payload={"body": body})
@@ -3420,6 +3455,22 @@ def build_attachment_failure_comment(error_message: str) -> str:
         f"Reason: `{truncate_text(error_message, 500)}`. "
         "Please paste the relevant `softwareEvidenceDiagnostics` log text directly into the `Raw log` field, "
         "or re-attach a plain-text `.log` file and edit the issue."
+    )
+
+
+def build_raw_log_triage_failure_comment(error_message: str) -> str:
+    return (
+        "Raw log triage hit an automation failure before it could update the managed comment. "
+        f"Reason: `{truncate_text(error_message, 500)}`. "
+        "Retry the issue edit or rerun the workflow after the GitHub/network problem is resolved."
+    )
+
+
+def build_promotion_failure_comment(error_message: str) -> str:
+    return (
+        "Evidence promotion hit an automation failure before it could finish. "
+        f"Reason: `{truncate_text(error_message, 500)}`. "
+        "Retry the maintainer promote comment or rerun the workflow after the GitHub/network problem is resolved."
     )
 
 

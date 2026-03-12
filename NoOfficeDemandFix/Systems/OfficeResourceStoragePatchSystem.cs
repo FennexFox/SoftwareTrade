@@ -93,7 +93,7 @@ namespace NoOfficeDemandFix.Systems
 
             m_InitializedForCurrentLoad = true;
             base.Enabled = false;
-            Mod.log.Info($"Office resource storage patch applied for the current load. Outside connections: {patchedOutsideConnections}, cargo stations: {patchedCargoStations}.");
+            Mod.log.Info(MachineParsedLogContract.FormatOfficeResourcePatchApplied(patchedOutsideConnections, patchedCargoStations));
         }
 
         private static bool IsPatchEnabled()

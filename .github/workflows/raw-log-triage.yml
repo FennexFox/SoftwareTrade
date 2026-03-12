@@ -25,6 +25,9 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
+    concurrency:
+      group: raw-log-triage-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: true
 
     steps:
       - name: Check out repository
@@ -34,6 +37,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Run Python automation tests
+        run: python -m unittest discover -s .github/scripts/tests -p "test_*.py"
 
       - name: Run raw log triage
         env:
