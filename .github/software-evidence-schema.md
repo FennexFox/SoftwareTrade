@@ -69,7 +69,7 @@ Required:
 
 Optional:
 
-- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters; prefer copied anchored detail lines from the newest relevant sample, plus the immediately previous distinct sample only when short chronology matters
+- `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters; when both roles exist, prefer the latest anchored consumer excerpt plus the latest anchored producer excerpt, then, when short chronology matters, also include the immediately previous distinct sample for each role (one older consumer excerpt and one older producer excerpt)
 - `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues
 - `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields

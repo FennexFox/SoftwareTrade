@@ -66,9 +66,10 @@ Capture guidance:
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
 - when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
+- keep the concise producer `input1(...)` / `input2(...)` formatter stock-only by default; if producer-side trade-cost metadata becomes part of the active question, add or use a separate verbose diagnostic path instead of re-expanding the concise formatter
 - treat `sample_count` as emitted `softwareEvidenceDiagnostics observation_window(...)` density inside the current run, not as a replacement for the day fields
 - treat `skipped_sample_slots` as scheduled sample slots that were missed and honestly reported rather than backfilled
-- if raw-log automation produced multiple detail excerpts for one role, treat the latest anchored sample as the default excerpt and include at most one older anchored sample only when it preserves short local chronology that materially improves interpretation
+- if raw-log automation preserved both consumer-side and producer-side detail, treat the latest anchored consumer excerpt plus the latest anchored producer excerpt as the default pair and include older anchored samples only when they preserve short local chronology that materially improves interpretation
 - treat changes to the machine-parsed log prefixes as parser-contract changes; when those prefixes are centralized in `NoOfficeDemandFix/MachineParsedLogContract.cs`, update the Python parser constants and fixtures in the same diff
 
 The current diagnostics vocabulary is:

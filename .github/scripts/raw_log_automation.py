@@ -107,7 +107,7 @@ LLM_CONTEXT_VARIANTS = (
         "anchor_detail_limit": 320,
         "snippet_limit": 2,
         "snippet_text_limit": 320,
-        "candidate_limit": 1,
+        "candidate_limit": 2,
         "candidate_lines_per_item": 1,
         "candidate_line_limit": 220,
         "style_example_limit": 0,
@@ -937,6 +937,69 @@ def build_anchor_index(anchors: list[dict[str, Any]]) -> dict[str, int]:
     return index
 
 
+def excerpt_candidate_role(candidate: dict[str, Any]) -> str:
+    label = str(candidate.get("label", ""))
+    if label.startswith("consumer_"):
+        return "consumer"
+    if label.startswith("producer_"):
+        return "producer"
+
+    title = str(candidate.get("title", "")).lower()
+    if "consumer" in title:
+        return "consumer"
+    if "producer" in title:
+        return "producer"
+
+    lines = "\n".join(str(line) for line in candidate.get("lines", []))
+    if "role=consumer" in lines:
+        return "consumer"
+    if "role=producer" in lines:
+        return "producer"
+    return ""
+
+
+def select_preferred_excerpt_candidates(
+    candidates: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    if limit <= 0 or not candidates:
+        return []
+
+    grouped = {
+        "consumer": [candidate for candidate in candidates if excerpt_candidate_role(candidate) == "consumer"],
+        "producer": [candidate for candidate in candidates if excerpt_candidate_role(candidate) == "producer"],
+    }
+
+    selected: list[dict[str, Any]] = []
+    selected_ids: set[int] = set()
+
+    def append_candidate(candidate: dict[str, Any]) -> None:
+        candidate_id = id(candidate)
+        if candidate_id in selected_ids or len(selected) >= limit:
+            return
+        selected.append(candidate)
+        selected_ids.add(candidate_id)
+
+    rank = 0
+    while len(selected) < limit:
+        added = False
+        for role in ("consumer", "producer"):
+            role_candidates = grouped[role]
+            if rank < len(role_candidates):
+                append_candidate(role_candidates[-(rank + 1)])
+                added = True
+        if not added:
+            break
+        rank += 1
+
+    for candidate in reversed(candidates):
+        append_candidate(candidate)
+        if len(selected) >= limit:
+            break
+
+    return selected
+
+
 def build_selected_snippets(
     log_excerpt_candidates: list[dict[str, Any]],
     patch_summaries: list[str],
@@ -944,8 +1007,11 @@ def build_selected_snippets(
 ) -> list[dict[str, Any]]:
     snippets: list[dict[str, Any]] = []
 
-    recent_candidates = log_excerpt_candidates[-MAX_SELECTED_EXCERPT_CANDIDATES:]
-    for candidate in recent_candidates:
+    preferred_candidates = select_preferred_excerpt_candidates(
+        log_excerpt_candidates,
+        MAX_SELECTED_EXCERPT_CANDIDATES,
+    )
+    for candidate in preferred_candidates:
         snippets.append(
             {
                 "label": candidate.get("label", ""),
@@ -1249,8 +1315,11 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
 
 
 def build_deterministic_log_excerpt(parsed_log: dict[str, Any]) -> str:
-    recent_candidates = parsed_log.get("log_excerpt_candidates", [])[-MAX_DETERMINISTIC_EXCERPT_CANDIDATES:]
-    blocks = [candidate["markdown"] for candidate in recent_candidates if candidate.get("markdown")]
+    preferred_candidates = select_preferred_excerpt_candidates(
+        list(parsed_log.get("log_excerpt_candidates", [])),
+        MAX_DETERMINISTIC_EXCERPT_CANDIDATES,
+    )
+    blocks = [candidate["markdown"] for candidate in preferred_candidates if candidate.get("markdown")]
     return "\n\n".join(blocks)
 
 
@@ -1612,7 +1681,8 @@ def build_summary_refinement_context(
     draft: dict[str, Any],
 ) -> dict[str, Any]:
     excerpt_candidates = build_excerpt_candidates_for_llm(parsed_log)
-    selected_candidate = excerpt_candidates[-1] if excerpt_candidates else {}
+    selected_candidates = select_preferred_excerpt_candidates(excerpt_candidates, 2)
+    selected_candidate = selected_candidates[0] if selected_candidates else {}
     latest_consumer_detail_observation = (
         parsed_log.get("latest_consumer_detail_observation") or parsed_log.get("consumer_peak_observation")
     )
@@ -1630,11 +1700,22 @@ def build_summary_refinement_context(
         ),
         "latest_consumer_detail_observation": summarize_observation_for_llm(latest_consumer_detail_observation),
         "selected_excerpt_candidate": {
+            "label": selected_candidate.get("label", ""),
             "title": selected_candidate.get("title", ""),
             "day": safe_int(selected_candidate.get("day")),
             "sample_index": safe_int(selected_candidate.get("sample_index")),
             "lines": [truncate_text(str(line), 320) for line in selected_candidate.get("lines", [])[:2]],
         },
+        "selected_excerpt_candidates": [
+            {
+                "label": candidate.get("label", ""),
+                "title": candidate.get("title", ""),
+                "day": safe_int(candidate.get("day")),
+                "sample_index": safe_int(candidate.get("sample_index")),
+                "lines": [truncate_text(str(line), 320) for line in candidate.get("lines", [])[:2]],
+            }
+            for candidate in selected_candidates
+        ],
         "semantic_facts": build_llm_semantic_facts(parsed_log)[:6],
     }
 
@@ -1684,7 +1765,7 @@ def compact_excerpt_candidates_for_llm(
     compacted: list[dict[str, Any]] = []
     if candidate_limit <= 0:
         return compacted
-    for candidate in candidates[-candidate_limit:]:
+    for candidate in select_preferred_excerpt_candidates(candidates, candidate_limit):
         compact = dict(candidate)
         compact["observation_window"] = truncate_text(
             str(compact.get("observation_window", "")),
@@ -2872,7 +2953,10 @@ def render_managed_comment(
         compact_payload = dict(payload)
         compact_parsed = dict(payload["parsed_log"])
         compact_parsed["latest_software_office_detail"] = None
-        compact_parsed["log_excerpt_candidates"] = compact_parsed.get("log_excerpt_candidates", [])[-2:]
+        compact_parsed["log_excerpt_candidates"] = select_preferred_excerpt_candidates(
+            list(compact_parsed.get("log_excerpt_candidates", [])),
+            2,
+        )
         compact_parsed["patch_summaries"] = compact_parsed["patch_summaries"][-3:]
         compact_parsed["phantom_corrections"] = compact_parsed["phantom_corrections"][-3:]
         compact_payload["parsed_log"] = compact_parsed
