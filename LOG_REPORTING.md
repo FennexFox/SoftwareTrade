@@ -29,7 +29,7 @@ The automation will:
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
-- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, usually the newest relevant sample and the immediately previous distinct sample when chronology matters
+- preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, usually the newest relevant sample and, when showing a state transition or when temporal ordering affects interpretation, also the immediately previous distinct sample
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
@@ -66,7 +66,7 @@ until later evidence synthesis reviews the counters and excerpts together.
   `/promote-evidence` in that same comment
 - when the managed triage comment shows multiple excerpt candidates, prefer the
   newest anchored excerpt unless the immediately previous sample adds important
-  chronology for the final evidence entry
+  chronology for the final evidence entry (for example, when it shows the onset of a condition that persists in the latest sample)
 - the automation creates a plain-Markdown `Software evidence` issue, links it
   back to the raw-log issue, and closes the raw-log intake issue
 

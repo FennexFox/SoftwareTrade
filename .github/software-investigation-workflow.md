@@ -45,7 +45,10 @@ When promoting a run into a `software evidence` issue:
 2. copy `settings=...`
 3. copy `patch_state=...`
 4. copy `diagnostic_counters(...)`
-5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters; prefer the newest anchored detail sample and include the immediately previous distinct sample only when chronology materially helps
+5. store relevant `softwareEvidenceDiagnostics detail(...)` lines in artifacts or notes when property-level or office-level input state matters; prefer the newest anchored detail sample and include at most one or two immediately previous distinct samples only when they clearly improve chronology, for example:
+   - showing a state transition (e.g., office or property moving from one demand or configuration state to another between samples)
+   - documenting a persistent or oscillating pattern across samples that is central to the claim (not just noise)
+   - confirming that a state has stabilized after a change (e.g., counters or demand values converging to a steady pattern)
 6. add only the minimum investigator-written context needed to make the run reusable
 
 Capture guidance:
