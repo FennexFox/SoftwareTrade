@@ -416,6 +416,52 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("role=consumer", "\n".join(context["selected_excerpt_candidates"][0]["lines"]))
         self.assertIn("role=producer", "\n".join(context["selected_excerpt_candidates"][1]["lines"]))
 
+    def test_build_summary_refinement_context_keeps_consumer_excerpt_when_no_producer_exists(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(BUYER_STATE_ONLY_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": BUYER_STATE_ONLY_LOG},
+            [],
+        )
+        context = automation.build_summary_refinement_context(
+            issue_fields,
+            parsed_log,
+            deterministic,
+            {"title": deterministic["title"], "evidence_summary": deterministic["evidence_summary"]},
+        )
+        self.assertEqual(
+            [candidate["label"] for candidate in context["selected_excerpt_candidates"]],
+            ["consumer_latest"],
+        )
+        self.assertEqual(context["selected_excerpt_candidate"]["label"], "consumer_latest")
+        self.assertIn("role=consumer", "\n".join(context["selected_excerpt_candidates"][0]["lines"]))
+
+    def test_build_summary_refinement_context_keeps_producer_excerpt_when_no_consumer_exists(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG},
+            [],
+        )
+        context = automation.build_summary_refinement_context(
+            issue_fields,
+            parsed_log,
+            deterministic,
+            {"title": deterministic["title"], "evidence_summary": deterministic["evidence_summary"]},
+        )
+        self.assertEqual(
+            [candidate["label"] for candidate in context["selected_excerpt_candidates"]],
+            ["producer_latest"],
+        )
+        self.assertEqual(context["selected_excerpt_candidate"]["label"], "producer_latest")
+        self.assertIn("role=producer", "\n".join(context["selected_excerpt_candidates"][0]["lines"]))
+
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
@@ -891,6 +937,14 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
         variants = automation.build_llm_context_variants(context)
+        # Excerpt candidate ordering strategy:
+        # - For variants[0], we include both latest and previous samples, and order them
+        #   by time first (latest before previous) while interleaving consumer/producer
+        #   within each time grouping:
+        #   ["consumer_latest", "producer_latest", "consumer_previous", "producer_previous"].
+        # - For variants[1] and variants[2], we intentionally keep only the latest
+        #   consumer/producer samples and drop previous samples to prioritize the most
+        #   recent context in downstream LLM calls.
         self.assertEqual(
             [candidate["label"] for candidate in variants[0]["excerpt_candidates"]],
             ["consumer_latest", "producer_latest", "consumer_previous", "producer_previous"],
