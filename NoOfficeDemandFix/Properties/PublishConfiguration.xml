@@ -4,20 +4,20 @@
 	<!--Name of the mod to display to players-->
 	<DisplayName Value="No Office Demand Fix" />
 	<!--Short description of the mod-->
-	<ShortDescription Value="Fixes the confirmed Signature phantom vacancy case and adds optional software-track diagnostics." />
+	<ShortDescription Value="Fixes the confirmed Signature phantom vacancy case and adds software-track diagnostics." />
 	<!--Long description of the mod. Single line or multi line. Supports minimal markdown subset-->
 	<!--LongDescription Value="There is a notorious "No Office Demand" bug in the current game: the Efficient of some Office Buildings drops to 0, causing the game to mistakenly treat them as Vacant and therefore not generate Office Demand. The reason some Office Buildings' Efficient falls to 0 is known to be related to the production and consumption of software." /-->
 	<LongDescription>
 No Office Demand Fix currently covers one shipped office-demand fix and one separate software/resource investigation path in Cities: Skylines II.
 
 - Signature Phantom Vacancy fix: removes stale PropertyOnMarket and PropertyToBeOnMarket state from occupied Signature office and industrial properties so false free-space counts stop suppressing demand.
-- Software track tools: includes an optional office-resource trade patch plus opt-in diagnostics for software producer/consumer investigation and evidence collection.
+- Software track tools: includes opt-in diagnostics for software producer/consumer investigation and evidence collection.
 
 Current release status:
 
 - fixes the reproduced Signature phantom vacancy case
 - keeps non-signature phantom vacancy under observation
-- keeps the software path available for comparison and diagnostics, not as a claimed full fix
+- keeps the software path available for diagnostics and investigation, not as a claimed full fix
 	</LongDescription>
 	<!--Thumbnail. Path is relative to this PublishConfiguration.xml file, so keep it as Thumbnail.png, not Properties/Thumbnail.png.-->
 	<Thumbnail Value="Thumbnail.png" />

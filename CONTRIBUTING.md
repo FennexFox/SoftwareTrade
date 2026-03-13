@@ -81,7 +81,8 @@ Use the `track/phantom-vacancy` line when the change is about:
 Use the `track/software-instability` line when the change is about:
 
 - office resource flow
-- outside connection or cargo storage patching
+- office-demand/global-sales undercount
+- virtual import seller/path inconsistencies
 - software producer/consumer distress
 - diagnostics investigating the `software` track
 - raw log intake, evidence promotion, or software-track reporting workflow

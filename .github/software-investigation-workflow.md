@@ -102,8 +102,8 @@ When code reading is part of the interpretation, keep the source of the claim ex
 
 Mixed-cause interpretations are allowed and should be recorded explicitly rather than collapsed into one presumed root cause.
 
-- `EnableTradePatch` should be recorded in `settings` and `confounders`, but it is no longer a required independent variable for software-track investigations
-- improvement after a run with different `EnableTradePatch` state does not prove upstream input pressure was absent
+- older logs may include `EnableTradePatch` in `settings`; treat it as legacy run context rather than a current independent variable
+- improvement after a historical run with different `EnableTradePatch` state does not prove upstream input pressure was absent
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
 - persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
 - persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
@@ -158,7 +158,7 @@ Comparability guidance:
 
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
 - baseline capture: enable `CaptureStableEvidence=true` to emit bounded observation windows at the configured per-day cadence even while the city looks stable
-- escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction and patch traces beyond the normalized evidence lines
+- escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction traces beyond the normalized evidence lines
 
 ## Standard Comparison Checkpoints
 
@@ -168,7 +168,7 @@ Comparability guidance:
 
 - baseline entry: evidence entry from a save lineage with the relevant counters and detail preserved
 - comparison entry: a later bounded run on the same save lineage or a tightly matched rerun of the same scenario
-- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window; if `EnableTradePatch` differs, record it as run context rather than the default variable under test
+- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window; if a historical log still includes `EnableTradePatch`, record it only as legacy run context
 - variable under test: the specific hypothesis being checked, such as persistence, lifecycle interpretation, or post-reload stability
 - primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle detail is part of the claim
 - invalid comparison cases: save changed in unrelated ways, multiple intended behavior changes were mixed together without a stated hypothesis, or session-boundary effects were mixed in without being noted
@@ -259,7 +259,7 @@ Example:
 - checkpoint: same_save_rerun
   baseline_ref: #21
   comparison_ref: #22
-  invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; `EnableTradePatch` recorded only as run context if it differed
+  invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; any historical `EnableTradePatch` value recorded only as legacy run context
   observed_deltas: softwareConsumerOffices.softwareInputZero dropped from 18 to 4, but softwareProducerOffices.lackResourcesZero persisted
   outcome: mitigated but not solved
   notes: compared after one reload boundary

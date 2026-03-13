@@ -30,7 +30,7 @@ Required:
 
 - `game_version`: Cities: Skylines II game version
 - `mod_version`: released mod version, or `unreleased`
-- `settings`: state of `EnableTradePatch`, `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`
+- `settings`: state of `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`; older logs may also include retired legacy fields such as `EnableTradePatch`
 - `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems; use `unknown` when the runtime cannot determine them reliably
 
 Optional:

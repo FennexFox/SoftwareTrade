@@ -55,7 +55,7 @@ body:
       description: Link the `Software evidence` issues already collected or the bounded runs and raw-log intakes that still need promotion.
       placeholder: |
         - baseline evidence: #21
-        - second acquisition-state run: collect on the same save lineage; record EnableTradePatch only as run context if it differs
+        - second acquisition-state run: collect on the same save lineage and keep any historical EnableTradePatch value as legacy context only if it appears in older logs
         - reload check: collect before/after reload on same save lineage
         - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run
         - demand-response check: preserve officeDemand counters on the next consumer-distress run and compare against softwareConsumerOffices
@@ -71,7 +71,7 @@ body:
         - checkpoint: same_save_rerun
           baseline_ref: #21
           comparison_ref: #22
-          invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; EnableTradePatch recorded only as run context if it differed
+          invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; any historical EnableTradePatch value recorded only as legacy run context
           observed_deltas: softwareConsumerOffices.softwareInputZero dropped but softwareProducerOffices.lackResourcesZero persisted
           outcome: mitigated but not solved
         - checkpoint: software_consumer_distress_vs_office_demand_response
@@ -89,7 +89,7 @@ body:
         - checkpoint: software_need_vs_buyer_lifecycle_state
           baseline_ref: #26
           comparison_ref: #28
-          invariant_status: same save lineage, comparable observation window, consumer buyer-state detail preserved in both runs; EnableTradePatch is recorded as run context only if it differs
+          invariant_status: same save lineage, comparable observation window, consumer buyer-state detail preserved in both runs; any historical EnableTradePatch value is recorded only as legacy run context
           observed_deltas: zero-software consumers kept softwareTradeCost.tradeCostEntry=true while softwareAcquisitionState still pointed at selected_no_resource_buyer across repeated samples
           outcome: no material change
     validations:
