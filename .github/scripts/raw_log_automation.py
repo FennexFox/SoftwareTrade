@@ -27,12 +27,14 @@ DIAGNOSTICS_OBSERVATION_PREFIX = "softwareEvidenceDiagnostics observation_window
 DIAGNOSTICS_DETAIL_PREFIX = "softwareEvidenceDiagnostics detail("
 SOFTWARE_OFFICE_STATES_DETAIL_MARKER = "detail_type=softwareOfficeStates"
 SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER = "detail_type=softwareTradeLifecycle"
+SOFTWARE_VIRTUAL_RESOLUTION_PROBE_DETAIL_MARKER = "detail_type=softwareVirtualResolutionProbe"
 PHANTOM_CORRECTION_PREFIX = "Signature phantom vacancy guard corrected"
 PATCH_SUMMARY_PREFIXES = (
     "Office resource storage patch applied for the current load.",
     "Office resource storage patch applied.",
 )
 MAX_RECENT_TRADE_LIFECYCLE_DETAILS = 5
+MAX_RECENT_VIRTUAL_RESOLUTION_PROBE_DETAILS = 5
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
@@ -727,6 +729,82 @@ def detail_role(detail: dict[str, Any] | None) -> str:
     return ""
 
 
+def select_latest_detail_for_observation(
+    latest_observation: dict[str, Any] | None,
+    details: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not latest_observation or not details:
+        return None
+
+    latest_run_id = latest_observation["observation_window"].get("run_id")
+    latest_session_id = latest_observation["observation_window"].get("session_id")
+    latest_sample_index = latest_observation["observation_window"].get("sample_index")
+    matching_details = [
+        detail
+        for detail in details
+        if detail["metadata"].get("run_id") == latest_run_id
+        and detail["metadata"].get("session_id") == latest_session_id
+        and detail["metadata"].get("observation_end_sample_index") == latest_sample_index
+    ]
+    return matching_details[-1] if matching_details else details[-1]
+
+
+def parse_virtual_resolution_probe_detail_values(detail: dict[str, Any] | None) -> dict[str, Any]:
+    if not detail:
+        return {}
+
+    if str(detail.get("detail_type", "")) != "softwareVirtualResolutionProbe":
+        return {}
+
+    values = str(detail.get("values", "")).strip()
+    if not values:
+        return {}
+
+    return parse_key_value_text(values, "=")
+
+
+def summarize_virtual_resolution_probe(detail: dict[str, Any] | None) -> str:
+    values = parse_virtual_resolution_probe_detail_values(detail)
+    if not values:
+        return ""
+
+    classification = str(values.get("currentClassification", "")).strip()
+    classification_text = (
+        f" for `currentClassification={classification}`"
+        if classification
+        else ""
+    )
+    evidence_resolved_virtual = values.get("evidenceResolvedVirtual")
+    if evidence_resolved_virtual is True:
+        signals = [
+            signal_name
+            for signal_name in (
+                "lastTradePartnerChanged",
+                "stockIncreasedSincePreviousSample",
+                "previousPathSellerSeen",
+            )
+            if values.get(signal_name) is True
+        ]
+        signal_text = ", ".join(f"`{signal}=True`" for signal in signals) if signals else "`supporting signals omitted`"
+        return (
+            "Latest `softwareVirtualResolutionProbe` detail"
+            f"{classification_text} kept `evidenceResolvedVirtual=True` via {signal_text}."
+        )
+
+    if evidence_resolved_virtual is False:
+        return (
+            "Latest `softwareVirtualResolutionProbe` detail"
+            f"{classification_text} kept `evidenceResolvedVirtual=False`; no "
+            "`lastTradePartnerChanged`, `stockIncreasedSincePreviousSample`, or "
+            "`previousPathSellerSeen` evidence was recorded."
+        )
+
+    return (
+        "Latest `softwareVirtualResolutionProbe` detail"
+        f"{classification_text} recorded `evidenceResolvedVirtual={evidence_resolved_virtual}`."
+    )
+
+
 def counter_value(observation: dict[str, Any] | None, group_name: str, field_name: str) -> int:
     counter_groups = (observation or {}).get("diagnostic_counters", {})
     return safe_int(counter_groups.get(group_name, {}).get(field_name))
@@ -1056,6 +1134,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     software_office_details: list[dict[str, Any]] = []
     software_trade_lifecycle_details: list[dict[str, Any]] = []
+    software_virtual_resolution_probe_details: list[dict[str, Any]] = []
     patch_summaries: list[str] = []
     phantom_corrections: list[str] = []
     anchors: list[dict[str, Any]] = []
@@ -1109,6 +1188,20 @@ def parse_log(log_text: str) -> dict[str, Any]:
             anchors.append(detail)
             continue
 
+        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_VIRTUAL_RESOLUTION_PROBE_DETAIL_MARKER in message:
+            try:
+                detail = parse_detail_line(stripped)
+            except Exception:
+                detail = build_anchor_record(
+                    "detail",
+                    stripped,
+                    parse_confidence="low",
+                    message=extract_log_message(stripped),
+                )
+            software_virtual_resolution_probe_details.append(detail)
+            anchors.append(detail)
+            continue
+
         if any(message.startswith(prefix) for prefix in PATCH_SUMMARY_PREFIXES):
             patch_message = message
             patch_summaries.append(patch_message)
@@ -1155,23 +1248,14 @@ def parse_log(log_text: str) -> dict[str, Any]:
         ]
         latest_detail = matching_details[-1] if matching_details else (latest_run_details[-1] if latest_run_details else None)
 
-    latest_trade_lifecycle_detail = None
-    if latest_observation and software_trade_lifecycle_details:
-        latest_run_id = latest_observation["observation_window"].get("run_id")
-        latest_session_id = latest_observation["observation_window"].get("session_id")
-        latest_sample_index = latest_observation["observation_window"].get("sample_index")
-        matching_trade_lifecycle_details = [
-            detail
-            for detail in software_trade_lifecycle_details
-            if detail["metadata"].get("run_id") == latest_run_id
-            and detail["metadata"].get("session_id") == latest_session_id
-            and detail["metadata"].get("observation_end_sample_index") == latest_sample_index
-        ]
-        latest_trade_lifecycle_detail = (
-            matching_trade_lifecycle_details[-1]
-            if matching_trade_lifecycle_details
-            else software_trade_lifecycle_details[-1]
-        )
+    latest_trade_lifecycle_detail = select_latest_detail_for_observation(
+        latest_observation,
+        software_trade_lifecycle_details,
+    )
+    latest_virtual_resolution_probe_detail = select_latest_detail_for_observation(
+        latest_observation,
+        software_virtual_resolution_probe_details,
+    )
 
     return {
         "anchors": anchors,
@@ -1179,12 +1263,14 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_observation": latest_observation,
         "latest_software_office_detail": latest_detail,
         "latest_trade_lifecycle_detail": latest_trade_lifecycle_detail,
+        "latest_virtual_resolution_probe_detail": latest_virtual_resolution_probe_detail,
         "latest_patch_summary": patch_summaries[-1] if patch_summaries else "",
         "patch_summaries": patch_summaries[-5:],
         "phantom_corrections": phantom_corrections[-5:],
         "observation_count": len(observations),
         "detail_count": len(software_office_details),
         "trade_lifecycle_detail_count": len(software_trade_lifecycle_details),
+        "virtual_resolution_probe_detail_count": len(software_virtual_resolution_probe_details),
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
         "latest_run_details": latest_run_details,
         "final_observation": latest_run_candidates["final_observation"],
@@ -1193,6 +1279,9 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
         "recent_trade_lifecycle_details": software_trade_lifecycle_details[-MAX_RECENT_TRADE_LIFECYCLE_DETAILS:],
+        "recent_virtual_resolution_probe_details": software_virtual_resolution_probe_details[
+            -MAX_RECENT_VIRTUAL_RESOLUTION_PROBE_DETAILS:
+        ],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
         "selected_snippets": build_selected_snippets(
             latest_run_candidates["log_excerpt_candidates"],
@@ -1416,6 +1505,12 @@ def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
         note_lines.append(
             "Sampled trade-state detail still showed `tradeCostEntry=True` on affected office lines."
         )
+
+    virtual_resolution_probe_summary = summarize_virtual_resolution_probe(
+        parsed_log.get("latest_virtual_resolution_probe_detail")
+    )
+    if virtual_resolution_probe_summary:
+        note_lines.append(virtual_resolution_probe_summary)
 
     office_demand = (final_observation or {}).get("diagnostic_counters", {}).get("officeDemand", {})
     if "buildingDemand" in office_demand:
@@ -1948,6 +2043,11 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
         facts.append(
             f"Latest counters: softwareConsumerBuyerState.selectedNoResourceBuyer={selected_no_resource_buyer} describes selected software consumers with no matching ResourceBuyer in the latest observation."
         )
+        virtual_resolution_probe_summary = summarize_virtual_resolution_probe(
+            parsed_log.get("latest_virtual_resolution_probe_detail")
+        )
+        if virtual_resolution_probe_summary:
+            facts.append(virtual_resolution_probe_summary)
 
     resolved_virtual_expected = safe_int(buyer_state.get("resolvedVirtualNoTrackingExpected"))
     if resolved_virtual_expected > 0:
@@ -2951,12 +3051,14 @@ def render_managed_comment(
             "consumer_peak_observation": parsed_log.get("consumer_peak_observation"),
             "producer_peak_observation": parsed_log.get("producer_peak_observation"),
             "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
+            "latest_virtual_resolution_probe_detail": parsed_log.get("latest_virtual_resolution_probe_detail"),
             "latest_patch_summary": parsed_log.get("latest_patch_summary", ""),
             "patch_summaries": parsed_log.get("patch_summaries", []),
             "phantom_corrections": parsed_log.get("phantom_corrections", []),
             "observation_count": parsed_log.get("observation_count", 0),
             "detail_count": parsed_log.get("detail_count", 0),
             "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
+            "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
             "log_excerpt_candidates": parsed_log.get("log_excerpt_candidates", []),
         },
         "deterministic_draft": deterministic_draft,
@@ -3017,6 +3119,7 @@ def render_managed_comment(
         compact_payload = dict(payload)
         compact_parsed = dict(payload["parsed_log"])
         compact_parsed["latest_software_office_detail"] = None
+        compact_parsed["latest_virtual_resolution_probe_detail"] = None
         compact_parsed["log_excerpt_candidates"] = select_preferred_excerpt_candidates(
             list(compact_parsed.get("log_excerpt_candidates", [])),
             2,
