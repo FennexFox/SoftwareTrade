@@ -6,6 +6,7 @@ triage it into a normalized `software evidence` draft.
 ## Before You Capture Logs
 
 - turn on `EnableDemandDiagnostics`
+- leave `EnableOutsideConnectionVirtualSellerFix` off unless you are intentionally running a Bucket B outside-connection seller comparison
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
 - turn on `VerboseLogging` only when you also need the noisier correction traces and supplemental `softwareTradeLifecycle` detail lines

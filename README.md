@@ -4,11 +4,11 @@
 separate investigation toolset:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
-- office-resource / `software` instability: a separate investigation into office-demand/global-sales undercount and narrower virtual import-path inconsistencies
+- office-resource / `software` instability: a separate investigation into virtual import seller/path inconsistencies and office-demand/global-sales undercount
 
 The current release ships the confirmed `Signature` phantom-vacancy fix and
-keeps the `software` path available as diagnostics and investigation guidance
-rather than a finished end-user fix.
+keeps the `software` path available as diagnostics plus one narrow opt-in
+Bucket B experiment rather than a finished end-user fix.
 
 ## Current Release
 
@@ -16,6 +16,7 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office state when you are collecting evidence
+- includes an opt-in Harmony-based Bucket B experiment that only relaxes outside-connection import seller selection for office virtual resources
 - retires the earlier office-resource storage patch experiment because forcing zero-weight office resources through cargo/storage definitions does not match the current vanilla virtual-resource architecture
 
 What it does not claim:
@@ -31,6 +32,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
+| `EnableOutsideConnectionVirtualSellerFix` | `false` | Enables the narrow experimental Bucket B correction for office virtual-resource imports. It only affects outside-connection seller selection, does not change cargo/storage definitions, and is meant for targeted validation rather than broad end-user use. |
 | `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples are taken per displayed in-game day while diagnostics are enabled. Higher values produce denser logs for comparison and troubleshooting. |
 | `CaptureStableEvidence` | `false` | Keeps bounded scheduled `softwareEvidenceDiagnostics observation_window(...)` lines flowing at the configured per-day cadence while diagnostics are enabled, even when the city looks stable. Use it only for baseline or no-symptom evidence collection. |
@@ -39,6 +41,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 ## Implementation
 
 - `Signature` phantom-vacancy fix: [SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
+- Bucket B outside-connection seller patch: [OutsideConnectionVirtualSellerFixPatch.cs](./NoOfficeDemandFix/Patches/OutsideConnectionVirtualSellerFixPatch.cs)
 - diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
 
 ## Current Position
@@ -46,15 +49,17 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 The safest way to describe this release is:
 
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
-- optional diagnostics for follow-up investigation
+- optional diagnostics plus a narrow opt-in Bucket B experiment for follow-up investigation
 - retired office-resource storage patch experiment
-- current `software` investigation is split between office-demand/global-sales undercount and narrower virtual import seller/path inconsistencies
+- current `software` investigation prioritizes narrower outside-connection virtual import seller/path inconsistencies
+- office-demand/global-sales undercount remains a separate follow-up line rather than part of the Bucket B runtime patch
 
 Current evidence does not support treating `software` producer or consumer
 distress as direct proof of lower office demand by itself. The `software` path
 remains investigational, and physicalizing zero-weight office resources through
 storage or cargo definitions is no longer treated as the right default fix
-direction.
+direction. The new Bucket B setting only corrects the outside-connection seller
+gate; it does not reintroduce storage or cargo physicalization.
 
 ## Non-Goals
 

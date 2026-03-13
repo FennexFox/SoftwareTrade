@@ -103,6 +103,7 @@ When code reading is part of the interpretation, keep the source of the claim ex
 Mixed-cause interpretations are allowed and should be recorded explicitly rather than collapsed into one presumed root cause.
 
 - older logs may include `EnableTradePatch` in `settings`; treat it as legacy run context rather than a current independent variable
+- current logs may include `EnableOutsideConnectionVirtualSellerFix`; treat it as the explicit Bucket B test variable when you are comparing outside-connection virtual seller behavior
 - improvement after a historical run with different `EnableTradePatch` state does not prove upstream input pressure was absent
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
 - persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
@@ -157,6 +158,7 @@ Comparability guidance:
 ## Capture Modes
 
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
+- Bucket B comparison diagnostics: change `EnableOutsideConnectionVirtualSellerFix` only when you are explicitly comparing the outside-connection virtual seller path, and preserve that exact state in the copied `settings`
 - baseline capture: enable `CaptureStableEvidence=true` to emit bounded observation windows at the configured per-day cadence even while the city looks stable
 - escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction traces beyond the normalized evidence lines
 
