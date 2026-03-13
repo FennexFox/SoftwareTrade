@@ -21,8 +21,8 @@ Settings:
 
 - default capture: enable `EnableDemandDiagnostics`; keep `CaptureStableEvidence` and `VerboseLogging` off
 - baseline capture: also enable `CaptureStableEvidence` when you need bounded scheduled observation windows even while the city looks stable
-- escalation capture: enable `VerboseLogging` only when you also need noisier patch and correction traces plus supplemental `detail_type=softwareTradeLifecycle` lines and, for discussion-`#63` follow-up checks, `detail_type=softwareVirtualResolutionProbe` lines
-- keep `EnableTradePatch` off unless you are deliberately collecting comparison data
+- escalation capture: enable `VerboseLogging` only when you also need noisier correction traces plus supplemental `detail_type=softwareTradeLifecycle` lines and, for discussion-`#63` follow-up checks, `detail_type=softwareVirtualResolutionProbe` lines
+- treat historical `EnableTradePatch` values in old logs as legacy run context only; the storage-patch path is retired and should not be reintroduced as the default fix direction
 
 Promotion flow:
 
@@ -39,6 +39,7 @@ Review defaults:
 - treat copied observation anchors, counters, and selected detail excerpts as the hard evidence
 - keep `patch_state=unknown` unless you can replace it with an exact known local deviation set
 - treat missing producer-side trade-cost fields in the concise `input1(...)` / `input2(...)` formatter as intentional; use verbose `detail_type=softwareTradeLifecycle` lines when seller-state or buyer-lifecycle detail is the active question, and `detail_type=softwareVirtualResolutionProbe` when you are checking whether a zero-weight virtual fast-path really resolved
+- keep the current software investigation split explicit: office-demand/global-sales undercount is the primary line, while virtual import seller/path inconsistency is a narrower secondary line
 
 Detailed capture rules, interpretation rules, and comparison checkpoints live in
 [LOG_REPORTING.md](./LOG_REPORTING.md),

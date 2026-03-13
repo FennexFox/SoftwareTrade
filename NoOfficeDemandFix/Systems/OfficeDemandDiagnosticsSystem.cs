@@ -55,14 +55,12 @@ namespace NoOfficeDemandFix.Systems
         private readonly struct DiagnosticsSettingsState : IEquatable<DiagnosticsSettingsState>
         {
             public DiagnosticsSettingsState(
-                bool enableTradePatch,
                 bool enablePhantomVacancyFix,
                 bool enableDemandDiagnostics,
                 int diagnosticsSamplesPerDay,
                 bool captureStableEvidence,
                 bool verboseLogging)
             {
-                EnableTradePatch = enableTradePatch;
                 EnablePhantomVacancyFix = enablePhantomVacancyFix;
                 EnableDemandDiagnostics = enableDemandDiagnostics;
                 DiagnosticsSamplesPerDay = diagnosticsSamplesPerDay;
@@ -70,7 +68,6 @@ namespace NoOfficeDemandFix.Systems
                 VerboseLogging = verboseLogging;
             }
 
-            public bool EnableTradePatch { get; }
             public bool EnablePhantomVacancyFix { get; }
             public bool EnableDemandDiagnostics { get; }
             public int DiagnosticsSamplesPerDay { get; }
@@ -79,8 +76,7 @@ namespace NoOfficeDemandFix.Systems
 
             public bool Equals(DiagnosticsSettingsState other)
             {
-                return EnableTradePatch == other.EnableTradePatch &&
-                       EnablePhantomVacancyFix == other.EnablePhantomVacancyFix &&
+                return EnablePhantomVacancyFix == other.EnablePhantomVacancyFix &&
                        EnableDemandDiagnostics == other.EnableDemandDiagnostics &&
                        DiagnosticsSamplesPerDay == other.DiagnosticsSamplesPerDay &&
                        CaptureStableEvidence == other.CaptureStableEvidence &&
@@ -95,7 +91,6 @@ namespace NoOfficeDemandFix.Systems
             public override int GetHashCode()
             {
                 return HashCode.Combine(
-                    EnableTradePatch,
                     EnablePhantomVacancyFix,
                     EnableDemandDiagnostics,
                     DiagnosticsSamplesPerDay,
@@ -2055,7 +2050,6 @@ namespace NoOfficeDemandFix.Systems
             }
 
             return new DiagnosticsSettingsState(
-                Mod.Settings.EnableTradePatch,
                 Mod.Settings.EnablePhantomVacancyFix,
                 Mod.Settings.EnableDemandDiagnostics,
                 GetDiagnosticsSamplesPerDay(),
@@ -2065,8 +2059,7 @@ namespace NoOfficeDemandFix.Systems
 
         private static string FormatSettingsSnapshot(DiagnosticsSettingsState settingsState)
         {
-            return $"EnableTradePatch:{settingsState.EnableTradePatch}," +
-                   $"EnablePhantomVacancyFix:{settingsState.EnablePhantomVacancyFix}," +
+            return $"EnablePhantomVacancyFix:{settingsState.EnablePhantomVacancyFix}," +
                    $"EnableDemandDiagnostics:{settingsState.EnableDemandDiagnostics}," +
                    $"DiagnosticsSamplesPerDay:{settingsState.DiagnosticsSamplesPerDay}," +
                    $"CaptureStableEvidence:{settingsState.CaptureStableEvidence}," +

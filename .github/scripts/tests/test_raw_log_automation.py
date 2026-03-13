@@ -430,7 +430,7 @@ class RawLogAutomationTests(unittest.TestCase):
             [],
         )
         self.assertIn("patch_state=debug-build", draft["confounders"])
-        self.assertIn("trade patch enabled during capture", draft["confounders"])
+        self.assertIn("legacy setting recorded in capture: EnableTradePatch=True", draft["confounders"])
         self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
         self.assertNotIn("clock_source=runtime_time_system", draft["confounders"])
         self.assertEqual(draft["platform_notes"], "Windows release build")
@@ -447,7 +447,7 @@ class RawLogAutomationTests(unittest.TestCase):
             {"mode": "inline", "url": "", "attachment_urls": [], "text": MULTI_OBSERVATION_LOG},
             [],
         )
-        self.assertIn("trade patch disabled during capture", draft["confounders"])
+        self.assertIn("legacy setting recorded in capture: EnableTradePatch=False", draft["confounders"])
         self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
 
     def test_build_deterministic_summary_prefers_buyer_state_pressure(self) -> None:
@@ -924,7 +924,7 @@ class RawLogAutomationTests(unittest.TestCase):
             raw_issue_url="https://example.test/raw/21",
             triage_comment_url="https://example.test/comment/1",
         )
-        self.assertIn("- trade patch disabled during capture", fields["confounders"])
+        self.assertIn("- legacy setting recorded in capture: EnableTradePatch=False", fields["confounders"])
         self.assertNotIn("EnableTradePatch=False;", fields["confounders"])
 
     def test_generate_llm_suggestions_returns_none_without_token(self) -> None:

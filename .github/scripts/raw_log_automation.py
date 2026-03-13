@@ -205,7 +205,7 @@ EVIDENCE_STYLE_EXAMPLES = [
     {
         "name": "same-save comparison run",
         "summary_style": "Start with the tested condition, then describe the bounded window outcome without causal claims.",
-        "example_summary": "With `EnableTradePatch=False`, the same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
+        "example_summary": "The same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
         "log_excerpt_style": "Use `### Day ...` subsections with fenced `text` blocks that quote only the selected producer or consumer detail lines.",
         "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, recent anchored detail, final sample, and any important trade-state cue.",
     },
@@ -1380,8 +1380,6 @@ def build_deterministic_title(
 ) -> str:
     final_observation = parsed_log.get("final_observation") or parsed_log.get("latest_observation") or {}
     final_day = observation_day(final_observation)
-    settings = final_observation.get("settings", {})
-    trade_patch = settings.get("EnableTradePatch")
     _ = derived_classification
 
     scenario_label = issue_fields.get("save_or_city_label", "").strip()
@@ -1389,10 +1387,6 @@ def build_deterministic_title(
         return f"[Software Evidence] {scenario_label} evidence by day {final_day}"
     if scenario_label:
         return f"[Software Evidence] {scenario_label}"
-    if final_day > 0 and trade_patch is True:
-        return f"[Software Evidence] EnableTradePatch-enabled diagnostics by day {final_day}"
-    if final_day > 0 and trade_patch is False:
-        return f"[Software Evidence] EnableTradePatch-disabled diagnostics by day {final_day}"
     if final_day > 0:
         return f"[Software Evidence] raw-log diagnostics by day {final_day}"
     return "[Software Evidence] from raw log intake"
@@ -1724,10 +1718,9 @@ def build_deterministic_confounders(
         confounder_lines.append(f"patch_state={patch_state}")
 
     if "EnableTradePatch" in settings:
-        if settings.get("EnableTradePatch"):
-            confounder_lines.append("trade patch enabled during capture")
-        else:
-            confounder_lines.append("trade patch disabled during capture")
+        confounder_lines.append(
+            f"legacy setting recorded in capture: EnableTradePatch={settings.get('EnableTradePatch')}"
+        )
 
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
@@ -2436,7 +2429,7 @@ def supports_explicit_comparison(issue_fields: dict[str, str]) -> bool:
             issue_fields.get("save_or_city_label", ""),
         ]
     ).lower()
-    keywords = ("same save", "same lineage", "baseline", "compare", "comparison", "#", "trade patch")
+    keywords = ("same save", "same lineage", "baseline", "compare", "comparison", "#", "reload", "restart")
     return any(keyword in comparison_hints for keyword in keywords)
 
 

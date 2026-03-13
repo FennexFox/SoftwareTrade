@@ -4,19 +4,19 @@
 separate investigation toolset:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
-- office-resource / `software` instability: a separate producer/consumer resource-flow investigation that can still collapse office-company efficiency
+- office-resource / `software` instability: a separate investigation into office-demand/global-sales undercount and narrower virtual import-path inconsistencies
 
 The current release ships the confirmed `Signature` phantom-vacancy fix and
-keeps the `software` path available as optional investigation tooling rather
-than a finished end-user fix.
+keeps the `software` path available as diagnostics and investigation guidance
+rather than a finished end-user fix.
 
 ## Current Release
 
 What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
-- includes an opt-in office-resource trade patch for outside connections and cargo stations when you want comparison data on the `software` track; setting changes are picked up on the next city/save load in the normal case, but a restart is still recommended for clean comparison runs if other mods may also modify the same storage resource definitions
 - includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office state when you are collecting evidence
+- retires the earlier office-resource storage patch experiment because forcing zero-weight office resources through cargo/storage definitions does not match the current vanilla virtual-resource architecture
 
 What it does not claim:
 
@@ -30,17 +30,15 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `EnableTradePatch` | `false` | Adds office resources to outside connection and cargo station storage definitions. Changes apply on the next city/save load without a full game restart in the normal case. For clean comparison runs, restart first if other mods may also modify the same storage resource definitions. |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
 | `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples are taken per displayed in-game day while diagnostics are enabled. Higher values produce denser logs for comparison and troubleshooting. |
 | `CaptureStableEvidence` | `false` | Keeps bounded scheduled `softwareEvidenceDiagnostics observation_window(...)` lines flowing at the configured per-day cadence while diagnostics are enabled, even when the city looks stable. Use it only for baseline or no-symptom evidence collection. |
-| `VerboseLogging` | `false` | Adds the noisier correction and patch traces and also forces diagnostics output at the configured per-day cadence while diagnostics are enabled. Use it only for investigation. |
+| `VerboseLogging` | `false` | Adds the noisier correction traces and supplemental office/trade detail lines and also forces diagnostics output at the configured per-day cadence while diagnostics are enabled. Use it only for investigation. |
 
 ## Implementation
 
 - `Signature` phantom-vacancy fix: [SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
-- optional trade patch: [OfficeResourceStoragePatchSystem.cs](./NoOfficeDemandFix/Systems/OfficeResourceStoragePatchSystem.cs)
 - diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
 
 ## Current Position
@@ -48,18 +46,21 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 The safest way to describe this release is:
 
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
-- optional `software` trade patch for comparison runs
 - optional diagnostics for follow-up investigation
+- retired office-resource storage patch experiment
+- current `software` investigation is split between office-demand/global-sales undercount and narrower virtual import seller/path inconsistencies
 
 Current evidence does not support treating `software` producer or consumer
 distress as direct proof of lower office demand by itself. The `software` path
-remains investigational, and the trade patch is best treated as a comparison
-switch rather than a claimed full fix.
+remains investigational, and physicalizing zero-weight office resources through
+storage or cargo definitions is no longer treated as the right default fix
+direction.
 
 ## Non-Goals
 
 - faking office demand directly
 - blanket vacancy overrides across every property type
+- pushing zero-weight office resources through cargo/storage definitions as if they were physical goods
 - claiming the `software` track is solved without stronger evidence
 
 ## Reporting Logs

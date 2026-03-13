@@ -8,7 +8,8 @@ triage it into a normalized `software evidence` draft.
 - turn on `EnableDemandDiagnostics`
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
-- turn on `VerboseLogging` only when you also need the noisier patch and correction traces and supplemental `softwareTradeLifecycle` detail lines
+- turn on `VerboseLogging` only when you also need the noisier correction traces and supplemental `softwareTradeLifecycle` detail lines
+- if you are submitting an older historical log, keep any retired `EnableTradePatch` field exactly as captured in the `settings=...` snapshot; it is legacy context, not a current setting
 
 Current setting defaults are documented in [README.md](./README.md).
 

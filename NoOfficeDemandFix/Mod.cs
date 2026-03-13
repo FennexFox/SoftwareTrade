@@ -25,7 +25,6 @@ namespace NoOfficeDemandFix
                 log.Info($"Current mod asset at {asset.path}");
             }
 
-            updateSystem.UpdateAfter<OfficeResourceStoragePatchSystem, PrefabSystem>(SystemUpdatePhase.MainLoop);
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, PropertyProcessingSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, RentAdjustSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, CompanyMoveAwaySystem>(SystemUpdatePhase.GameSimulation);
