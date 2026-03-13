@@ -59,7 +59,7 @@ body:
         - reload check: collect before/after reload on same save lineage
         - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run
         - demand-response check: preserve officeDemand counters on the next consumer-distress run and compare against softwareConsumerOffices
-        - buyer-state check: preserve softwareConsumerBuyerState plus softwareNeed/softwareTradeCost/softwareBuyerState/softwareTrace on the next zero-software consumer run
+        - buyer-state check: preserve softwareConsumerBuyerState plus softwareNeed/softwareTradeCost/softwareAcquisitionState on the next zero-software consumer run
     validations:
       required: true
   - type: textarea
@@ -90,7 +90,7 @@ body:
           baseline_ref: #26
           comparison_ref: #28
           invariant_status: same save lineage, current-build off/on pair, consumer buyer-state detail preserved in both runs
-          observed_deltas: zero-software consumers kept softwareTradeCost.tradeCostEntry=true while softwareBuyerState still showed buyerActive=false, tripNeededCount=0, currentTradingCount=0, and pathState=none under both patch states
+          observed_deltas: zero-software consumers kept softwareTradeCost.tradeCostEntry=true while softwareAcquisitionState still split into selected_no_resource_buyer and selected_resolved_no_tracking_unexpected candidates under both patch states
           outcome: no material change
     validations:
       required: true

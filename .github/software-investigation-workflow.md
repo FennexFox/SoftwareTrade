@@ -65,7 +65,7 @@ Capture guidance:
 - use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
+- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)` detail blocks
 - keep the concise producer `input1(...)` / `input2(...)` formatter stock-only by default; when seller-state or buyer-lifecycle transitions matter, use verbose `detail_type=softwareTradeLifecycle` lines instead of re-expanding the concise formatter
 - treat `sample_count` as emitted `softwareEvidenceDiagnostics observation_window(...)` density inside the current run, not as a replacement for the day fields
 - treat `skipped_sample_slots` as scheduled sample slots that were missed and honestly reported rather than backfilled
@@ -78,7 +78,7 @@ The current diagnostics vocabulary is:
 - `environment(settings=..., patch_state=...)`
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` for software consumers
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)` for software consumers
 - verbose `softwareEvidenceDiagnostics detail(...)` with `detail_type=softwareTradeLifecycle` when lifecycle transitions or seller snapshots are captured; treat these as supplemental artifacts rather than as a replacement for scheduled observation-window anchors
 
 When the raw-log automation prepares a draft, it uses deterministic parsing to
@@ -108,7 +108,10 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 - persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
 - do not infer an active buyer, in-flight trip, or current trading state from `tradeCostEntry=True` in `softwareTradeCost(...)` alone
 - in current builds, `softwareNeed.tripNeededAmount` mirrors vanilla need selection and counts only `TripNeeded` entries with `Purpose.Shopping`; use `detail_type=softwareTradeLifecycle` when you need the purpose-split trip view
-- if `softwareNeed(selected=true)` appears together with `softwareBuyerState(buyerActive=false, tripNeededCount=0, currentTradingCount=0, pathState=none)`, record that as a buyer-lifecycle anomaly rather than assuming the missing trade state is expected
+- if `softwareNeed(selected=true)` appears together with `softwareAcquisitionState(...)`, classify it from the logged acquisition fields rather than from missing buyer/trip/path counters alone
+- `selected_resolved_virtual_no_tracking_expected` is a normal fast-path candidate for zero-weight software unless other fields contradict it
+- `selected_no_resource_buyer`, `selected_resource_buyer_no_path`, and `selected_resolved_no_tracking_unexpected` are the primary anomaly candidates in current builds
+- do not treat missing `TripNeeded`, `CurrentTrading`, or `path_pending` by themselves as proof of a stall before checking `virtualGood` and `tripTrackingExpected`
 - widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
 - if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption rather than hand-waving it away
 - keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
@@ -230,10 +233,10 @@ Comparability guidance:
 
 - baseline entry: evidence entry from a run where `softwareConsumerBuyerState(...)` and consumer-side `softwareOfficeStates` detail were preserved
 - comparison entry: a matched evidence entry or later bounded window on the same save lineage where the software-consumer anomaly was sampled again
-- required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)`; keep `detail_type=softwareTradeLifecycle` when transition or seller-snapshot evidence is needed
+- required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)`; keep `detail_type=softwareTradeLifecycle` when transition or seller-snapshot evidence is needed
 - variable under test: whether zero-software consumers are failing before buyer creation, during a transient buyer/path lifecycle, or after a path resolves without visible trade state
 - primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`; use `detail_type=softwareTradeLifecycle` as supplemental evidence when seller snapshots or path-transition chronology matter
-- interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is why `tradeCostEntry=True` coexists with `buyerActive=false`, `tripNeededCount=0`, `currentTradingCount=0`, and `pathState=none`
+- interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is whether selected software consumers are stuck before request creation or are taking a zero-weight virtual-resource fast path
 - invalid comparison cases: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to tell same-sample buyer state from a transient trace
 
 ## Canonical Comparison Summary Shape
