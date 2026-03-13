@@ -91,6 +91,16 @@ VIRTUAL_RESOLUTION_PROBE_FALSE_LOG = (
     ).strip()
 )
 
+VIRTUAL_RESOLUTION_PROBE_BATCHED_LOG = (
+    BUYER_STATE_ONLY_LOG
+    + "\n"
+    + textwrap.dedent(
+        """
+        [2026-03-10 16:00:00,002] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T160000000Z, run_id=1, observation_end_day=22, observation_end_sample_index=200, detail_type=softwareVirtualResolutionProbe, values=role=consumer, company=276439:1, prefab="Office_MediaCompany" (420:1), property=71688:1, capture=virtual_resolution_probe, currentClassification=selected_no_resource_buyer, virtualGood=True, resourceWeight=0, currentSoftwareStock=16, previousSoftwareStock=0, stockIncreasedSincePreviousSample=True, currentLastTradePartner=144:1, previousLastTradePartner=none, lastTradePartnerChanged=True, previousPathSellerSeen=False, previousPathSeller=none, evidenceResolvedVirtual=True | role=consumer, company=276447:1, prefab="Office_Bank" (419:1), property=71715:1, capture=virtual_resolution_probe, currentClassification=selected_no_resource_buyer, virtualGood=True, resourceWeight=0, currentSoftwareStock=0, previousSoftwareStock=0, stockIncreasedSincePreviousSample=False, currentLastTradePartner=none, previousLastTradePartner=none, lastTradePartnerChanged=False, previousPathSellerSeen=False, previousPathSeller=none, evidenceResolvedVirtual=False | role=consumer, company=276448:1, prefab="Office_Bank" (419:1), property=71716:1, capture=virtual_resolution_probe, currentClassification=selected_no_resource_buyer, virtualGood=True, resourceWeight=0, currentSoftwareStock=22, previousSoftwareStock=11, stockIncreasedSincePreviousSample=True, currentLastTradePartner=145:1, previousLastTradePartner=144:1, lastTradePartnerChanged=True, previousPathSellerSeen=False, previousPathSeller=none, evidenceResolvedVirtual=True)
+        """
+    ).strip()
+)
+
 
 RECENT_CONSUMER_HISTORY_LOG = textwrap.dedent(
     """
@@ -336,13 +346,19 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("softwareTradeLifecycle", parsed["latest_trade_lifecycle_detail"]["raw_line"])
 
     def test_parse_log_keeps_virtual_resolution_probe_details_separate_from_office_excerpt_selection(self) -> None:
-        parsed = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_TRUE_LOG)
+        parsed = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_BATCHED_LOG)
         self.assertEqual(parsed["detail_count"], 1)
         self.assertEqual(parsed["virtual_resolution_probe_detail_count"], 1)
+        self.assertEqual(parsed["virtual_resolution_probe_entry_count"], 3)
+        self.assertEqual(parsed["virtual_resolution_probe_true_count"], 2)
+        self.assertEqual(parsed["virtual_resolution_probe_false_count"], 1)
         self.assertEqual(
             parsed["latest_virtual_resolution_probe_detail"]["detail_type"],
             "softwareVirtualResolutionProbe",
         )
+        self.assertEqual(parsed["latest_virtual_resolution_probe"]["entry_count"], 3)
+        self.assertEqual(parsed["latest_virtual_resolution_probe"]["evidence_resolved_virtual_true_count"], 2)
+        self.assertEqual(parsed["latest_virtual_resolution_probe"]["evidence_resolved_virtual_false_count"], 1)
         self.assertEqual([candidate["label"] for candidate in parsed["log_excerpt_candidates"]], ["consumer_latest"])
         self.assertIn(
             "softwareVirtualResolutionProbe",
@@ -449,10 +465,11 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("officeDemand(building=100", summary)
 
     def test_build_deterministic_notes_include_virtual_resolution_probe_summary(self) -> None:
-        parsed_log = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_TRUE_LOG)
+        parsed_log = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_BATCHED_LOG)
         notes = automation.build_deterministic_notes(parsed_log)
         self.assertIn("softwareVirtualResolutionProbe", notes)
         self.assertIn("evidenceResolvedVirtual=True", notes)
+        self.assertIn("2/3 entries", notes)
         self.assertIn("lastTradePartnerChanged=True", notes)
 
     def test_build_summary_refinement_context_keeps_latest_consumer_and_producer(self) -> None:
@@ -1137,18 +1154,19 @@ class RawLogAutomationTests(unittest.TestCase):
         )
 
     def test_build_llm_semantic_facts_include_virtual_resolution_probe_summary_when_present(self) -> None:
-        parsed_log = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_TRUE_LOG)
+        parsed_log = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_BATCHED_LOG)
         facts = automation.build_llm_semantic_facts(parsed_log)
         self.assertTrue(any("selectedNoResourceBuyer=4" in fact for fact in facts))
         self.assertTrue(any("softwareVirtualResolutionProbe" in fact for fact in facts))
         self.assertTrue(any("evidenceResolvedVirtual=True" in fact for fact in facts))
+        self.assertTrue(any("2/3 entries" in fact for fact in facts))
 
     def test_build_llm_semantic_facts_include_negative_virtual_resolution_probe_summary(self) -> None:
         parsed_log = automation.parse_log(VIRTUAL_RESOLUTION_PROBE_FALSE_LOG)
         facts = automation.build_llm_semantic_facts(parsed_log)
         self.assertTrue(any("softwareVirtualResolutionProbe" in fact for fact in facts))
         self.assertTrue(any("evidenceResolvedVirtual=False" in fact for fact in facts))
-        self.assertTrue(any("no `lastTradePartnerChanged`" in fact for fact in facts))
+        self.assertTrue(any("no `lastTradePartnerChanged=True`" in fact for fact in facts))
 
     def test_generate_llm_suggestions_rewrites_unsupported_zero_resources_wording(self) -> None:
         response_payload = {

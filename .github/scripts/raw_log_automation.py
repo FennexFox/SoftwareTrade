@@ -34,7 +34,6 @@ PATCH_SUMMARY_PREFIXES = (
     "Office resource storage patch applied.",
 )
 MAX_RECENT_TRADE_LIFECYCLE_DETAILS = 5
-MAX_RECENT_VIRTUAL_RESOLUTION_PROBE_DETAILS = 5
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
@@ -749,59 +748,107 @@ def select_latest_detail_for_observation(
     return matching_details[-1] if matching_details else details[-1]
 
 
-def parse_virtual_resolution_probe_detail_values(detail: dict[str, Any] | None) -> dict[str, Any]:
+def split_batched_detail_values(values: str) -> list[str]:
+    return [part.strip() for part in values.split(" | ") if part.strip()]
+
+
+def parse_virtual_resolution_probe_entries(detail: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not detail:
-        return {}
+        return []
 
     if str(detail.get("detail_type", "")) != "softwareVirtualResolutionProbe":
-        return {}
+        return []
 
     values = str(detail.get("values", "")).strip()
     if not values:
+        return []
+
+    return [parse_key_value_text(entry, "=") for entry in split_batched_detail_values(values)]
+
+
+def build_virtual_resolution_probe_summary(detail: dict[str, Any] | None) -> dict[str, Any]:
+    entries = parse_virtual_resolution_probe_entries(detail)
+    if not entries:
         return {}
 
-    return parse_key_value_text(values, "=")
+    classifications = sorted(
+        {
+            str(entry.get("currentClassification", "")).strip()
+            for entry in entries
+            if str(entry.get("currentClassification", "")).strip()
+        }
+    )
+    true_count = sum(1 for entry in entries if entry.get("evidenceResolvedVirtual") is True)
+    false_count = sum(1 for entry in entries if entry.get("evidenceResolvedVirtual") is False)
+    summary: dict[str, Any] = {
+        "entry_count": len(entries),
+        "evidence_resolved_virtual_true_count": true_count,
+        "evidence_resolved_virtual_false_count": false_count,
+        "last_trade_partner_changed_true_count": sum(
+            1 for entry in entries if entry.get("lastTradePartnerChanged") is True
+        ),
+        "stock_increased_since_previous_sample_true_count": sum(
+            1 for entry in entries if entry.get("stockIncreasedSincePreviousSample") is True
+        ),
+    }
+    if len(classifications) == 1:
+        summary["current_classification"] = classifications[0]
+    elif classifications:
+        summary["current_classifications"] = classifications
+    return summary
 
 
 def summarize_virtual_resolution_probe(detail: dict[str, Any] | None) -> str:
-    values = parse_virtual_resolution_probe_detail_values(detail)
-    if not values:
+    summary = build_virtual_resolution_probe_summary(detail)
+    if not summary:
         return ""
 
-    classification = str(values.get("currentClassification", "")).strip()
+    entry_count = safe_int(summary.get("entry_count"))
+    true_count = safe_int(summary.get("evidence_resolved_virtual_true_count"))
+    false_count = safe_int(summary.get("evidence_resolved_virtual_false_count"))
+    last_trade_partner_changed_true_count = safe_int(summary.get("last_trade_partner_changed_true_count"))
+    stock_increased_true_count = safe_int(summary.get("stock_increased_since_previous_sample_true_count"))
+    classification = str(summary.get("current_classification", "")).strip()
     classification_text = (
         f" for `currentClassification={classification}`"
         if classification
         else ""
     )
-    evidence_resolved_virtual = values.get("evidenceResolvedVirtual")
-    if evidence_resolved_virtual is True:
-        signals = [
-            signal_name
-            for signal_name in (
-                "lastTradePartnerChanged",
-                "stockIncreasedSincePreviousSample",
-                "previousPathSellerSeen",
-            )
-            if values.get(signal_name) is True
-        ]
-        signal_text = ", ".join(f"`{signal}=True`" for signal in signals) if signals else "`supporting signals omitted`"
-        return (
-            "Latest `softwareVirtualResolutionProbe` detail"
-            f"{classification_text} kept `evidenceResolvedVirtual=True` via {signal_text}."
+
+    if true_count > 0 and false_count > 0:
+        evidence_text = (
+            f"`evidenceResolvedVirtual=True` on {true_count}/{entry_count} entries "
+            f"and `False` on {false_count}/{entry_count}"
+        )
+    elif true_count > 0:
+        evidence_text = f"`evidenceResolvedVirtual=True` on all {entry_count} entries"
+    elif false_count > 0:
+        evidence_text = f"`evidenceResolvedVirtual=False` on all {entry_count} entries"
+    else:
+        evidence_text = f"`evidenceResolvedVirtual` was not parsed on {entry_count} entries"
+
+    signal_parts: list[str] = []
+    if last_trade_partner_changed_true_count > 0:
+        signal_parts.append(
+            f"`lastTradePartnerChanged=True` on {last_trade_partner_changed_true_count}/{entry_count}"
+        )
+    if stock_increased_true_count > 0:
+        signal_parts.append(
+            f"`stockIncreasedSincePreviousSample=True` on {stock_increased_true_count}/{entry_count}"
         )
 
-    if evidence_resolved_virtual is False:
+    if signal_parts:
         return (
             "Latest `softwareVirtualResolutionProbe` detail"
-            f"{classification_text} kept `evidenceResolvedVirtual=False`; no "
-            "`lastTradePartnerChanged`, `stockIncreasedSincePreviousSample`, or "
-            "`previousPathSellerSeen` evidence was recorded."
+            f"{classification_text} kept {evidence_text}; "
+            + ", ".join(signal_parts)
+            + "."
         )
 
     return (
         "Latest `softwareVirtualResolutionProbe` detail"
-        f"{classification_text} recorded `evidenceResolvedVirtual={evidence_resolved_virtual}`."
+        f"{classification_text} kept {evidence_text}; no "
+        "`lastTradePartnerChanged=True` or `stockIncreasedSincePreviousSample=True` evidence was recorded."
     )
 
 
@@ -1256,6 +1303,17 @@ def parse_log(log_text: str) -> dict[str, Any]:
         latest_observation,
         software_virtual_resolution_probe_details,
     )
+    latest_virtual_resolution_probe = build_virtual_resolution_probe_summary(
+        latest_virtual_resolution_probe_detail
+    )
+    virtual_resolution_probe_entry_count = 0
+    virtual_resolution_probe_true_count = 0
+    virtual_resolution_probe_false_count = 0
+    for detail in software_virtual_resolution_probe_details:
+        summary = build_virtual_resolution_probe_summary(detail)
+        virtual_resolution_probe_entry_count += safe_int(summary.get("entry_count"))
+        virtual_resolution_probe_true_count += safe_int(summary.get("evidence_resolved_virtual_true_count"))
+        virtual_resolution_probe_false_count += safe_int(summary.get("evidence_resolved_virtual_false_count"))
 
     return {
         "anchors": anchors,
@@ -1264,6 +1322,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_software_office_detail": latest_detail,
         "latest_trade_lifecycle_detail": latest_trade_lifecycle_detail,
         "latest_virtual_resolution_probe_detail": latest_virtual_resolution_probe_detail,
+        "latest_virtual_resolution_probe": latest_virtual_resolution_probe,
         "latest_patch_summary": patch_summaries[-1] if patch_summaries else "",
         "patch_summaries": patch_summaries[-5:],
         "phantom_corrections": phantom_corrections[-5:],
@@ -1271,6 +1330,9 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "detail_count": len(software_office_details),
         "trade_lifecycle_detail_count": len(software_trade_lifecycle_details),
         "virtual_resolution_probe_detail_count": len(software_virtual_resolution_probe_details),
+        "virtual_resolution_probe_entry_count": virtual_resolution_probe_entry_count,
+        "virtual_resolution_probe_true_count": virtual_resolution_probe_true_count,
+        "virtual_resolution_probe_false_count": virtual_resolution_probe_false_count,
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
         "latest_run_details": latest_run_details,
         "final_observation": latest_run_candidates["final_observation"],
@@ -1279,9 +1341,6 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
         "recent_trade_lifecycle_details": software_trade_lifecycle_details[-MAX_RECENT_TRADE_LIFECYCLE_DETAILS:],
-        "recent_virtual_resolution_probe_details": software_virtual_resolution_probe_details[
-            -MAX_RECENT_VIRTUAL_RESOLUTION_PROBE_DETAILS:
-        ],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
         "selected_snippets": build_selected_snippets(
             latest_run_candidates["log_excerpt_candidates"],
@@ -3051,7 +3110,7 @@ def render_managed_comment(
             "consumer_peak_observation": parsed_log.get("consumer_peak_observation"),
             "producer_peak_observation": parsed_log.get("producer_peak_observation"),
             "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
-            "latest_virtual_resolution_probe_detail": parsed_log.get("latest_virtual_resolution_probe_detail"),
+            "latest_virtual_resolution_probe": parsed_log.get("latest_virtual_resolution_probe"),
             "latest_patch_summary": parsed_log.get("latest_patch_summary", ""),
             "patch_summaries": parsed_log.get("patch_summaries", []),
             "phantom_corrections": parsed_log.get("phantom_corrections", []),
@@ -3059,6 +3118,9 @@ def render_managed_comment(
             "detail_count": parsed_log.get("detail_count", 0),
             "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
             "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
+            "virtual_resolution_probe_entry_count": parsed_log.get("virtual_resolution_probe_entry_count", 0),
+            "virtual_resolution_probe_true_count": parsed_log.get("virtual_resolution_probe_true_count", 0),
+            "virtual_resolution_probe_false_count": parsed_log.get("virtual_resolution_probe_false_count", 0),
             "log_excerpt_candidates": parsed_log.get("log_excerpt_candidates", []),
         },
         "deterministic_draft": deterministic_draft,
@@ -3119,7 +3181,7 @@ def render_managed_comment(
         compact_payload = dict(payload)
         compact_parsed = dict(payload["parsed_log"])
         compact_parsed["latest_software_office_detail"] = None
-        compact_parsed["latest_virtual_resolution_probe_detail"] = None
+        compact_parsed["latest_virtual_resolution_probe"] = None
         compact_parsed["log_excerpt_candidates"] = select_preferred_excerpt_candidates(
             list(compact_parsed.get("log_excerpt_candidates", [])),
             2,
