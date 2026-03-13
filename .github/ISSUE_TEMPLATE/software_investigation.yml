@@ -55,11 +55,11 @@ body:
       description: Link the `Software evidence` issues already collected or the bounded runs and raw-log intakes that still need promotion.
       placeholder: |
         - baseline evidence: #21
-        - trade patch comparison run: collect on same save with EnableTradePatch=True
+        - second acquisition-state run: collect on the same save lineage; record EnableTradePatch only as run context if it differs
         - reload check: collect before/after reload on same save lineage
         - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run
         - demand-response check: preserve officeDemand counters on the next consumer-distress run and compare against softwareConsumerOffices
-        - buyer-state check: preserve softwareConsumerBuyerState plus softwareNeed/softwareTradeCost/softwareBuyerState/softwareTrace on the next zero-software consumer run
+        - buyer-state check: preserve softwareConsumerBuyerState plus softwareNeed/softwareTradeCost/softwareAcquisitionState on the next zero-software consumer run
     validations:
       required: true
   - type: textarea
@@ -68,10 +68,10 @@ body:
       label: Comparison summary
       description: Use this section for checkpoint-by-checkpoint comparison summaries and update it as evidence accumulates.
       placeholder: |
-        - checkpoint: trade_patch_toggle_same_save
+        - checkpoint: same_save_rerun
           baseline_ref: #21
           comparison_ref: #22
-          invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
+          invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; EnableTradePatch recorded only as run context if it differed
           observed_deltas: softwareConsumerOffices.softwareInputZero dropped but softwareProducerOffices.lackResourcesZero persisted
           outcome: mitigated but not solved
         - checkpoint: software_consumer_distress_vs_office_demand_response
@@ -89,8 +89,8 @@ body:
         - checkpoint: software_need_vs_buyer_lifecycle_state
           baseline_ref: #26
           comparison_ref: #28
-          invariant_status: same save lineage, current-build off/on pair, consumer buyer-state detail preserved in both runs
-          observed_deltas: zero-software consumers kept softwareTradeCost.tradeCostEntry=true while softwareBuyerState still showed buyerActive=false, tripNeededCount=0, currentTradingCount=0, and pathState=none under both patch states
+          invariant_status: same save lineage, comparable observation window, consumer buyer-state detail preserved in both runs; EnableTradePatch is recorded as run context only if it differs
+          observed_deltas: zero-software consumers kept softwareTradeCost.tradeCostEntry=true while softwareAcquisitionState still pointed at selected_no_resource_buyer across repeated samples
           outcome: no material change
     validations:
       required: true

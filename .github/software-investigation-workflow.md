@@ -65,8 +65,8 @@ Capture guidance:
 - use `analysis_basis` only when code reading actually informed the interpretation, and say whether the relevant claim came from vanilla decompile, mod code, or both
 - if runtime emits `patch_state=unknown`, keep that value unless you can replace it with an exact known local deviation set
 - when differentiating upstream input pressure from downstream software-consumer shortage or office-resource trade and storage gating, prefer preserving `electronics(...)`, `software(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and any relevant `detail_type=softwareOfficeStates` lines together
-- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` detail blocks
-- keep the concise producer `input1(...)` / `input2(...)` formatter stock-only by default; if producer-side trade-cost metadata becomes part of the active question, add or use a separate verbose diagnostic path instead of re-expanding the concise formatter
+- when the active question is why zero-software consumers keep empty buyer state, preserve `softwareConsumerBuyerState(...)` together with the relevant `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)` detail blocks
+- keep the concise producer `input1(...)` / `input2(...)` formatter stock-only by default; when seller-state or buyer-lifecycle transitions matter, use verbose `detail_type=softwareTradeLifecycle` lines instead of re-expanding the concise formatter
 - treat `sample_count` as emitted `softwareEvidenceDiagnostics observation_window(...)` density inside the current run, not as a replacement for the day fields
 - treat `skipped_sample_slots` as scheduled sample slots that were missed and honestly reported rather than backfilled
 - if raw-log automation preserved both consumer-side and producer-side detail, treat the latest anchored consumer excerpt plus the latest anchored producer excerpt as the default pair and include older anchored samples only when they preserve short local chronology that materially improves interpretation
@@ -78,7 +78,8 @@ The current diagnostics vocabulary is:
 - `environment(settings=..., patch_state=...)`
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
-- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` for software consumers
+- `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)` for software consumers
+- verbose `softwareEvidenceDiagnostics detail(...)` with `detail_type=softwareTradeLifecycle` when lifecycle transitions or seller snapshots are captured, plus `detail_type=softwareVirtualResolutionProbe` when checking the discussion-`#63` zero-weight virtual fast-path hypothesis; treat both as supplemental artifacts rather than as a replacement for scheduled observation-window anchors
 
 When the raw-log automation prepares a draft, it uses deterministic parsing to
 extract these anchors and bound excerpt candidates, then uses LLM drafting for
@@ -101,12 +102,18 @@ When code reading is part of the interpretation, keep the source of the claim ex
 
 Mixed-cause interpretations are allowed and should be recorded explicitly rather than collapsed into one presumed root cause.
 
-- improvement after `EnableTradePatch` does not prove upstream input pressure was absent
+- `EnableTradePatch` should be recorded in `settings` and `confounders`, but it is no longer a required independent variable for software-track investigations
+- improvement after a run with different `EnableTradePatch` state does not prove upstream input pressure was absent
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
 - persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
 - persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
 - do not infer an active buyer, in-flight trip, or current trading state from `tradeCostEntry=True` in `softwareTradeCost(...)` alone
-- if `softwareNeed(selected=true)` appears together with `softwareBuyerState(buyerActive=false, tripNeededCount=0, currentTradingCount=0, pathState=none)`, record that as a buyer-lifecycle anomaly rather than assuming the missing trade state is expected
+- in current builds, `softwareNeed.tripNeededAmount` mirrors vanilla need selection and counts only `TripNeeded` entries with `Purpose.Shopping`; use `detail_type=softwareTradeLifecycle` when you need the purpose-split trip view
+- if `softwareNeed(selected=true)` appears together with `softwareAcquisitionState(...)`, classify it from the logged acquisition fields rather than from missing buyer/trip/path counters alone
+- `selected_resolved_virtual_no_tracking_expected` is a normal fast-path candidate for zero-weight software unless other fields contradict it
+- `selected_no_resource_buyer`, `selected_resource_buyer_no_path`, and `selected_resolved_no_tracking_unexpected` are the primary anomaly candidates in current builds
+- use `detail_type=softwareVirtualResolutionProbe` when the active question is whether a `selected_no_resource_buyer` sample is actually a quickly resolved zero-weight virtual trade rather than a pre-buyer stall
+- do not treat missing `TripNeeded`, `CurrentTrading`, or `path_pending` by themselves as proof of a stall before checking `virtualGood` and `tripTrackingExpected`
 - widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
 - if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption rather than hand-waving it away
 - keep root-cause interpretation in `confounders`, `notes`, or the umbrella investigation summary rather than inventing new root-cause `symptom_classification` labels
@@ -116,7 +123,7 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 Default minimum window guidance:
 
 - `3 days`: minimum reusable bounded window for a promoted evidence entry
-- `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
+- `5 days`: preferred for long-window same-lineage acquisition-state or persistence comparison
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
 
 At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with
@@ -157,14 +164,14 @@ Comparability guidance:
 
 ### Core Checkpoints
 
-#### 1. Trade patch toggle on the same save
+#### 1. Comparable same-save rerun
 
-- baseline entry: evidence entry from a save with `EnableTradePatch=false`
-- comparison entry: evidence entry from the same save lineage after switching to `EnableTradePatch=true`
-- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window
-- variable under test: `EnableTradePatch`
+- baseline entry: evidence entry from a save lineage with the relevant counters and detail preserved
+- comparison entry: a later bounded run on the same save lineage or a tightly matched rerun of the same scenario
+- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window; if `EnableTradePatch` differs, record it as run context rather than the default variable under test
+- variable under test: the specific hypothesis being checked, such as persistence, lifecycle interpretation, or post-reload stability
 - primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle detail is part of the claim
-- invalid comparison cases: save changed in unrelated ways, multiple settings changed together, session-boundary effects mixed in without being noted
+- invalid comparison cases: save changed in unrelated ways, multiple intended behavior changes were mixed together without a stated hypothesis, or session-boundary effects were mixed in without being noted
 
 #### 2. Short-run vs long-run observation window
 
@@ -184,7 +191,7 @@ Comparability guidance:
 - required invariants: same game version, same mod ref, same settings, same save/scenario lineage, comparable observation window
 - variable under test: session boundary transition
 - primary fields / counters: `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, relevant `softwareEvidenceDiagnostics detail(...)` lines if property state changes matter
-- invalid comparison cases: any patch toggle or code change between runs, or materially different city state before capture
+- invalid comparison cases: any unrelated code or settings change between runs, or materially different city state before capture
 
 #### 4. Outside-connection availability state
 
@@ -193,7 +200,7 @@ Comparability guidance:
 - required invariants: same save lineage, same game/mod/settings as far as possible, same general hypothesis under test
 - variable under test: outside-connection availability state
 - primary fields / counters: `diagnostic_counters.software(resourceProduction, resourceDemand, companies, propertyless)`, `diagnostic_counters.softwareProducerOffices(... lackResourcesZero ...)`, `diagnostic_counters.softwareConsumerOffices(... softwareInputZero ...)`
-- invalid comparison cases: outside-connection change confounded with patch toggles or unrelated city growth
+- invalid comparison cases: outside-connection change confounded with unrelated settings shifts or unrelated city growth
 
 #### 5. Starvation or recovery transition within a run
 
@@ -228,10 +235,10 @@ Comparability guidance:
 
 - baseline entry: evidence entry from a run where `softwareConsumerBuyerState(...)` and consumer-side `softwareOfficeStates` detail were preserved
 - comparison entry: a matched evidence entry or later bounded window on the same save lineage where the software-consumer anomaly was sampled again
-- required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)`
+- required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)`; keep `detail_type=softwareTradeLifecycle` when transition or seller-snapshot evidence is needed
 - variable under test: whether zero-software consumers are failing before buyer creation, during a transient buyer/path lifecycle, or after a path resolves without visible trade state
-- primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
-- interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is why `tradeCostEntry=True` coexists with `buyerActive=false`, `tripNeededCount=0`, `currentTradingCount=0`, and `pathState=none`
+- primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`; use `detail_type=softwareTradeLifecycle` as supplemental evidence when seller snapshots or path-transition chronology matter, and `detail_type=softwareVirtualResolutionProbe` when the question is whether zero-weight virtual resolution left only indirect evidence
+- interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is whether selected software consumers are stuck before request creation or are taking a zero-weight virtual-resource fast path
 - invalid comparison cases: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to tell same-sample buyer state from a transient trace
 
 ## Canonical Comparison Summary Shape
@@ -249,10 +256,10 @@ Comparison summaries should use this small reusable shape inside the umbrella in
 Example:
 
 ```md
-- checkpoint: trade_patch_toggle_same_save
+- checkpoint: same_save_rerun
   baseline_ref: #21
   comparison_ref: #22
-  invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
+  invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; `EnableTradePatch` recorded only as run context if it differed
   observed_deltas: softwareConsumerOffices.softwareInputZero dropped from 18 to 4, but softwareProducerOffices.lackResourcesZero persisted
   outcome: mitigated but not solved
   notes: compared after one reload boundary

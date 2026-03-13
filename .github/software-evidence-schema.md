@@ -53,7 +53,7 @@ Required:
 Optional:
 
 - `expected_behavior`: what should have happened instead
-- `comparison_baseline`: another save, version, or patch state used for comparison
+- `comparison_baseline`: another save, version, settings state, or prior evidence entry used for comparison
 
 ### 3. Observation
 
@@ -70,7 +70,7 @@ Required:
 Optional:
 
 - `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters; when both roles exist, prefer the latest anchored consumer excerpt plus the latest anchored producer excerpt, then, when short chronology matters, also include the immediately previous distinct sample for each role (one older consumer excerpt and one older producer excerpt)
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates`, which now cover both producer-side and consumer-side office states and may include trade-cost-entry, active-buyer, trip-needed, current-trading, and path-state cues
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates` for concise office state or verbose `detail_type=softwareTradeLifecycle` for lifecycle transitions and seller snapshots
 - `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields
 
@@ -90,9 +90,13 @@ payload.
 
 When the active question is upstream input pressure versus downstream office-resource gating, prefer preserving the matching raw counter groups and any relevant `softwareEvidenceDiagnostics detail(...)` lines together rather than paraphrasing them into prose.
 That usually means keeping `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and the shared `detail_type=softwareOfficeStates` lines with their role context.
+When seller-state or buyer-lifecycle chronology matters, keep `detail_type=softwareTradeLifecycle` only as supplemental artifact material rather than replacing the concise `softwareOfficeStates` anchors.
 
-When the active question is why zero-software consumers show empty buyer state, preserve `softwareConsumerBuyerState(...)` and the consumer-side `softwareNeed(...)`, `softwareTradeCost(...)`, `softwareBuyerState(...)`, and `softwareTrace(...)` blocks together.
+When the active question is why zero-software consumers show empty buyer state, preserve `softwareConsumerBuyerState(...)` and the consumer-side `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)` blocks together.
 Treat `tradeCostEntry=True` as a trade-cost-cache fact, not as enough evidence by itself that an active buyer or in-flight trade exists.
+In current builds, `softwareNeed.tripNeededAmount` mirrors vanilla need selection and counts only `TripNeeded` entries with `Purpose.Shopping`; use `detail_type=softwareTradeLifecycle` when you need the broader purpose split.
+Treat `selected_resolved_virtual_no_tracking_expected` as a zero-weight fast-path candidate, not as an anomaly by itself.
+Treat `selected_no_resource_buyer`, `selected_resource_buyer_no_path`, and `selected_resolved_no_tracking_unexpected` as the primary anomaly-side acquisition states.
 
 When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone.
 

@@ -8,7 +8,7 @@ triage it into a normalized `software evidence` draft.
 - turn on `EnableDemandDiagnostics`
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
-- turn on `VerboseLogging` only when you also need the noisier patch and correction traces
+- turn on `VerboseLogging` only when you also need the noisier patch and correction traces and supplemental `softwareTradeLifecycle` detail lines
 
 Current setting defaults are documented in [README.md](./README.md).
 
@@ -30,6 +30,7 @@ Current setting defaults are documented in [README.md](./README.md).
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
 - preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, using the latest consumer excerpt plus the latest producer excerpt as the default pair when both roles exist and adding at most one immediately previous distinct sample only when short chronology materially affects interpretation
+- keep verbose `detail_type=softwareTradeLifecycle` lines as supplemental artifacts when buyer/seller lifecycle transitions or seller snapshots matter; they do not replace the scheduled observation window or the concise `softwareOfficeStates` detail anchors
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
