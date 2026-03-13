@@ -5,6 +5,7 @@ using Game.Modding;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
+using HarmonyLib;
 using NoOfficeDemandFix.Systems;
 
 namespace NoOfficeDemandFix
@@ -15,6 +16,7 @@ namespace NoOfficeDemandFix
         public static Setting Settings { get; private set; }
 
         private Setting m_Setting;
+        private Harmony m_Harmony;
 
         public void OnLoad(UpdateSystem updateSystem)
         {
@@ -38,12 +40,29 @@ namespace NoOfficeDemandFix
             Settings = m_Setting;
 
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
+
+            try
+            {
+                m_Harmony = new Harmony(nameof(NoOfficeDemandFix));
+                m_Harmony.PatchAll(typeof(Mod).Assembly);
+            }
+            catch (System.Exception ex)
+            {
+                log.Error($"Harmony patch bootstrap failed. Falling back to vanilla behavior for this session. {ex}");
+                m_Harmony = null;
+            }
         }
 
         public void OnDispose()
         {
             log.Info(nameof(OnDispose));
             Settings = null;
+
+            if (m_Harmony != null)
+            {
+                m_Harmony.UnpatchAll(m_Harmony.Id);
+                m_Harmony = null;
+            }
 
             if (m_Setting != null)
             {

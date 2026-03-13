@@ -56,12 +56,14 @@ namespace NoOfficeDemandFix.Systems
         {
             public DiagnosticsSettingsState(
                 bool enablePhantomVacancyFix,
+                bool enableOutsideConnectionVirtualSellerFix,
                 bool enableDemandDiagnostics,
                 int diagnosticsSamplesPerDay,
                 bool captureStableEvidence,
                 bool verboseLogging)
             {
                 EnablePhantomVacancyFix = enablePhantomVacancyFix;
+                EnableOutsideConnectionVirtualSellerFix = enableOutsideConnectionVirtualSellerFix;
                 EnableDemandDiagnostics = enableDemandDiagnostics;
                 DiagnosticsSamplesPerDay = diagnosticsSamplesPerDay;
                 CaptureStableEvidence = captureStableEvidence;
@@ -69,6 +71,7 @@ namespace NoOfficeDemandFix.Systems
             }
 
             public bool EnablePhantomVacancyFix { get; }
+            public bool EnableOutsideConnectionVirtualSellerFix { get; }
             public bool EnableDemandDiagnostics { get; }
             public int DiagnosticsSamplesPerDay { get; }
             public bool CaptureStableEvidence { get; }
@@ -77,6 +80,7 @@ namespace NoOfficeDemandFix.Systems
             public bool Equals(DiagnosticsSettingsState other)
             {
                 return EnablePhantomVacancyFix == other.EnablePhantomVacancyFix &&
+                       EnableOutsideConnectionVirtualSellerFix == other.EnableOutsideConnectionVirtualSellerFix &&
                        EnableDemandDiagnostics == other.EnableDemandDiagnostics &&
                        DiagnosticsSamplesPerDay == other.DiagnosticsSamplesPerDay &&
                        CaptureStableEvidence == other.CaptureStableEvidence &&
@@ -92,6 +96,7 @@ namespace NoOfficeDemandFix.Systems
             {
                 return HashCode.Combine(
                     EnablePhantomVacancyFix,
+                    EnableOutsideConnectionVirtualSellerFix,
                     EnableDemandDiagnostics,
                     DiagnosticsSamplesPerDay,
                     CaptureStableEvidence,
@@ -2051,6 +2056,7 @@ namespace NoOfficeDemandFix.Systems
 
             return new DiagnosticsSettingsState(
                 Mod.Settings.EnablePhantomVacancyFix,
+                Mod.Settings.EnableOutsideConnectionVirtualSellerFix,
                 Mod.Settings.EnableDemandDiagnostics,
                 GetDiagnosticsSamplesPerDay(),
                 Mod.Settings.CaptureStableEvidence,
@@ -2060,6 +2066,7 @@ namespace NoOfficeDemandFix.Systems
         private static string FormatSettingsSnapshot(DiagnosticsSettingsState settingsState)
         {
             return $"EnablePhantomVacancyFix:{settingsState.EnablePhantomVacancyFix}," +
+                   $"EnableOutsideConnectionVirtualSellerFix:{settingsState.EnableOutsideConnectionVirtualSellerFix}," +
                    $"EnableDemandDiagnostics:{settingsState.EnableDemandDiagnostics}," +
                    $"DiagnosticsSamplesPerDay:{settingsState.DiagnosticsSamplesPerDay}," +
                    $"CaptureStableEvidence:{settingsState.CaptureStableEvidence}," +
