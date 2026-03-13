@@ -15,8 +15,6 @@ namespace NoOfficeDemandFix
         public const string DiagnosticsObservationPrefix = "softwareEvidenceDiagnostics observation_window(";
         public const string DiagnosticsDetailPrefix = "softwareEvidenceDiagnostics detail(";
         public const string PhantomVacancyCorrectionPrefix = "Signature phantom vacancy guard corrected";
-        public const string OfficeResourcePatchAppliedPrefix = "Office resource storage patch applied for the current load.";
-
         public const string ScheduledObservationKind = "scheduled";
         public const string RuntimeTimeSystemClockSource = "runtime_time_system";
         public const string DisplayedClockSource = "displayed_clock";
@@ -65,11 +63,6 @@ namespace NoOfficeDemandFix
         {
             return
                 $"{DiagnosticsDetailPrefix}session_id={sessionId}, run_id={runId}, observation_end_day={observationEndDay}, observation_end_sample_index={observationEndSampleIndex}, detail_type={detailType}, values={values})";
-        }
-
-        public static string FormatOfficeResourcePatchApplied(int patchedOutsideConnections, int patchedCargoStations)
-        {
-            return $"{OfficeResourcePatchAppliedPrefix} Outside connections: {patchedOutsideConnections}, cargo stations: {patchedCargoStations}.";
         }
 
         public static string FormatPhantomVacancyCorrection(

@@ -21,9 +21,6 @@ namespace NoOfficeDemandFix
         }
 
         [SettingsUISection(kSection, kGeneralGroup)]
-        public bool EnableTradePatch { get; set; }
-
-        [SettingsUISection(kSection, kGeneralGroup)]
         public bool EnablePhantomVacancyFix { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
@@ -41,7 +38,6 @@ namespace NoOfficeDemandFix
 
         public override void SetDefaults()
         {
-            EnableTradePatch = false;
             EnablePhantomVacancyFix = true;
             EnableDemandDiagnostics = false;
             DiagnosticsSamplesPerDay = 2;
@@ -69,9 +65,6 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionGroupLocaleID(Setting.kGeneralGroup), "General" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kDiagnosticsGroup), "Diagnostics" },
 
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableTradePatch)), "Enable office resource trade patch" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableTradePatch)), "Experimental software-track investigation aid. Adds office resources to outside connection and cargo station storage definitions so software can pass existing import and storage gates while you collect diagnostics. Changes apply the next time you load a city or save; a full game restart is usually not required. For clean comparison runs, restart before loading if other mods may also change these storage resource definitions." },
-
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Enable phantom vacancy fix" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Applies immediately to future simulation ticks by removing PropertyOnMarket and PropertyToBeOnMarket from occupied signature office and industrial properties before demand and property search evaluate them. Disabling it stops future corrections but does not restore already cleaned-up market state." },
 
@@ -85,7 +78,7 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.CaptureStableEvidence)), "Keeps scheduled softwareEvidenceDiagnostics observation windows flowing at the configured per-day cadence while diagnostics are enabled, even when no suspicious signal is currently present. Missed scheduled slots are reported through `skipped_sample_slots` instead of backfilled logs. Use it only when you want baseline or no-symptom evidence for investigation." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.VerboseLogging)), "Verbose logging" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom vacancy corrections, forces office diagnostics output at the configured per-day cadence while diagnostics are enabled, and adds the noisier correction and patch traces. Use it for investigation only; it does not replay one-shot prefab patch logs that already happened earlier in the session." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom vacancy corrections, forces office diagnostics output at the configured per-day cadence while diagnostics are enabled, and adds the noisier correction and office-trade detail traces. Use it for investigation only." },
             };
         }
 
