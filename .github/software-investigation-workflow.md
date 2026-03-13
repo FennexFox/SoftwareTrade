@@ -102,7 +102,8 @@ When code reading is part of the interpretation, keep the source of the claim ex
 
 Mixed-cause interpretations are allowed and should be recorded explicitly rather than collapsed into one presumed root cause.
 
-- improvement after `EnableTradePatch` does not prove upstream input pressure was absent
+- `EnableTradePatch` should be recorded in `settings` and `confounders`, but it is no longer a required independent variable for software-track investigations
+- improvement after a run with different `EnableTradePatch` state does not prove upstream input pressure was absent
 - a large pre/post improvement can still be a downstream bypass of a remaining upstream problem
 - persistent producer-side `Electronics(stock=0)` or buyer pressure in `detail_type=softwareOfficeStates` after a trade-patch comparison suggests upstream starvation is still active
 - persistent consumer-side `softwareInputZero=true` or repeated `Software(stock=0)` in `detail_type=softwareOfficeStates` suggests downstream software shortage is still active
@@ -121,7 +122,7 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 Default minimum window guidance:
 
 - `3 days`: minimum reusable bounded window for a promoted evidence entry
-- `5 days`: preferred for `EnableTradePatch` off/on comparison on the same save lineage
+- `5 days`: preferred for long-window same-lineage acquisition-state or persistence comparison
 - `7 days`: preferred when outside-connection state, persistence, or recovery is under review
 
 At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with
@@ -162,14 +163,14 @@ Comparability guidance:
 
 ### Core Checkpoints
 
-#### 1. Trade patch toggle on the same save
+#### 1. Comparable same-save rerun
 
-- baseline entry: evidence entry from a save with `EnableTradePatch=false`
-- comparison entry: evidence entry from the same save lineage after switching to `EnableTradePatch=true`
-- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window
-- variable under test: `EnableTradePatch`
+- baseline entry: evidence entry from a save lineage with the relevant counters and detail preserved
+- comparison entry: a later bounded run on the same save lineage or a tightly matched rerun of the same scenario
+- required invariants: same game version, same mod ref or equivalent release, same save/scenario lineage, same phantom-vacancy setting, same diagnostics setting, comparable observation window; if `EnableTradePatch` differs, record it as run context rather than the default variable under test
+- variable under test: the specific hypothesis being checked, such as persistence, lifecycle interpretation, or post-reload stability
 - primary fields / counters: `settings`, `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, `diagnostic_counters.softwareConsumerBuyerState(...)` when buyer-lifecycle detail is part of the claim
-- invalid comparison cases: save changed in unrelated ways, multiple settings changed together, session-boundary effects mixed in without being noted
+- invalid comparison cases: save changed in unrelated ways, multiple intended behavior changes were mixed together without a stated hypothesis, or session-boundary effects were mixed in without being noted
 
 #### 2. Short-run vs long-run observation window
 
@@ -189,7 +190,7 @@ Comparability guidance:
 - required invariants: same game version, same mod ref, same settings, same save/scenario lineage, comparable observation window
 - variable under test: session boundary transition
 - primary fields / counters: `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, relevant `softwareEvidenceDiagnostics detail(...)` lines if property state changes matter
-- invalid comparison cases: any patch toggle or code change between runs, or materially different city state before capture
+- invalid comparison cases: any unrelated code or settings change between runs, or materially different city state before capture
 
 #### 4. Outside-connection availability state
 
@@ -198,7 +199,7 @@ Comparability guidance:
 - required invariants: same save lineage, same game/mod/settings as far as possible, same general hypothesis under test
 - variable under test: outside-connection availability state
 - primary fields / counters: `diagnostic_counters.software(resourceProduction, resourceDemand, companies, propertyless)`, `diagnostic_counters.softwareProducerOffices(... lackResourcesZero ...)`, `diagnostic_counters.softwareConsumerOffices(... softwareInputZero ...)`
-- invalid comparison cases: outside-connection change confounded with patch toggles or unrelated city growth
+- invalid comparison cases: outside-connection change confounded with unrelated settings shifts or unrelated city growth
 
 #### 5. Starvation or recovery transition within a run
 
@@ -254,10 +255,10 @@ Comparison summaries should use this small reusable shape inside the umbrella in
 Example:
 
 ```md
-- checkpoint: trade_patch_toggle_same_save
+- checkpoint: same_save_rerun
   baseline_ref: #21
   comparison_ref: #22
-  invariant_status: same save lineage, same game/mod/settings except EnableTradePatch
+  invariant_status: same save lineage, same game/mod/settings except the explicitly stated variable under test; `EnableTradePatch` recorded only as run context if it differed
   observed_deltas: softwareConsumerOffices.softwareInputZero dropped from 18 to 4, but softwareProducerOffices.lackResourcesZero persisted
   outcome: mitigated but not solved
   notes: compared after one reload boundary

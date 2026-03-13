@@ -99,7 +99,7 @@ body:
     id: comparison-baseline
     attributes:
       label: Comparison baseline
-      description: Optional save, version, patch state, or prior evidence entry that should be referenced later from the umbrella investigation issue.
+      description: Optional save, version, settings state, or prior evidence entry that should be referenced later from the umbrella investigation issue.
   - type: dropdown
     id: symptom-classification
     attributes:

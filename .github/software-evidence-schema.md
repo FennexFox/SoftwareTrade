@@ -53,7 +53,7 @@ Required:
 Optional:
 
 - `expected_behavior`: what should have happened instead
-- `comparison_baseline`: another save, version, or patch state used for comparison
+- `comparison_baseline`: another save, version, settings state, or prior evidence entry used for comparison
 
 ### 3. Observation
 
