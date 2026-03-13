@@ -1344,8 +1344,18 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
         buyer_state_snapshot = format_relevant_counter_group(
             "softwareConsumerBuyerState",
             buyer_state,
-            ("needSelected", "noBuyerDespiteNeed", "tradeCostOnly", "buyerActive"),
-            include_zero_fields=("buyerActive",),
+            (
+                "needSelected",
+                "resourceBuyerPresent",
+                "trackingExpectedSelected",
+                "selectedNoResourceBuyer",
+                "selectedRequestNoPath",
+                "resolvedVirtualNoTrackingExpected",
+                "resolvedNoTrackingUnexpected",
+                "pathPending",
+                "tripPresent",
+                "currentTradingPresent",
+            ),
         )
         if buyer_state_snapshot:
             lines.append(buyer_state_snapshot)
@@ -1905,7 +1915,9 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
         "softwareProducerOffices.lackResourcesZero and softwareConsumerOffices.lackResourcesZero count offices where the diagnostic field lackResources=0.",
         "lackResourcesZero does not mean the office had zero resources, no resources, or a confirmed input shortage.",
         "softwareConsumerOffices.softwareInputZero counts consumer offices where the software input state was zero in diagnostics; it is not a citywide demand verdict by itself.",
-        "softwareConsumerBuyerState.noBuyerDespiteNeed counts consumer offices with selected software need but no active buyer in the latest observation.",
+        "softwareConsumerBuyerState.selectedNoResourceBuyer counts selected software consumers with no matching ResourceBuyer in the latest observation.",
+        "softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected counts selected software consumers where zero-weight virtual-resource flow had a resolved path signal and no tracked trip/currentTrading state was expected.",
+        "softwareConsumerBuyerState.resolvedNoTrackingUnexpected counts selected software consumers with a resolved path signal but no tracked trip/currentTrading state where tracking was still expected or request resolution looked inconsistent.",
         "If a detail line shows softwareInputZero=False, do not summarize that office as a confirmed softwareInputZero case or a confirmed shortage; describe the buyer-state fields literally.",
         "If the facts show efficiency=0 and lackResources=0, summarize that conservatively as 'efficiency=0 while lackResources=0'.",
         "Do not use phrases like 'zero resources' or 'no resources' unless the provided facts literally support that wording.",
@@ -1931,10 +1943,22 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
             f"Latest counters: softwareConsumerOffices.softwareInputZero={software_input_zero} means {software_input_zero} consumer offices had softwareInputZero in the latest observation."
         )
 
-    no_buyer_despite_need = safe_int(buyer_state.get("noBuyerDespiteNeed"))
-    if no_buyer_despite_need > 0:
+    selected_no_resource_buyer = safe_int(buyer_state.get("selectedNoResourceBuyer"))
+    if selected_no_resource_buyer > 0:
         facts.append(
-            f"Latest counters: softwareConsumerBuyerState.noBuyerDespiteNeed={no_buyer_despite_need} and buyerActive={safe_int(buyer_state.get('buyerActive'))} describe selected software need with no active buyer in the latest observation."
+            f"Latest counters: softwareConsumerBuyerState.selectedNoResourceBuyer={selected_no_resource_buyer} describes selected software consumers with no matching ResourceBuyer in the latest observation."
+        )
+
+    resolved_virtual_expected = safe_int(buyer_state.get("resolvedVirtualNoTrackingExpected"))
+    if resolved_virtual_expected > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected={resolved_virtual_expected} marks selected software consumers whose zero-weight virtual-resource flow resolved without tracked TripNeeded or CurrentTrading state."
+        )
+
+    resolved_no_tracking_unexpected = safe_int(buyer_state.get("resolvedNoTrackingUnexpected"))
+    if resolved_no_tracking_unexpected > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.resolvedNoTrackingUnexpected={resolved_no_tracking_unexpected} marks selected software consumers with a resolved path signal but no tracked TripNeeded or CurrentTrading state where tracking was still expected."
         )
 
     office_demand_building = safe_int(counter_groups.get("officeDemand", {}).get("building"))
@@ -1997,7 +2021,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - `evidence_summary` must stay factual and observational. Keep it to 2-4 short sentences about what the provided diagnostics showed.
         - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
         - Do not use `evidence_summary` for causal claims, recommendations, or likely explanations.
-        - Prefer literal counter language in `evidence_summary`, such as `officeDemand.building=...`, `softwareConsumerBuyerState.noBuyerDespiteNeed=...`, or `buyerActive=0`, when those counters are the main signal.
+        - Prefer literal counter language in `evidence_summary`, such as `officeDemand.building=...`, `softwareConsumerBuyerState.selectedNoResourceBuyer=...`, or `softwareConsumerBuyerState.resolvedNoTrackingUnexpected=...`, when those counters are the main signal.
         - `comparison_baseline` should stay empty unless the provided facts explicitly support a save-lineage, issue-reference, or patch-state comparison.
         - `confidence` must be one of: high, medium, low. Use `medium` unless the facts strongly justify another choice.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
