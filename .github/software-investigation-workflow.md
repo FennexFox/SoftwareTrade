@@ -79,7 +79,7 @@ The current diagnostics vocabulary is:
 - `diagnostic_counters(...)`, including `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when those counter groups are emitted
 - `diagnostic_context(...)`
 - `softwareEvidenceDiagnostics detail(...)`, including `detail_type=softwareOfficeStates` when office-level input state is captured for software producers or software consumers; those detail lines may include `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)` for software consumers
-- verbose `softwareEvidenceDiagnostics detail(...)` with `detail_type=softwareTradeLifecycle` when lifecycle transitions or seller snapshots are captured; treat these as supplemental artifacts rather than as a replacement for scheduled observation-window anchors
+- verbose `softwareEvidenceDiagnostics detail(...)` with `detail_type=softwareTradeLifecycle` when lifecycle transitions or seller snapshots are captured, plus `detail_type=softwareVirtualResolutionProbe` when checking the discussion-`#63` zero-weight virtual fast-path hypothesis; treat both as supplemental artifacts rather than as a replacement for scheduled observation-window anchors
 
 When the raw-log automation prepares a draft, it uses deterministic parsing to
 extract these anchors and bound excerpt candidates, then uses LLM drafting for
@@ -112,6 +112,7 @@ Mixed-cause interpretations are allowed and should be recorded explicitly rather
 - if `softwareNeed(selected=true)` appears together with `softwareAcquisitionState(...)`, classify it from the logged acquisition fields rather than from missing buyer/trip/path counters alone
 - `selected_resolved_virtual_no_tracking_expected` is a normal fast-path candidate for zero-weight software unless other fields contradict it
 - `selected_no_resource_buyer`, `selected_resource_buyer_no_path`, and `selected_resolved_no_tracking_unexpected` are the primary anomaly candidates in current builds
+- use `detail_type=softwareVirtualResolutionProbe` when the active question is whether a `selected_no_resource_buyer` sample is actually a quickly resolved zero-weight virtual trade rather than a pre-buyer stall
 - do not treat missing `TripNeeded`, `CurrentTrading`, or `path_pending` by themselves as proof of a stall before checking `virtualGood` and `tripTrackingExpected`
 - widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
 - if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption rather than hand-waving it away
@@ -236,7 +237,7 @@ Comparability guidance:
 - comparison entry: a matched evidence entry or later bounded window on the same save lineage where the software-consumer anomaly was sampled again
 - required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)`; keep `detail_type=softwareTradeLifecycle` when transition or seller-snapshot evidence is needed
 - variable under test: whether zero-software consumers are failing before buyer creation, during a transient buyer/path lifecycle, or after a path resolves without visible trade state
-- primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`; use `detail_type=softwareTradeLifecycle` as supplemental evidence when seller snapshots or path-transition chronology matter
+- primary fields / counters: `diagnostic_counters.softwareConsumerBuyerState(...)` plus relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`; use `detail_type=softwareTradeLifecycle` as supplemental evidence when seller snapshots or path-transition chronology matter, and `detail_type=softwareVirtualResolutionProbe` when the question is whether zero-weight virtual resolution left only indirect evidence
 - interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is whether selected software consumers are stuck before request creation or are taking a zero-weight virtual-resource fast path
 - invalid comparison cases: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to tell same-sample buyer state from a transient trace
 
