@@ -25,6 +25,7 @@ namespace NoOfficeDemandFix
         public const string OnMarketOfficePropertiesDetailType = "onMarketOfficeProperties";
         public const string SoftwareOfficeStatesDetailType = "softwareOfficeStates";
         public const string SoftwareTradeLifecycleDetailType = "softwareTradeLifecycle";
+        public const string SoftwareVirtualResolutionProbeDetailType = "softwareVirtualResolutionProbe";
 
         public static string FormatObservationWindow(
             string sessionId,

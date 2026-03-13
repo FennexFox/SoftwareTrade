@@ -177,6 +177,7 @@ namespace NoOfficeDemandFix.Systems
             public string OnMarketOfficePropertyDetails;
             public string SoftwareOfficeDetails;
             public string SoftwareTradeLifecycleDetails;
+            public string SoftwareVirtualResolutionProbeDetails;
         }
 
         private struct SoftwareNeedState
@@ -245,10 +246,35 @@ namespace NoOfficeDemandFix.Systems
             public string LastTransitionFromLabel;
             public int LastTransitionDay;
             public int LastTransitionSampleIndex;
+            public int LastObservedSoftwareStock;
+            public bool HasObservedSoftwareStock;
+            public int PreviousSoftwareStock;
+            public bool HasPreviousSoftwareStock;
+            public Entity LastObservedLastTradePartner;
+            public bool HasObservedLastTradePartner;
+            public Entity PreviousLastTradePartner;
+            public bool HasPreviousLastTradePartnerObservation;
             public Entity LastPathDestination;
             public bool HasLastPathDestination;
             public int LastPathDestinationSoftwareStock;
             public bool HasLastPathDestinationSoftwareStock;
+        }
+
+        private struct SoftwareVirtualResolutionProbeState
+        {
+            public bool Eligible;
+            public int CurrentSoftwareStock;
+            public int PreviousSoftwareStock;
+            public bool HasPreviousSoftwareStock;
+            public Entity CurrentLastTradePartner;
+            public bool HasCurrentLastTradePartnerObservation;
+            public Entity PreviousLastTradePartner;
+            public bool HasPreviousLastTradePartnerObservation;
+            public bool StockIncreasedSincePreviousSample;
+            public bool LastTradePartnerChanged;
+            public bool PreviousPathSellerSeen;
+            public Entity PreviousPathSeller;
+            public bool EvidenceResolvedVirtual;
         }
 
         private struct SoftwareConsumerDiagnosticState
@@ -257,6 +283,7 @@ namespace NoOfficeDemandFix.Systems
             public SoftwareTradeCostState TradeCost;
             public SoftwareAcquisitionState Acquisition;
             public SoftwareConsumerTraceState Trace;
+            public SoftwareVirtualResolutionProbeState Probe;
         }
 
         private SimulationSystem m_SimulationSystem;
@@ -504,6 +531,18 @@ namespace NoOfficeDemandFix.Systems
                         snapshot.SoftwareTradeLifecycleDetails));
             }
 
+            if (!string.IsNullOrEmpty(snapshot.SoftwareVirtualResolutionProbeDetails))
+            {
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.SoftwareVirtualResolutionProbeDetailType,
+                        snapshot.SoftwareVirtualResolutionProbeDetails));
+            }
+
             m_RunObservationCount = sampleCount;
             m_LastObservedSampleIndex = snapshot.SampleIndex;
         }
@@ -688,6 +727,8 @@ namespace NoOfficeDemandFix.Systems
             int detailCount = 0;
             StringBuilder lifecycleDetails = new StringBuilder();
             int lifecycleDetailCount = 0;
+            StringBuilder virtualResolutionProbeDetails = new StringBuilder();
+            int virtualResolutionProbeDetailCount = 0;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
             {
@@ -877,6 +918,18 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
+                if (verboseLogging && isConsumer && ShouldCaptureVirtualResolutionProbe(softwareConsumerState))
+                {
+                    AppendDetail(
+                        virtualResolutionProbeDetails,
+                        ref virtualResolutionProbeDetailCount,
+                        DescribeSoftwareVirtualResolutionProbe(
+                            company,
+                            prefabRef.m_Prefab,
+                            propertyRenter.m_Property,
+                            softwareConsumerState));
+                }
+
                 if (verboseLogging && isProducer && (efficiencyZero || lackResourcesZero))
                 {
                     AppendDetail(
@@ -895,6 +948,7 @@ namespace NoOfficeDemandFix.Systems
 
             snapshot.SoftwareOfficeDetails = details.ToString();
             snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails.ToString();
+            snapshot.SoftwareVirtualResolutionProbeDetails = virtualResolutionProbeDetails.ToString();
         }
 
         private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources, SoftwareConsumerDiagnosticState softwareConsumerState)
@@ -970,6 +1024,16 @@ namespace NoOfficeDemandFix.Systems
                    string.Equals(classification, kTraceSelectedResolvedNoTrackingUnexpected, StringComparison.Ordinal);
         }
 
+        private static bool ShouldCaptureVirtualResolutionProbe(SoftwareConsumerDiagnosticState state)
+        {
+            return state.Need.Selected &&
+                   state.Acquisition.VirtualGood &&
+                   !state.Acquisition.ResourceBuyerPresent &&
+                   !state.Acquisition.PathPending &&
+                   state.Acquisition.TripNeededCount == 0 &&
+                   state.Acquisition.CurrentTradingCount == 0;
+        }
+
         private string DescribeConsumerTradeLifecycle(
             Entity company,
             Entity companyPrefab,
@@ -1043,9 +1107,51 @@ namespace NoOfficeDemandFix.Systems
             return builder.ToString();
         }
 
+        private string DescribeSoftwareVirtualResolutionProbe(
+            Entity company,
+            Entity companyPrefab,
+            Entity property,
+            SoftwareConsumerDiagnosticState softwareConsumerState)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("role=consumer");
+            builder.Append(", company=").Append(FormatEntity(company));
+            builder.Append(", prefab=").Append(GetPrefabLabel(companyPrefab));
+            builder.Append(", property=").Append(FormatEntity(property));
+            builder.Append(", capture=virtual_resolution_probe");
+            builder.Append(", currentClassification=").Append(string.IsNullOrEmpty(softwareConsumerState.Trace.CurrentClassification) ? kTraceNeedNotSelected : softwareConsumerState.Trace.CurrentClassification);
+            builder.Append(", virtualGood=").Append(softwareConsumerState.Acquisition.VirtualGood);
+            builder.Append(", resourceWeight=").Append(softwareConsumerState.Acquisition.ResourceWeight.ToString("0.###", CultureInfo.InvariantCulture));
+            builder.Append(", currentSoftwareStock=").Append(softwareConsumerState.Probe.CurrentSoftwareStock);
+            builder.Append(", previousSoftwareStock=");
+            builder.Append(softwareConsumerState.Probe.HasPreviousSoftwareStock ? softwareConsumerState.Probe.PreviousSoftwareStock.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", stockIncreasedSincePreviousSample=").Append(softwareConsumerState.Probe.StockIncreasedSincePreviousSample);
+            builder.Append(", currentLastTradePartner=");
+            AppendObservedEntityValue(builder, softwareConsumerState.Probe.HasCurrentLastTradePartnerObservation, softwareConsumerState.Probe.CurrentLastTradePartner);
+            builder.Append(", previousLastTradePartner=");
+            AppendObservedEntityValue(builder, softwareConsumerState.Probe.HasPreviousLastTradePartnerObservation, softwareConsumerState.Probe.PreviousLastTradePartner);
+            builder.Append(", lastTradePartnerChanged=").Append(softwareConsumerState.Probe.LastTradePartnerChanged);
+            builder.Append(", previousPathSellerSeen=").Append(softwareConsumerState.Probe.PreviousPathSellerSeen);
+            builder.Append(", previousPathSeller=");
+            builder.Append(softwareConsumerState.Probe.PreviousPathSellerSeen && softwareConsumerState.Probe.PreviousPathSeller != Entity.Null ? FormatEntity(softwareConsumerState.Probe.PreviousPathSeller) : "none");
+            builder.Append(", evidenceResolvedVirtual=").Append(softwareConsumerState.Probe.EvidenceResolvedVirtual);
+            return builder.ToString();
+        }
+
         private static void AppendMetricValue(StringBuilder builder, bool hasMetric, float value)
         {
             builder.Append(hasMetric ? value.ToString("0.###", CultureInfo.InvariantCulture) : "n/a");
+        }
+
+        private static void AppendObservedEntityValue(StringBuilder builder, bool hasObservation, Entity entity)
+        {
+            if (!hasObservation)
+            {
+                builder.Append("n/a");
+                return;
+            }
+
+            builder.Append(entity == Entity.Null ? "none" : FormatEntity(entity));
         }
 
         private static string GetSoftwareOfficeRoleLabel(bool isProducer, bool isConsumer)
@@ -1415,14 +1521,51 @@ namespace NoOfficeDemandFix.Systems
             SoftwareNeedState needState = GetSoftwareNeedState(company, companyPrefab, processData);
             TryGetCompanyTradeCost(company, Resource.Software, out SoftwareTradeCostState tradeCostState);
             SoftwareAcquisitionState acquisitionState = GetSoftwareAcquisitionState(company);
-            SoftwareConsumerTraceState traceState = UpdateSoftwareConsumerTrace(company, needState, acquisitionState, day, sampleIndex);
+            bool hasCurrentLastTradePartnerObservation = TryGetObservedLastTradePartner(company, out Entity currentLastTradePartner);
+            SoftwareConsumerTraceState traceState = UpdateSoftwareConsumerTrace(company, needState, acquisitionState, day, sampleIndex, currentLastTradePartner, hasCurrentLastTradePartnerObservation);
+            SoftwareVirtualResolutionProbeState probeState = GetSoftwareVirtualResolutionProbeState(needState, acquisitionState, traceState, currentLastTradePartner, hasCurrentLastTradePartnerObservation);
             return new SoftwareConsumerDiagnosticState
             {
                 Need = needState,
                 TradeCost = tradeCostState,
                 Acquisition = acquisitionState,
-                Trace = traceState
+                Trace = traceState,
+                Probe = probeState
             };
+        }
+
+        private static SoftwareVirtualResolutionProbeState GetSoftwareVirtualResolutionProbeState(
+            SoftwareNeedState needState,
+            SoftwareAcquisitionState acquisitionState,
+            SoftwareConsumerTraceState traceState,
+            Entity currentLastTradePartner,
+            bool hasCurrentLastTradePartnerObservation)
+        {
+            SoftwareVirtualResolutionProbeState state = default;
+            state.Eligible = needState.Selected &&
+                             acquisitionState.VirtualGood &&
+                             !acquisitionState.ResourceBuyerPresent &&
+                             !acquisitionState.PathPending &&
+                             acquisitionState.TripNeededCount == 0 &&
+                             acquisitionState.CurrentTradingCount == 0;
+            state.CurrentSoftwareStock = needState.Stock;
+            state.PreviousSoftwareStock = traceState.PreviousSoftwareStock;
+            state.HasPreviousSoftwareStock = traceState.HasPreviousSoftwareStock;
+            state.StockIncreasedSincePreviousSample = traceState.HasPreviousSoftwareStock &&
+                                                     needState.Stock > traceState.PreviousSoftwareStock;
+            state.CurrentLastTradePartner = currentLastTradePartner;
+            state.HasCurrentLastTradePartnerObservation = hasCurrentLastTradePartnerObservation;
+            state.PreviousLastTradePartner = traceState.PreviousLastTradePartner;
+            state.HasPreviousLastTradePartnerObservation = traceState.HasPreviousLastTradePartnerObservation;
+            state.LastTradePartnerChanged = traceState.HasPreviousLastTradePartnerObservation &&
+                                           hasCurrentLastTradePartnerObservation &&
+                                           currentLastTradePartner != traceState.PreviousLastTradePartner;
+            state.PreviousPathSellerSeen = traceState.HasLastPathDestination && traceState.LastPathDestination != Entity.Null;
+            state.PreviousPathSeller = traceState.LastPathDestination;
+            state.EvidenceResolvedVirtual = state.LastTradePartnerChanged ||
+                                            state.StockIncreasedSincePreviousSample ||
+                                            state.PreviousPathSellerSeen;
+            return state;
         }
 
         private SoftwareNeedState GetSoftwareNeedState(Entity company, Entity companyPrefab, IndustrialProcessData processData)
@@ -1526,9 +1669,29 @@ namespace NoOfficeDemandFix.Systems
             return state;
         }
 
-        private SoftwareConsumerTraceState UpdateSoftwareConsumerTrace(Entity company, SoftwareNeedState needState, SoftwareAcquisitionState acquisitionState, int day, int sampleIndex)
+        private SoftwareConsumerTraceState UpdateSoftwareConsumerTrace(Entity company, SoftwareNeedState needState, SoftwareAcquisitionState acquisitionState, int day, int sampleIndex, Entity currentLastTradePartner, bool hasCurrentLastTradePartnerObservation)
         {
             m_SoftwareConsumerTrace.TryGetValue(company, out SoftwareConsumerTraceState traceState);
+            if (traceState.HasObservedSoftwareStock)
+            {
+                traceState.PreviousSoftwareStock = traceState.LastObservedSoftwareStock;
+                traceState.HasPreviousSoftwareStock = true;
+            }
+
+            traceState.LastObservedSoftwareStock = needState.Stock;
+            traceState.HasObservedSoftwareStock = true;
+            if (hasCurrentLastTradePartnerObservation)
+            {
+                if (traceState.HasObservedLastTradePartner)
+                {
+                    traceState.PreviousLastTradePartner = traceState.LastObservedLastTradePartner;
+                    traceState.HasPreviousLastTradePartnerObservation = true;
+                }
+
+                traceState.LastObservedLastTradePartner = currentLastTradePartner;
+                traceState.HasObservedLastTradePartner = true;
+            }
+
             if (acquisitionState.PathComponentPresent && acquisitionState.PathDestination != Entity.Null)
             {
                 traceState.LastPathDestination = acquisitionState.PathDestination;
@@ -1693,6 +1856,16 @@ namespace NoOfficeDemandFix.Systems
 
         private bool TryGetLastTradePartner(Entity company, out Entity lastTradePartner)
         {
+            if (!TryGetObservedLastTradePartner(company, out lastTradePartner))
+            {
+                return false;
+            }
+
+            return lastTradePartner != Entity.Null;
+        }
+
+        private bool TryGetObservedLastTradePartner(Entity company, out Entity lastTradePartner)
+        {
             lastTradePartner = Entity.Null;
             if (!EntityManager.HasComponent<BuyingCompany>(company))
             {
@@ -1700,7 +1873,7 @@ namespace NoOfficeDemandFix.Systems
             }
 
             lastTradePartner = EntityManager.GetComponentData<BuyingCompany>(company).m_LastTradePartner;
-            return lastTradePartner != Entity.Null;
+            return true;
         }
 
         private bool TryGetOutsideConnectionType(Entity entity, out OutsideConnectionTransferType outsideConnectionType)
