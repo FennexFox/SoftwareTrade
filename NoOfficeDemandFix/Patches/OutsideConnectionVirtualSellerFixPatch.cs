@@ -3,6 +3,7 @@ using Game.Buildings;
 using Game.Common;
 using Game.Companies;
 using Game.Economy;
+using Game.Objects;
 using Game.Pathfind;
 using Game.Prefabs;
 using Game.Routes;
@@ -17,28 +18,21 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using BuildingComponent = Game.Buildings.Building;
-using CargoTransportStationComponent = Game.Buildings.CargoTransportStation;
 using DeliveryTruckComponent = Game.Vehicles.DeliveryTruck;
 using OutsideConnectionComponent = Game.Objects.OutsideConnection;
-using TripNeeded = Game.Citizens.TripNeeded;
 
 namespace NoOfficeDemandFix.Patches
 {
     [HarmonyPatch(typeof(ResourcePathfindSetup), nameof(ResourcePathfindSetup.SetupResourceSeller), new[] { typeof(PathfindSetupSystem), typeof(PathfindSetupSystem.SetupData), typeof(JobHandle) })]
     public static class OutsideConnectionVirtualSellerFixPatch
     {
-        private static readonly EntityQueryDesc s_ResourceSellerQueryDesc = new EntityQueryDesc
+        private static readonly EntityQueryDesc s_OutsideConnectionSellerQueryDesc = new EntityQueryDesc
         {
-            All = new ComponentType[2]
+            All = new ComponentType[3]
             {
                 ComponentType.ReadOnly<PrefabRef>(),
-                ComponentType.ReadOnly<Game.Economy.Resources>()
-            },
-            Any = new ComponentType[3]
-            {
-                ComponentType.ReadOnly<Game.Companies.StorageCompany>(),
-                ComponentType.ReadOnly<CargoTransportStationComponent>(),
-                ComponentType.ReadOnly<ResourceSeller>()
+                ComponentType.ReadOnly<Game.Economy.Resources>(),
+                ComponentType.ReadOnly<OutsideConnectionComponent>()
             },
             None = new ComponentType[6]
             {
@@ -53,56 +47,45 @@ namespace NoOfficeDemandFix.Patches
 
         private static bool s_RuntimeFailureLogged;
 
-        public static bool Prefix(
+        // Append only the missing outside-connection candidates so vanilla seller setup remains authoritative.
+        public static void Postfix(
             PathfindSetupSystem system,
             PathfindSetupSystem.SetupData setupData,
-            JobHandle inputDeps,
             ref JobHandle __result)
         {
             if (Mod.Settings == null || !Mod.Settings.EnableOutsideConnectionVirtualSellerFix)
             {
-                return true;
+                return;
             }
 
             try
             {
-                __result = SchedulePatchedSellerSetup(system, setupData, inputDeps);
-                return false;
+                __result = ScheduleAdditionalOutsideConnectionTargets(system, setupData, __result);
             }
             catch (Exception ex)
             {
                 if (!s_RuntimeFailureLogged)
                 {
-                    Mod.log.Error($"Outside-connection virtual seller fix failed at runtime. Falling back to vanilla behavior. {ex}");
+                    Mod.log.Error($"Outside-connection virtual seller fix failed while appending additional outside-connection targets. Keeping vanilla seller setup only. {ex}");
                     s_RuntimeFailureLogged = true;
                 }
-
-                return true;
             }
         }
 
-        private static JobHandle SchedulePatchedSellerSetup(
+        private static JobHandle ScheduleAdditionalOutsideConnectionTargets(
             PathfindSetupSystem system,
             PathfindSetupSystem.SetupData setupData,
             JobHandle inputDeps)
         {
-            EntityQuery query = system.GetSetupQuery(s_ResourceSellerQueryDesc);
-            JobHandle jobHandle = new SetupResourceSellerJob
+            EntityQuery query = system.GetSetupQuery(s_OutsideConnectionSellerQueryDesc);
+            JobHandle jobHandle = new AppendOutsideConnectionOfficeImportTargetsJob
             {
                 m_EntityType = system.GetEntityTypeHandle(),
+                m_PrefabType = system.GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
+                m_ResourceType = system.GetBufferTypeHandle<Game.Economy.Resources>(isReadOnly: true),
                 m_OwnedVehicles = system.GetBufferTypeHandle<OwnedVehicle>(isReadOnly: true),
-                m_IndustrialProcessDatas = system.GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
-                m_ServiceAvailables = system.GetComponentLookup<ServiceAvailable>(isReadOnly: true),
                 m_StorageCompanyDatas = system.GetComponentLookup<StorageCompanyData>(isReadOnly: true),
-                m_PropertyRenters = system.GetComponentLookup<PropertyRenter>(isReadOnly: true),
-                m_Resources = system.GetBufferLookup<Game.Economy.Resources>(isReadOnly: true),
                 m_TradeCosts = system.GetBufferLookup<TradeCost>(isReadOnly: true),
-                m_OutsideConnections = system.GetComponentLookup<OutsideConnectionComponent>(isReadOnly: true),
-                m_CargoTransportStations = system.GetComponentLookup<CargoTransportStationComponent>(isReadOnly: true),
-                m_StorageTransferRequestType = system.GetBufferTypeHandle<StorageTransferRequest>(isReadOnly: true),
-                m_TransportCompanyDatas = system.GetComponentLookup<TransportCompanyData>(isReadOnly: true),
-                m_TripNeededType = system.GetBufferTypeHandle<TripNeeded>(isReadOnly: true),
-                m_Prefabs = system.GetComponentLookup<PrefabRef>(isReadOnly: true),
                 m_Buildings = system.GetComponentLookup<BuildingComponent>(isReadOnly: true),
                 m_DeliveryTrucks = system.GetComponentLookup<DeliveryTruckComponent>(isReadOnly: true),
                 m_GuestVehicleBufs = system.GetBufferLookup<GuestVehicle>(isReadOnly: true),
@@ -116,49 +99,25 @@ namespace NoOfficeDemandFix.Patches
         }
 
         [BurstCompile]
-        private struct SetupResourceSellerJob : IJobChunk
+        private struct AppendOutsideConnectionOfficeImportTargetsJob : IJobChunk
         {
             [ReadOnly]
             public EntityTypeHandle m_EntityType;
 
             [ReadOnly]
+            public ComponentTypeHandle<PrefabRef> m_PrefabType;
+
+            [ReadOnly]
+            public BufferTypeHandle<Game.Economy.Resources> m_ResourceType;
+
+            [ReadOnly]
             public BufferTypeHandle<OwnedVehicle> m_OwnedVehicles;
-
-            [ReadOnly]
-            public ComponentLookup<IndustrialProcessData> m_IndustrialProcessDatas;
-
-            [ReadOnly]
-            public ComponentLookup<ServiceAvailable> m_ServiceAvailables;
 
             [ReadOnly]
             public ComponentLookup<StorageCompanyData> m_StorageCompanyDatas;
 
             [ReadOnly]
-            public ComponentLookup<PropertyRenter> m_PropertyRenters;
-
-            [ReadOnly]
-            public BufferLookup<Game.Economy.Resources> m_Resources;
-
-            [ReadOnly]
             public BufferLookup<TradeCost> m_TradeCosts;
-
-            [ReadOnly]
-            public ComponentLookup<OutsideConnectionComponent> m_OutsideConnections;
-
-            [ReadOnly]
-            public ComponentLookup<CargoTransportStationComponent> m_CargoTransportStations;
-
-            [ReadOnly]
-            public BufferTypeHandle<StorageTransferRequest> m_StorageTransferRequestType;
-
-            [ReadOnly]
-            public ComponentLookup<TransportCompanyData> m_TransportCompanyDatas;
-
-            [ReadOnly]
-            public BufferTypeHandle<TripNeeded> m_TripNeededType;
-
-            [ReadOnly]
-            public ComponentLookup<PrefabRef> m_Prefabs;
 
             [ReadOnly]
             public ComponentLookup<BuildingComponent> m_Buildings;
@@ -180,8 +139,8 @@ namespace NoOfficeDemandFix.Patches
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
                 NativeArray<Entity> entities = chunk.GetNativeArray(m_EntityType);
-                BufferAccessor<StorageTransferRequest> storageTransferRequests = chunk.GetBufferAccessor(ref m_StorageTransferRequestType);
-                BufferAccessor<TripNeeded> tripNeededs = chunk.GetBufferAccessor(ref m_TripNeededType);
+                NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref m_PrefabType);
+                BufferAccessor<Game.Economy.Resources> resources = chunk.GetBufferAccessor(ref m_ResourceType);
                 BufferAccessor<OwnedVehicle> ownedVehicles = chunk.GetBufferAccessor(ref m_OwnedVehicles);
                 Unity.Mathematics.Random random = m_RandomSeed.GetRandom(unfilteredChunkIndex);
 
@@ -191,6 +150,11 @@ namespace NoOfficeDemandFix.Patches
                     Resource resource = targetSeeker.m_SetupQueueTarget.m_Resource;
                     int requestedAmount = targetSeeker.m_SetupQueueTarget.m_Value;
                     SetupTargetFlags targetFlags = targetSeeker.m_SetupQueueTarget.m_Flags;
+
+                    if (!EconomyUtils.IsOfficeResource(resource) || (targetFlags & SetupTargetFlags.Import) == SetupTargetFlags.None)
+                    {
+                        continue;
+                    }
 
                     if ((targetFlags & SetupTargetFlags.RequireTransport) != SetupTargetFlags.None && ownedVehicles.Length == 0)
                     {
@@ -205,96 +169,38 @@ namespace NoOfficeDemandFix.Patches
                             continue;
                         }
 
-                        Entity prefab = m_Prefabs[sellerEntity].m_Prefab;
-                        int transferRequestCount = storageTransferRequests.Length > 0 ? storageTransferRequests[entityIndex].Length : 0;
-                        bool isOutsideConnection = m_OutsideConnections.HasComponent(sellerEntity);
-                        bool isCargoTransportStation = m_CargoTransportStations.HasComponent(sellerEntity);
-                        bool isStorageCompany = m_StorageCompanyDatas.HasComponent(prefab) && !isCargoTransportStation && !isOutsideConnection;
-                        bool isCommercialService = m_ServiceAvailables.HasComponent(sellerEntity);
-                        bool isIndustrialProducer = m_IndustrialProcessDatas.HasComponent(prefab) && !isCommercialService && !isStorageCompany;
-                        bool isOfficeResource = EconomyUtils.IsOfficeResource(resource);
+                        Entity prefab = prefabs[entityIndex].m_Prefab;
                         bool isBuildingUpkeep = (targetFlags & SetupTargetFlags.BuildingUpkeep) != 0;
 
-                        if ((m_Buildings.HasComponent(sellerEntity) && BuildingUtils.CheckOption(m_Buildings[sellerEntity], BuildingOption.Inactive)) ||
-                            ((isCommercialService || isIndustrialProducer) && (!m_PropertyRenters.HasComponent(sellerEntity) || m_PropertyRenters[sellerEntity].m_Property == Entity.Null)))
+                        if (m_Buildings.HasComponent(sellerEntity) && BuildingUtils.CheckOption(m_Buildings[sellerEntity], BuildingOption.Inactive))
                         {
                             continue;
                         }
 
-                        bool eligible = false;
-                        if (isOfficeResource && isIndustrialProducer && (m_IndustrialProcessDatas[prefab].m_Output.m_Resource & resource) != Resource.NoResource)
+                        if (!m_StorageCompanyDatas.HasComponent(prefab))
                         {
-                            eligible = true;
-                        }
-                        else if ((targetFlags & SetupTargetFlags.Commercial) != 0 && isCommercialService && (m_IndustrialProcessDatas[prefab].m_Output.m_Resource & resource) != Resource.NoResource)
-                        {
-                            eligible = true;
-                        }
-                        else if ((targetFlags & SetupTargetFlags.Industrial) != 0 && isIndustrialProducer && (m_IndustrialProcessDatas[prefab].m_Output.m_Resource & resource) != Resource.NoResource)
-                        {
-                            eligible = true;
-                        }
-                        else if ((targetFlags & SetupTargetFlags.Import) != SetupTargetFlags.None &&
-                                 (isOutsideConnection || isCargoTransportStation || isStorageCompany) &&
-                                 AllowsImportSeller(prefab, resource, isOfficeResource, isOutsideConnection))
-                        {
-                            eligible = true;
+                            continue;
                         }
 
-                        if (!eligible || (!isOutsideConnection && isBuildingUpkeep && tripNeededs.Length > 0 && tripNeededs[entityIndex].Length > 0))
+                        StorageCompanyData storageCompanyData = m_StorageCompanyDatas[prefab];
+                        if ((storageCompanyData.m_StoredResources & resource) != Resource.NoResource)
                         {
                             continue;
                         }
 
                         int allBuyingResourcesTrucks = VehicleUtils.GetAllBuyingResourcesTrucks(sellerEntity, resource, ref m_DeliveryTrucks, ref m_GuestVehicleBufs, ref m_LayoutElementBufs);
-                        int availableAmount = EconomyUtils.GetResources(resource, m_Resources[sellerEntity]) - allBuyingResourcesTrucks;
-                        if (availableAmount <= 0 || (!isOutsideConnection && availableAmount < requestedAmount / 2))
+                        int availableAmount = EconomyUtils.GetResources(resource, resources[entityIndex]) - allBuyingResourcesTrucks;
+                        if (availableAmount <= 0)
                         {
                             continue;
                         }
 
-                        float penalty = 0f;
-                        if (m_ServiceAvailables.HasComponent(sellerEntity))
+                        float fillRatio = math.min(1f, availableAmount * 1f / math.max(1, requestedAmount));
+                        float penalty = 100f * (1f - fillRatio);
+                        penalty += ResourcePathfindSetup.kOutsideConnectionAmountBasedPenalty * requestedAmount;
+                        if (isBuildingUpkeep)
                         {
-                            penalty -= math.min(availableAmount, m_ServiceAvailables[sellerEntity].m_ServiceAvailable) * 100f;
-                        }
-                        else
-                        {
-                            float fillRatio = math.min(1f, availableAmount * 1f / requestedAmount);
-                            penalty += 100f * (1f - fillRatio);
-                            if (isCargoTransportStation)
-                            {
-                                if ((targetFlags & SetupTargetFlags.RequireTransport) != SetupTargetFlags.None)
-                                {
-                                    if (!m_TransportCompanyDatas.HasComponent(prefab))
-                                    {
-                                        continue;
-                                    }
-
-                                    TransportCompanyData transportCompanyData = m_TransportCompanyDatas[prefab];
-                                    if (ownedVehicles[entityIndex].Length >= transportCompanyData.m_MaxTransports)
-                                    {
-                                        continue;
-                                    }
-                                }
-
-                                if (tripNeededs.Length > 0 && tripNeededs[entityIndex].Length >= ResourcePathfindSetup.kCargoStationMaxTripNeededQueue)
-                                {
-                                    continue;
-                                }
-
-                                penalty += ResourcePathfindSetup.kCargoStationAmountBasedPenalty * requestedAmount;
-                                penalty += ResourcePathfindSetup.kCargoStationPerRequestPenalty * transferRequestCount;
-                            }
-
-                            if (isOutsideConnection)
-                            {
-                                penalty += ResourcePathfindSetup.kOutsideConnectionAmountBasedPenalty * requestedAmount;
-                                if (isBuildingUpkeep)
-                                {
-                                    penalty += random.NextInt(300);
-                                }
-                            }
+                            penalty += random.NextInt(300);
                         }
 
                         if (m_TradeCosts.HasBuffer(sellerEntity))
@@ -306,17 +212,6 @@ namespace NoOfficeDemandFix.Patches
                         targetSeeker.FindTargets(sellerEntity, penalty * 100f);
                     }
                 }
-            }
-
-            private bool AllowsImportSeller(Entity prefab, Resource resource, bool isOfficeResource, bool isOutsideConnection)
-            {
-                if (isOfficeResource && isOutsideConnection)
-                {
-                    return m_StorageCompanyDatas.HasComponent(prefab);
-                }
-
-                return m_StorageCompanyDatas.HasComponent(prefab) &&
-                       (m_StorageCompanyDatas[prefab].m_StoredResources & resource) != Resource.NoResource;
             }
         }
     }
