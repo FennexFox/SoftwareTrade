@@ -6,6 +6,7 @@ using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
 using HarmonyLib;
+using NoOfficeDemandFix.Patches;
 using NoOfficeDemandFix.Systems;
 
 namespace NoOfficeDemandFix
@@ -72,6 +73,8 @@ namespace NoOfficeDemandFix
                 m_Harmony.UnpatchAll(m_Harmony.Id);
                 m_Harmony = null;
             }
+
+            OutsideConnectionVirtualSellerFixPatch.LogProbeSummary();
 
             if (m_Setting != null)
             {

@@ -15,6 +15,7 @@ namespace NoOfficeDemandFix
         public const string DiagnosticsObservationPrefix = "softwareEvidenceDiagnostics observation_window(";
         public const string DiagnosticsDetailPrefix = "softwareEvidenceDiagnostics detail(";
         public const string PhantomVacancyCorrectionPrefix = "Signature phantom vacancy guard corrected";
+        public const string TradePatchProbePrefix = "outsideConnectionVirtualSellerProbe ";
         public const string ScheduledObservationKind = "scheduled";
         public const string RuntimeTimeSystemClockSource = "runtime_time_system";
         public const string DisplayedClockSource = "displayed_clock";
@@ -74,6 +75,13 @@ namespace NoOfficeDemandFix
             return
                 $"{PhantomVacancyCorrectionPrefix} {propertyType} property {propertyEntity} " +
                 $"prefab={prefabLabel} removed=[{string.Join(", ", removedComponents)}]";
+        }
+
+        public static string FormatTradePatchProbe(
+            string eventType,
+            string values)
+        {
+            return $"{TradePatchProbePrefix}{eventType}({values})";
         }
     }
 }
