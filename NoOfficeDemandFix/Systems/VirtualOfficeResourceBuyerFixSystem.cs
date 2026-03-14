@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using Colossal.Serialization.Entities;
 using CitizenTripNeeded = Game.Citizens.TripNeeded;
 using Game;
@@ -24,9 +26,20 @@ namespace NoOfficeDemandFix.Systems
     {
         private const int kResourceLowStockAmount = 4000;
         private const int kResourceMinimumRequestAmount = 2000;
+        private const int kMaxProbeSampleLogs = 3;
 
         private ResourceSystem m_ResourceSystem;
         private EntityQuery m_OfficeCompanyQuery;
+
+        private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
+        private readonly HashSet<string> m_ProbeDistinctCompanies = new();
+        private readonly List<BuyerOverrideSample> m_ProbeTopSamples = new();
+
+        private int m_ProbeTotalOverrideCount;
+        private int m_ProbeClampedMinimumOverrideCount;
+        private int m_ProbeAboveMinimumOverrideCount;
+        private int m_ProbeMaxOverrideAmount;
+        private int m_ProbeMaxShortfall;
 
         [Preserve]
         protected override void OnCreate()
@@ -51,6 +64,7 @@ namespace NoOfficeDemandFix.Systems
         {
             if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
             {
+                ResetProbeState();
                 return;
             }
 
@@ -66,7 +80,7 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 EntityManager.AddComponentData(company, buyerOverride.ResourceBuyer);
-                MaybeLogProbe(company, buyerOverride);
+                AccumulateProbe(company, buyerOverride);
             }
         }
 
@@ -314,26 +328,231 @@ namespace NoOfficeDemandFix.Systems
                    EntityManager.GetComponentData<ResourceData>(resourcePrefab).m_Weight > 0f;
         }
 
-        private static void MaybeLogProbe(Entity company, BuyerOverride buyerOverride)
+        private void AccumulateProbe(Entity company, BuyerOverride buyerOverride)
         {
-            if (Mod.Settings == null || !Mod.Settings.EnableDemandDiagnostics || !Mod.Settings.VerboseLogging)
+            if (Mod.Settings == null)
+            {
+                ResetProbeState();
+                return;
+            }
+
+            if (!Mod.Settings.EnableDemandDiagnostics)
             {
                 return;
             }
 
-            if (buyerOverride.ResourceBuyer.m_AmountNeeded <= kResourceMinimumRequestAmount)
+            int overrideAmount = buyerOverride.ResourceBuyer.m_AmountNeeded;
+            int shortfall = math.max(0, buyerOverride.Threshold - buyerOverride.EffectiveStock);
+            string companyKey = FormatEntity(company);
+
+            m_ProbeTotalOverrideCount++;
+            m_ProbeDistinctCompanies.Add(companyKey);
+
+            if (overrideAmount <= kResourceMinimumRequestAmount)
+            {
+                m_ProbeClampedMinimumOverrideCount++;
+            }
+            else
+            {
+                m_ProbeAboveMinimumOverrideCount++;
+            }
+
+            m_ProbeMaxOverrideAmount = math.max(m_ProbeMaxOverrideAmount, overrideAmount);
+            m_ProbeMaxShortfall = math.max(m_ProbeMaxShortfall, shortfall);
+
+            if (!m_ProbeResourceAggregates.TryGetValue(buyerOverride.Resource, out ResourceOverrideAggregate aggregate))
+            {
+                aggregate = new ResourceOverrideAggregate();
+            }
+
+            aggregate.Count++;
+            aggregate.TotalOverrideAmount += overrideAmount;
+            aggregate.MaxOverrideAmount = math.max(aggregate.MaxOverrideAmount, overrideAmount);
+            aggregate.MaxShortfall = math.max(aggregate.MaxShortfall, shortfall);
+            m_ProbeResourceAggregates[buyerOverride.Resource] = aggregate;
+
+            if (!Mod.Settings.VerboseLogging)
             {
                 return;
             }
 
-            Mod.log.Info(MachineParsedLogContract.FormatVirtualOfficeBuyerFixProbe(
-                "override",
-                $"company={FormatEntity(company)}, resource={buyerOverride.Resource}, original_amount={kResourceMinimumRequestAmount}, override_amount={buyerOverride.ResourceBuyer.m_AmountNeeded}, stock={buyerOverride.Stock}, buying_load={buyerOverride.BuyingLoad}, trip_needed_amount={buyerOverride.TripNeededAmount}, effective_stock={buyerOverride.EffectiveStock}, threshold={buyerOverride.Threshold}"));
+            TryCaptureTopSample(new BuyerOverrideSample(
+                companyKey,
+                buyerOverride.Resource,
+                buyerOverride.Stock,
+                buyerOverride.BuyingLoad,
+                buyerOverride.TripNeededAmount,
+                buyerOverride.EffectiveStock,
+                buyerOverride.Threshold,
+                overrideAmount,
+                shortfall));
+        }
+
+        public void EmitProbeSummaryForObservation(int sampleDay, int sampleIndex, int sampleSlot)
+        {
+            if (Mod.Settings == null || !Mod.Settings.EnableDemandDiagnostics || m_ProbeTotalOverrideCount <= 0)
+            {
+                ResetProbeState();
+                return;
+            }
+
+            Mod.log.Info(
+                MachineParsedLogContract.FormatVirtualOfficeBuyerFixProbe(
+                    "summary",
+                    $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, total_overrides={m_ProbeTotalOverrideCount}, distinct_companies={m_ProbeDistinctCompanies.Count}, clamped_minimum={m_ProbeClampedMinimumOverrideCount}, above_minimum={m_ProbeAboveMinimumOverrideCount}, max_override_amount={m_ProbeMaxOverrideAmount}, max_shortfall={m_ProbeMaxShortfall}, resources=[{FormatResourceSummary()}], sampled_overrides={m_ProbeTopSamples.Count}"));
+
+            if (Mod.Settings.VerboseLogging)
+            {
+                for (int i = 0; i < m_ProbeTopSamples.Count; i++)
+                {
+                    BuyerOverrideSample sample = m_ProbeTopSamples[i];
+                    Mod.log.Info(
+                        MachineParsedLogContract.FormatVirtualOfficeBuyerFixProbe(
+                            "sample",
+                            $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, rank={i + 1}, company={sample.Company}, resource={sample.Resource}, override_amount={sample.OverrideAmount}, shortfall={sample.Shortfall}, stock={sample.Stock}, buying_load={sample.BuyingLoad}, trip_needed_amount={sample.TripNeededAmount}, effective_stock={sample.EffectiveStock}, threshold={sample.Threshold}"));
+                }
+            }
+
+            ResetProbeState();
+        }
+
+        public void ResetProbeState()
+        {
+            m_ProbeResourceAggregates.Clear();
+            m_ProbeDistinctCompanies.Clear();
+            m_ProbeTopSamples.Clear();
+            m_ProbeTotalOverrideCount = 0;
+            m_ProbeClampedMinimumOverrideCount = 0;
+            m_ProbeAboveMinimumOverrideCount = 0;
+            m_ProbeMaxOverrideAmount = 0;
+            m_ProbeMaxShortfall = 0;
+        }
+
+        private void TryCaptureTopSample(BuyerOverrideSample sample)
+        {
+            for (int i = 0; i < m_ProbeTopSamples.Count; i++)
+            {
+                BuyerOverrideSample existing = m_ProbeTopSamples[i];
+                if (existing.Company == sample.Company && existing.Resource == sample.Resource)
+                {
+                    if (sample.OverrideAmount > existing.OverrideAmount ||
+                        (sample.OverrideAmount == existing.OverrideAmount && sample.Shortfall > existing.Shortfall))
+                    {
+                        m_ProbeTopSamples[i] = sample;
+                    }
+
+                    SortTopSamplesDescending();
+                    TrimTopSamples();
+                    return;
+                }
+            }
+
+            m_ProbeTopSamples.Add(sample);
+            SortTopSamplesDescending();
+            TrimTopSamples();
+        }
+
+        private void SortTopSamplesDescending()
+        {
+            m_ProbeTopSamples.Sort((left, right) =>
+            {
+                int overrideComparison = right.OverrideAmount.CompareTo(left.OverrideAmount);
+                if (overrideComparison != 0)
+                {
+                    return overrideComparison;
+                }
+
+                return right.Shortfall.CompareTo(left.Shortfall);
+            });
+        }
+
+        private void TrimTopSamples()
+        {
+            if (m_ProbeTopSamples.Count <= kMaxProbeSampleLogs)
+            {
+                return;
+            }
+
+            m_ProbeTopSamples.RemoveRange(kMaxProbeSampleLogs, m_ProbeTopSamples.Count - kMaxProbeSampleLogs);
+        }
+
+        private string FormatResourceSummary()
+        {
+            if (m_ProbeResourceAggregates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            List<KeyValuePair<Resource, ResourceOverrideAggregate>> entries =
+                new List<KeyValuePair<Resource, ResourceOverrideAggregate>>(m_ProbeResourceAggregates);
+            entries.Sort((left, right) => left.Key.CompareTo(right.Key));
+
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append("; ");
+                }
+
+                KeyValuePair<Resource, ResourceOverrideAggregate> entry = entries[i];
+                builder.Append(entry.Key)
+                    .Append("{count=").Append(entry.Value.Count)
+                    .Append(", total_override=").Append(entry.Value.TotalOverrideAmount)
+                    .Append(", max_override=").Append(entry.Value.MaxOverrideAmount)
+                    .Append(", max_shortfall=").Append(entry.Value.MaxShortfall)
+                    .Append('}');
+            }
+
+            return builder.ToString();
         }
 
         private static string FormatEntity(Entity entity)
         {
             return entity.Index.ToString(CultureInfo.InvariantCulture) + ":" + entity.Version.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private sealed class ResourceOverrideAggregate
+        {
+            public int Count;
+            public int TotalOverrideAmount;
+            public int MaxOverrideAmount;
+            public int MaxShortfall;
+        }
+
+        private readonly struct BuyerOverrideSample
+        {
+            public BuyerOverrideSample(
+                string company,
+                Resource resource,
+                int stock,
+                int buyingLoad,
+                int tripNeededAmount,
+                int effectiveStock,
+                int threshold,
+                int overrideAmount,
+                int shortfall)
+            {
+                Company = company;
+                Resource = resource;
+                Stock = stock;
+                BuyingLoad = buyingLoad;
+                TripNeededAmount = tripNeededAmount;
+                EffectiveStock = effectiveStock;
+                Threshold = threshold;
+                OverrideAmount = overrideAmount;
+                Shortfall = shortfall;
+            }
+
+            public string Company { get; }
+            public Resource Resource { get; }
+            public int Stock { get; }
+            public int BuyingLoad { get; }
+            public int TripNeededAmount { get; }
+            public int EffectiveStock { get; }
+            public int Threshold { get; }
+            public int OverrideAmount { get; }
+            public int Shortfall { get; }
         }
 
         private readonly struct BuyerOverride

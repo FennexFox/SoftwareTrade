@@ -409,6 +409,7 @@ namespace NoOfficeDemandFix.Systems
                 m_LastPatchState = string.Empty;
                 m_DisplayedClockDay = int.MinValue;
                 m_LastComputedSampleSlot = int.MinValue;
+                ResetVirtualOfficeBuyerProbeState();
                 return;
             }
 
@@ -560,6 +561,8 @@ namespace NoOfficeDemandFix.Systems
                         MachineParsedLogContract.SoftwareBuyerTimingProbeDetailType,
                         snapshot.SoftwareBuyerTimingProbeDetails));
             }
+
+            EmitVirtualOfficeBuyerProbeSummary(snapshot);
 
             m_RunObservationCount = sampleCount;
             m_LastObservedSampleIndex = snapshot.SampleIndex;
@@ -2219,6 +2222,28 @@ namespace NoOfficeDemandFix.Systems
             return false;
         }
 
+        private void EmitVirtualOfficeBuyerProbeSummary(DiagnosticSnapshot snapshot)
+        {
+            VirtualOfficeResourceBuyerFixSystem buyerFixSystem = World.GetExistingSystemManaged<VirtualOfficeResourceBuyerFixSystem>();
+            if (buyerFixSystem == null)
+            {
+                return;
+            }
+
+            buyerFixSystem.EmitProbeSummaryForObservation(snapshot.Day, snapshot.SampleIndex, snapshot.SampleSlot);
+        }
+
+        private void ResetVirtualOfficeBuyerProbeState()
+        {
+            VirtualOfficeResourceBuyerFixSystem buyerFixSystem = World.GetExistingSystemManaged<VirtualOfficeResourceBuyerFixSystem>();
+            if (buyerFixSystem == null)
+            {
+                return;
+            }
+
+            buyerFixSystem.ResetProbeState();
+        }
+
         private void ResetEvidenceSession()
         {
             m_SessionId = CreateSessionId();
@@ -2235,6 +2260,7 @@ namespace NoOfficeDemandFix.Systems
             m_LastSettingsSnapshot = string.Empty;
             m_LastPatchState = string.Empty;
             m_SoftwareConsumerTrace.Clear();
+            ResetVirtualOfficeBuyerProbeState();
         }
 
         private static string CreateSessionId()
@@ -2251,6 +2277,7 @@ namespace NoOfficeDemandFix.Systems
             m_LastObservedSampleIndex = int.MinValue;
             m_DisplayedClockDay = int.MinValue;
             m_LastComputedSampleSlot = int.MinValue;
+            ResetVirtualOfficeBuyerProbeState();
             m_LastSettingsState = settingsState;
             m_LastSettingsSnapshot = FormatSettingsSnapshot(settingsState);
             m_LastPatchState = patchState;
