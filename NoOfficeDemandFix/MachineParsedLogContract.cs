@@ -26,6 +26,7 @@ namespace NoOfficeDemandFix
         public const string SoftwareTradeLifecycleDetailType = "softwareTradeLifecycle";
         public const string SoftwareVirtualResolutionProbeDetailType = "softwareVirtualResolutionProbe";
         public const string SoftwareBuyerTimingProbeDetailType = "softwareBuyerTimingProbe";
+        public const string VirtualOfficeBuyerFixProbePrefix = "virtualOfficeBuyerFixProbe ";
 
         public static string FormatObservationWindow(
             string sessionId,
@@ -83,6 +84,13 @@ namespace NoOfficeDemandFix
             string values)
         {
             return $"{TradePatchProbePrefix}{eventType}({values})";
+        }
+
+        public static string FormatVirtualOfficeBuyerFixProbe(
+            string eventType,
+            string values)
+        {
+            return $"{VirtualOfficeBuyerFixProbePrefix}{eventType}({values})";
         }
     }
 }
