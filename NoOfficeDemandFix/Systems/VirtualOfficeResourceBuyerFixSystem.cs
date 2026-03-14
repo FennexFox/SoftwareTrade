@@ -321,6 +321,11 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
+            if (buyerOverride.ResourceBuyer.m_AmountNeeded <= kResourceMinimumRequestAmount)
+            {
+                return;
+            }
+
             Mod.log.Info(MachineParsedLogContract.FormatVirtualOfficeBuyerFixProbe(
                 "override",
                 $"company={FormatEntity(company)}, resource={buyerOverride.Resource}, original_amount={kResourceMinimumRequestAmount}, override_amount={buyerOverride.ResourceBuyer.m_AmountNeeded}, stock={buyerOverride.Stock}, buying_load={buyerOverride.BuyingLoad}, trip_needed_amount={buyerOverride.TripNeededAmount}, effective_stock={buyerOverride.EffectiveStock}, threshold={buyerOverride.Threshold}"));
