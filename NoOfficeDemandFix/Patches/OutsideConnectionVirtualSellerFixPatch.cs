@@ -26,29 +26,14 @@ namespace NoOfficeDemandFix.Patches
     [HarmonyPatch(typeof(ResourcePathfindSetup), nameof(ResourcePathfindSetup.SetupResourceSeller), new[] { typeof(PathfindSetupSystem), typeof(PathfindSetupSystem.SetupData), typeof(JobHandle) })]
     public static class OutsideConnectionVirtualSellerFixPatch
     {
-        private static readonly EntityQueryDesc s_OutsideConnectionSellerQueryDesc = new EntityQueryDesc
-        {
-            All = new ComponentType[3]
-            {
-                ComponentType.ReadOnly<PrefabRef>(),
-                ComponentType.ReadOnly<Game.Economy.Resources>(),
-                ComponentType.ReadOnly<OutsideConnectionComponent>()
-            },
-            None = new ComponentType[6]
-            {
-                ComponentType.ReadOnly<ShipStop>(),
-                ComponentType.ReadOnly<AirplaneStop>(),
-                ComponentType.ReadOnly<TrainStop>(),
-                ComponentType.ReadOnly<Deleted>(),
-                ComponentType.ReadOnly<Destroyed>(),
-                ComponentType.ReadOnly<Temp>()
-            }
-        };
+        private static readonly AccessTools.StructFieldRef<ResourcePathfindSetup, EntityQuery> s_ResourceSellerQueryRef =
+            AccessTools.StructFieldRefAccess<ResourcePathfindSetup, EntityQuery>("m_ResourceSellerQuery");
 
         private static bool s_RuntimeFailureLogged;
 
         // Append only the missing outside-connection candidates so vanilla seller setup remains authoritative.
         public static void Postfix(
+            ref ResourcePathfindSetup __instance,
             PathfindSetupSystem system,
             PathfindSetupSystem.SetupData setupData,
             ref JobHandle __result)
@@ -60,7 +45,7 @@ namespace NoOfficeDemandFix.Patches
 
             try
             {
-                __result = ScheduleAdditionalOutsideConnectionTargets(system, setupData, __result);
+                __result = ScheduleAdditionalOutsideConnectionTargets(ref __instance, system, setupData, __result);
             }
             catch (Exception ex)
             {
@@ -73,17 +58,19 @@ namespace NoOfficeDemandFix.Patches
         }
 
         private static JobHandle ScheduleAdditionalOutsideConnectionTargets(
+            ref ResourcePathfindSetup __instance,
             PathfindSetupSystem system,
             PathfindSetupSystem.SetupData setupData,
             JobHandle inputDeps)
         {
-            EntityQuery query = system.GetSetupQuery(s_OutsideConnectionSellerQueryDesc);
+            EntityQuery query = s_ResourceSellerQueryRef(ref __instance);
             JobHandle jobHandle = new AppendOutsideConnectionOfficeImportTargetsJob
             {
                 m_EntityType = system.GetEntityTypeHandle(),
                 m_PrefabType = system.GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
                 m_ResourceType = system.GetBufferTypeHandle<Game.Economy.Resources>(isReadOnly: true),
                 m_OwnedVehicles = system.GetBufferTypeHandle<OwnedVehicle>(isReadOnly: true),
+                m_OutsideConnections = system.GetComponentLookup<OutsideConnectionComponent>(isReadOnly: true),
                 m_StorageCompanyDatas = system.GetComponentLookup<StorageCompanyData>(isReadOnly: true),
                 m_TradeCosts = system.GetBufferLookup<TradeCost>(isReadOnly: true),
                 m_Buildings = system.GetComponentLookup<BuildingComponent>(isReadOnly: true),
@@ -112,6 +99,9 @@ namespace NoOfficeDemandFix.Patches
 
             [ReadOnly]
             public BufferTypeHandle<OwnedVehicle> m_OwnedVehicles;
+
+            [ReadOnly]
+            public ComponentLookup<OutsideConnectionComponent> m_OutsideConnections;
 
             [ReadOnly]
             public ComponentLookup<StorageCompanyData> m_StorageCompanyDatas;
@@ -171,6 +161,11 @@ namespace NoOfficeDemandFix.Patches
 
                         Entity prefab = prefabs[entityIndex].m_Prefab;
                         bool isBuildingUpkeep = (targetFlags & SetupTargetFlags.BuildingUpkeep) != 0;
+
+                        if (!m_OutsideConnections.HasComponent(sellerEntity))
+                        {
+                            continue;
+                        }
 
                         if (m_Buildings.HasComponent(sellerEntity) && BuildingUtils.CheckOption(m_Buildings[sellerEntity], BuildingOption.Inactive))
                         {
