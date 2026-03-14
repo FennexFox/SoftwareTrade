@@ -23,6 +23,12 @@ namespace NoOfficeDemandFix
         [SettingsUISection(kSection, kGeneralGroup)]
         public bool EnablePhantomVacancyFix { get; set; } = true;
 
+        [SettingsUISection(kSection, kGeneralGroup)]
+        public bool EnableOutsideConnectionVirtualSellerFix { get; set; }
+
+        [SettingsUISection(kSection, kGeneralGroup)]
+        public bool EnableVirtualOfficeResourceBuyerFix { get; set; }
+
         [SettingsUISection(kSection, kDiagnosticsGroup)]
         public bool EnableDemandDiagnostics { get; set; }
 
@@ -39,6 +45,8 @@ namespace NoOfficeDemandFix
         public override void SetDefaults()
         {
             EnablePhantomVacancyFix = true;
+            EnableOutsideConnectionVirtualSellerFix = false;
+            EnableVirtualOfficeResourceBuyerFix = false;
             EnableDemandDiagnostics = false;
             DiagnosticsSamplesPerDay = 2;
             CaptureStableEvidence = false;
@@ -67,6 +75,12 @@ namespace NoOfficeDemandFix
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Enable phantom vacancy fix" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Applies immediately to future simulation ticks by removing PropertyOnMarket and PropertyToBeOnMarket from occupied signature office and industrial properties before demand and property search evaluate them. Disabling it stops future corrections but does not restore already cleaned-up market state." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableOutsideConnectionVirtualSellerFix)), "Enable outside-connection virtual seller fix" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableOutsideConnectionVirtualSellerFix)), "Experimental outside-connection virtual seller correction. Takes effect on the next game launch by allowing office virtual-resource imports to target outside connections even when their storage prefab does not advertise that resource. It does not modify cargo or storage definitions and is intended for virtual office-resource investigation and fix validation." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Enable virtual office buyer cadence fix" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Experimental virtual office-resource buyer correction. Applies a post-vanilla top-up for zero-weight office inputs when a company is below the vanilla low-stock threshold but no ResourceBuyer, path, trip, or current trading state exists yet. Intended for software-track investigation and fix validation." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Live-applies and logs office demand factors, free office properties, phantom vacancy counters, and software producer/consumer office state. Leave it off by default unless you are actively collecting software-track evidence." },

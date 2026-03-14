@@ -15,6 +15,7 @@ namespace NoOfficeDemandFix
         public const string DiagnosticsObservationPrefix = "softwareEvidenceDiagnostics observation_window(";
         public const string DiagnosticsDetailPrefix = "softwareEvidenceDiagnostics detail(";
         public const string PhantomVacancyCorrectionPrefix = "Signature phantom vacancy guard corrected";
+        public const string TradePatchProbePrefix = "outsideConnectionVirtualSellerProbe ";
         public const string ScheduledObservationKind = "scheduled";
         public const string RuntimeTimeSystemClockSource = "runtime_time_system";
         public const string DisplayedClockSource = "displayed_clock";
@@ -24,6 +25,8 @@ namespace NoOfficeDemandFix
         public const string SoftwareOfficeStatesDetailType = "softwareOfficeStates";
         public const string SoftwareTradeLifecycleDetailType = "softwareTradeLifecycle";
         public const string SoftwareVirtualResolutionProbeDetailType = "softwareVirtualResolutionProbe";
+        public const string SoftwareBuyerTimingProbeDetailType = "softwareBuyerTimingProbe";
+        public const string VirtualOfficeBuyerFixProbePrefix = "virtualOfficeBuyerFixProbe ";
 
         public static string FormatObservationWindow(
             string sessionId,
@@ -74,6 +77,20 @@ namespace NoOfficeDemandFix
             return
                 $"{PhantomVacancyCorrectionPrefix} {propertyType} property {propertyEntity} " +
                 $"prefab={prefabLabel} removed=[{string.Join(", ", removedComponents)}]";
+        }
+
+        public static string FormatTradePatchProbe(
+            string eventType,
+            string values)
+        {
+            return $"{TradePatchProbePrefix}{eventType}({values})";
+        }
+
+        public static string FormatVirtualOfficeBuyerFixProbe(
+            string eventType,
+            string values)
+        {
+            return $"{VirtualOfficeBuyerFixProbePrefix}{eventType}({values})";
         }
     }
 }

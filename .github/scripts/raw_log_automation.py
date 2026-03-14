@@ -1722,6 +1722,9 @@ def build_deterministic_confounders(
             f"legacy setting recorded in capture: EnableTradePatch={settings.get('EnableTradePatch')}"
         )
 
+    if settings.get("EnableOutsideConnectionVirtualSellerFix") is True:
+        confounder_lines.append("outside-connection virtual seller fix enabled during capture")
+
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
 

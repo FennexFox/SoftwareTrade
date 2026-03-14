@@ -55,6 +55,7 @@ body:
       description: Link the `Software evidence` issues already collected or the bounded runs and raw-log intakes that still need promotion.
       placeholder: |
         - baseline evidence: #21
+        - outside-connection virtual seller comparison: collect one off/on comparison for EnableOutsideConnectionVirtualSellerFix on the same save lineage
         - second acquisition-state run: collect on the same save lineage and keep any historical EnableTradePatch value as legacy context only if it appears in older logs
         - reload check: collect before/after reload on same save lineage
         - upstream-vs-downstream split: preserve electronics counters, softwareProducerOffices/softwareConsumerOffices, and software-office detail on the next matched run

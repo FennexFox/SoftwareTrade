@@ -450,6 +450,21 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("legacy setting recorded in capture: EnableTradePatch=False", draft["confounders"])
         self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
 
+    def test_build_deterministic_confounders_marks_outside_connection_virtual_seller_fix(self) -> None:
+        confounders = automation.build_deterministic_confounders(
+            issue_fields={},
+            latest_observation={
+                "settings": {
+                    "EnableOutsideConnectionVirtualSellerFix": True,
+                    "CaptureStableEvidence": True,
+                },
+                "patch_state": "release-build",
+                "observation_window": {"clock_source": "runtime_time_system"},
+            },
+            parsed_log={"observation_count": 2},
+        )
+        self.assertIn("outside-connection virtual seller fix enabled during capture", confounders)
+
     def test_build_deterministic_summary_prefers_buyer_state_pressure(self) -> None:
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
         final_observation = parsed_log["final_observation"] or parsed_log["latest_observation"]
