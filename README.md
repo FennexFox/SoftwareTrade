@@ -34,6 +34,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | --- | --- | --- |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
 | `EnableOutsideConnectionVirtualSellerFix` | `false` | Enables the narrow experimental outside-connection virtual seller correction for office virtual-resource imports. It only affects outside-connection seller selection, does not change cargo/storage definitions, and is meant for targeted validation rather than broad end-user use. |
+| `EnableVirtualOfficeResourceBuyerFix` | `false` | Enables an experimental corrective pass for zero-weight office inputs such as `Software` when a company is below the vanilla low-stock threshold but still has no buyer/path/trip/trading state. It is intended for targeted validation of the remaining software-track stall after seller eligibility is fixed. |
 | `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples are taken per displayed in-game day while diagnostics are enabled. Higher values produce denser logs for comparison and troubleshooting. |
 | `CaptureStableEvidence` | `false` | Keeps bounded scheduled `softwareEvidenceDiagnostics observation_window(...)` lines flowing at the configured per-day cadence while diagnostics are enabled, even when the city looks stable. Use it only for baseline or no-symptom evidence collection. |
@@ -43,6 +44,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 
 - `Signature` phantom-vacancy fix: [SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
 - outside-connection virtual seller patch: [OutsideConnectionVirtualSellerFixPatch.cs](./NoOfficeDemandFix/Patches/OutsideConnectionVirtualSellerFixPatch.cs)
+- virtual office buyer cadence fix: [VirtualOfficeResourceBuyerFixSystem.cs](./NoOfficeDemandFix/Systems/VirtualOfficeResourceBuyerFixSystem.cs)
 - diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
 
 ## Current Position
