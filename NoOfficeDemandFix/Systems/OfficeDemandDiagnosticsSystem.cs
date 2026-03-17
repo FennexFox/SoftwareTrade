@@ -35,6 +35,7 @@ namespace NoOfficeDemandFix.Systems
         private const int kDiagnosticsDisabledPollInterval = 8;
         private const float kNotificationCostLimit = 5f;
         private const int kResourceLowStockAmount = 4000;
+        private const int kResourceMinimumRequestAmount = 2000;
         private const string kTraceNeedNotSelected = "need_not_selected";
         private const string kTraceSelectedNoResourceBuyer = "selected_no_resource_buyer";
         private const string kTraceSelectedResourceBuyerNoPath = "selected_resource_buyer_no_path";
@@ -177,6 +178,14 @@ namespace NoOfficeDemandFix.Systems
             public int SoftwareConsumerResolvedNoTrackingUnexpected;
             public int SoftwareConsumerTripPresent;
             public int SoftwareConsumerCurrentTradingPresent;
+            public int SoftwareConsumerSelectedNoBuyerShortGap;
+            public int SoftwareConsumerSelectedNoBuyerPersistent;
+            public int SoftwareConsumerSelectedRequestNoPathShortGap;
+            public int SoftwareConsumerSelectedRequestNoPathPersistent;
+            public int SoftwareConsumerVirtualResolvedThisWindow;
+            public int SoftwareConsumerVirtualResolvedAmount;
+            public int SoftwareConsumerCorrectiveBuyerPresent;
+            public int SoftwareConsumerVanillaBuyerPresent;
             public string TopFactors;
             public string FreeSoftwareOfficePropertyDetails;
             public string OnMarketOfficePropertyDetails;
@@ -225,6 +234,8 @@ namespace NoOfficeDemandFix.Systems
             public float ResourceWeight;
             public bool VirtualGood;
             public bool TripTrackingExpected;
+            public bool CurrentTradingExpected;
+            public bool PathExpected;
             public bool PathComponentPresent;
             public bool PathPending;
             public PathFlags PathState;
@@ -243,6 +254,19 @@ namespace NoOfficeDemandFix.Systems
             public int OtherTripAmount;
             public int CurrentTradingCount;
             public int CurrentTradingAmount;
+            public bool CorrectiveBuyerTagged;
+            public string BuyerOrigin;
+            public bool BuyerSeenThisWindow;
+            public int LastBuyerSeenSampleAge;
+            public string NoBuyerReason;
+            public int SelectedNoBuyerConsecutiveWindows;
+            public int SelectedRequestNoPathConsecutiveWindows;
+            public int BelowThresholdConsecutiveWindows;
+            public string PathStage;
+            public int LastPathSeenSampleAge;
+            public bool VirtualResolvedThisWindow;
+            public int VirtualResolvedAmount;
+            public int LastVirtualResolutionSampleAge;
         }
 
         private struct SoftwareConsumerTraceState
@@ -264,6 +288,15 @@ namespace NoOfficeDemandFix.Systems
             public bool HasLastPathDestination;
             public int LastPathDestinationSoftwareStock;
             public bool HasLastPathDestinationSoftwareStock;
+            public int LastBuyerSeenSampleIndex;
+            public bool HasLastBuyerSeenSampleIndex;
+            public int LastPathSeenSampleIndex;
+            public bool HasLastPathSeenSampleIndex;
+            public int LastVirtualResolutionSampleIndex;
+            public bool HasLastVirtualResolutionSampleIndex;
+            public int SelectedNoBuyerConsecutiveWindows;
+            public int SelectedRequestNoPathConsecutiveWindows;
+            public int BelowThresholdConsecutiveWindows;
         }
 
         private struct SoftwareVirtualResolutionProbeState
@@ -831,6 +864,20 @@ namespace NoOfficeDemandFix.Systems
                     if (softwareConsumerState.Acquisition.ResourceBuyerPresent)
                     {
                         snapshot.SoftwareConsumerResourceBuyerPresent++;
+                        if (string.Equals(softwareConsumerState.Acquisition.BuyerOrigin, "corrective", StringComparison.Ordinal))
+                        {
+                            snapshot.SoftwareConsumerCorrectiveBuyerPresent++;
+                        }
+                        else if (string.Equals(softwareConsumerState.Acquisition.BuyerOrigin, "vanilla", StringComparison.Ordinal))
+                        {
+                            snapshot.SoftwareConsumerVanillaBuyerPresent++;
+                        }
+                    }
+
+                    if (softwareConsumerState.Acquisition.VirtualResolvedThisWindow)
+                    {
+                        snapshot.SoftwareConsumerVirtualResolvedThisWindow++;
+                        snapshot.SoftwareConsumerVirtualResolvedAmount += softwareConsumerState.Acquisition.VirtualResolvedAmount;
                     }
 
                     if (softwareConsumerState.Need.Selected && softwareConsumerState.Acquisition.TripTrackingExpected)
@@ -856,11 +903,27 @@ namespace NoOfficeDemandFix.Systems
                     if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal))
                     {
                         snapshot.SoftwareConsumerSelectedNoResourceBuyer++;
+                        if (softwareConsumerState.Acquisition.SelectedNoBuyerConsecutiveWindows >= 3)
+                        {
+                            snapshot.SoftwareConsumerSelectedNoBuyerPersistent++;
+                        }
+                        else
+                        {
+                            snapshot.SoftwareConsumerSelectedNoBuyerShortGap++;
+                        }
                     }
 
                     if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal))
                     {
                         snapshot.SoftwareConsumerSelectedRequestNoPath++;
+                        if (softwareConsumerState.Acquisition.SelectedRequestNoPathConsecutiveWindows >= 3)
+                        {
+                            snapshot.SoftwareConsumerSelectedRequestNoPathPersistent++;
+                        }
+                        else
+                        {
+                            snapshot.SoftwareConsumerSelectedRequestNoPathShortGap++;
+                        }
                     }
 
                     if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResolvedVirtualNoTrackingExpected, StringComparison.Ordinal))
@@ -1326,7 +1389,19 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(state.ResourceBuyerPresent ? state.ResourceBuyerFlags.ToString() : "none");
             builder.Append(", resourceWeight=").Append(state.ResourceWeight.ToString("0.###", CultureInfo.InvariantCulture));
             builder.Append(", virtualGood=").Append(state.VirtualGood);
+            builder.Append(", deliveryMode=").Append(state.VirtualGood ? "virtual" : "physical");
             builder.Append(", tripTrackingExpected=").Append(state.TripTrackingExpected);
+            builder.Append(", currentTradingExpected=").Append(state.CurrentTradingExpected);
+            builder.Append(", pathExpected=").Append(state.PathExpected);
+            builder.Append(", buyerOrigin=").Append(state.BuyerOrigin ?? "unknown");
+            builder.Append(", buyerSeenThisWindow=").Append(state.BuyerSeenThisWindow);
+            builder.Append(", lastBuyerSeenSampleAge=");
+            builder.Append(state.LastBuyerSeenSampleAge >= 0 ? state.LastBuyerSeenSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", noBuyerReason=").Append(string.IsNullOrEmpty(state.NoBuyerReason) ? "none" : state.NoBuyerReason);
+            builder.Append(", selectedNoBuyerConsecutiveWindows=").Append(state.SelectedNoBuyerConsecutiveWindows);
+            builder.Append(", selectedRequestNoPathConsecutiveWindows=").Append(state.SelectedRequestNoPathConsecutiveWindows);
+            builder.Append(", belowThresholdConsecutiveWindows=").Append(state.BelowThresholdConsecutiveWindows);
+            builder.Append(", pathStage=").Append(string.IsNullOrEmpty(state.PathStage) ? "none" : state.PathStage);
             builder.Append(", pathComponentPresent=").Append(state.PathComponentPresent);
             builder.Append(", pathState=");
             builder.Append(state.PathComponentPresent ? state.PathState.ToString() : "none");
@@ -1346,6 +1421,12 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(", tripCompanyShoppingCount=").Append(state.CompanyShoppingTripCount);
             builder.Append(", currentTradingCount=").Append(state.CurrentTradingCount);
             builder.Append(", currentTradingAmount=").Append(state.CurrentTradingAmount);
+            builder.Append(", virtualResolvedThisWindow=").Append(state.VirtualResolvedThisWindow);
+            builder.Append(", virtualResolvedAmount=").Append(state.VirtualResolvedAmount);
+            builder.Append(", lastVirtualResolutionSampleAge=");
+            builder.Append(state.LastVirtualResolutionSampleAge >= 0 ? state.LastVirtualResolutionSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastPathSeenSampleAge=");
+            builder.Append(state.LastPathSeenSampleAge >= 0 ? state.LastPathSeenSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
             builder.Append(')');
         }
 
@@ -1621,6 +1702,8 @@ namespace NoOfficeDemandFix.Systems
             bool hasCurrentLastTradePartnerObservation = TryGetObservedLastTradePartner(company, out Entity currentLastTradePartner);
             SoftwareConsumerTraceState traceState = UpdateSoftwareConsumerTrace(company, needState, acquisitionState, day, sampleIndex, currentLastTradePartner, hasCurrentLastTradePartnerObservation);
             SoftwareVirtualResolutionProbeState probeState = GetSoftwareVirtualResolutionProbeState(needState, acquisitionState, traceState, currentLastTradePartner, hasCurrentLastTradePartnerObservation);
+            traceState = UpdateVirtualResolutionTrace(company, acquisitionState, probeState, traceState, sampleIndex);
+            EnrichSoftwareAcquisitionState(company, needState, ref acquisitionState, traceState, probeState, sampleIndex);
             return new SoftwareConsumerDiagnosticState
             {
                 Need = needState,
@@ -1734,6 +1817,9 @@ namespace NoOfficeDemandFix.Systems
             state.ResourceWeight = GetResourceWeight(Resource.Software);
             state.VirtualGood = state.ResourceWeight <= 0f;
             state.TripTrackingExpected = !state.VirtualGood;
+            state.CurrentTradingExpected = !state.VirtualGood;
+            state.PathExpected = true;
+            state.CorrectiveBuyerTagged = EntityManager.HasComponent<CorrectiveSoftwareBuyerTag>(company);
             if (TryGetResourceBuyer(company, Resource.Software, out ResourceBuyer buyer))
             {
                 state.ResourceBuyerPresent = true;
@@ -1789,6 +1875,18 @@ namespace NoOfficeDemandFix.Systems
                 traceState.HasObservedLastTradePartner = true;
             }
 
+            if (acquisitionState.ResourceBuyerPresent)
+            {
+                traceState.LastBuyerSeenSampleIndex = sampleIndex;
+                traceState.HasLastBuyerSeenSampleIndex = true;
+            }
+
+            if (acquisitionState.PathComponentPresent)
+            {
+                traceState.LastPathSeenSampleIndex = sampleIndex;
+                traceState.HasLastPathSeenSampleIndex = true;
+            }
+
             if (acquisitionState.PathComponentPresent && acquisitionState.PathDestination != Entity.Null)
             {
                 traceState.LastPathDestination = acquisitionState.PathDestination;
@@ -1805,6 +1903,13 @@ namespace NoOfficeDemandFix.Systems
             }
 
             string currentClassification = ClassifySoftwareConsumerState(needState, acquisitionState, traceState);
+            traceState.BelowThresholdConsecutiveWindows = needState.Selected ? traceState.BelowThresholdConsecutiveWindows + 1 : 0;
+            traceState.SelectedNoBuyerConsecutiveWindows = string.Equals(currentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal)
+                ? traceState.SelectedNoBuyerConsecutiveWindows + 1
+                : 0;
+            traceState.SelectedRequestNoPathConsecutiveWindows = string.Equals(currentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal)
+                ? traceState.SelectedRequestNoPathConsecutiveWindows + 1
+                : 0;
             if (!string.Equals(traceState.CurrentClassification, currentClassification, StringComparison.Ordinal))
             {
                 traceState.LastTransitionFromLabel = traceState.CurrentClassification;
@@ -1816,6 +1921,101 @@ namespace NoOfficeDemandFix.Systems
             traceState.CurrentClassification = currentClassification;
             m_SoftwareConsumerTrace[company] = traceState;
             return traceState;
+        }
+
+
+        private SoftwareConsumerTraceState UpdateVirtualResolutionTrace(Entity company, SoftwareAcquisitionState acquisitionState, SoftwareVirtualResolutionProbeState probeState, SoftwareConsumerTraceState traceState, int sampleIndex)
+        {
+            if (acquisitionState.VirtualGood && probeState.Eligible && probeState.EvidenceResolvedVirtual)
+            {
+                traceState.LastVirtualResolutionSampleIndex = sampleIndex;
+                traceState.HasLastVirtualResolutionSampleIndex = true;
+                m_SoftwareConsumerTrace[company] = traceState;
+            }
+
+            return traceState;
+        }
+
+        private void EnrichSoftwareAcquisitionState(Entity company, SoftwareNeedState needState, ref SoftwareAcquisitionState state, SoftwareConsumerTraceState traceState, SoftwareVirtualResolutionProbeState probeState, int sampleIndex)
+        {
+            state.BuyerSeenThisWindow = state.ResourceBuyerPresent;
+            state.BuyerOrigin = GetBuyerOriginLabel(state);
+            state.LastBuyerSeenSampleAge = GetSampleAge(traceState.HasLastBuyerSeenSampleIndex, traceState.LastBuyerSeenSampleIndex, sampleIndex);
+            state.SelectedNoBuyerConsecutiveWindows = traceState.SelectedNoBuyerConsecutiveWindows;
+            state.SelectedRequestNoPathConsecutiveWindows = traceState.SelectedRequestNoPathConsecutiveWindows;
+            state.BelowThresholdConsecutiveWindows = traceState.BelowThresholdConsecutiveWindows;
+            state.PathStage = GetPathStageLabel(state);
+            state.LastPathSeenSampleAge = GetSampleAge(traceState.HasLastPathSeenSampleIndex, traceState.LastPathSeenSampleIndex, sampleIndex);
+            state.VirtualResolvedThisWindow = state.VirtualGood && probeState.Eligible && probeState.EvidenceResolvedVirtual;
+            state.VirtualResolvedAmount = state.VirtualResolvedThisWindow && probeState.HasPreviousSoftwareStock
+                ? Math.Max(0, probeState.CurrentSoftwareStock - probeState.PreviousSoftwareStock)
+                : 0;
+            state.LastVirtualResolutionSampleAge = GetSampleAge(traceState.HasLastVirtualResolutionSampleIndex, traceState.LastVirtualResolutionSampleIndex, sampleIndex);
+            state.NoBuyerReason = DetermineNoBuyerReason(needState, state);
+            if (!needState.Selected)
+            {
+                state.PathExpected = false;
+            }
+        }
+
+        private string DetermineNoBuyerReason(SoftwareNeedState needState, SoftwareAcquisitionState state)
+        {
+            if (!needState.Selected || state.ResourceBuyerPresent)
+            {
+                return "none";
+            }
+
+            if (state.VirtualGood && state.LastVirtualResolutionSampleAge >= 0 && state.LastVirtualResolutionSampleAge <= 1)
+            {
+                return "buyer_recently_resolved_virtual";
+            }
+
+            if (state.VirtualGood && Mod.Settings != null && Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
+            {
+                return "awaiting_corrective_pass";
+            }
+
+            return "awaiting_vanilla_tick";
+        }
+
+        private static int GetSampleAge(bool hasValue, int lastSampleIndex, int currentSampleIndex)
+        {
+            return hasValue ? Math.Max(0, currentSampleIndex - lastSampleIndex) : -1;
+        }
+
+        private static string GetBuyerOriginLabel(SoftwareAcquisitionState state)
+        {
+            if (!state.ResourceBuyerPresent)
+            {
+                return "none";
+            }
+
+            if (state.CorrectiveBuyerTagged || (state.VirtualGood && state.ResourceBuyerAmount > kResourceMinimumRequestAmount))
+            {
+                return "corrective";
+            }
+
+            return "vanilla";
+        }
+
+        private static string GetPathStageLabel(SoftwareAcquisitionState state)
+        {
+            if (!state.PathComponentPresent)
+            {
+                return state.ResourceBuyerPresent ? "buyer_only" : "none";
+            }
+
+            if (state.PathPending)
+            {
+                return "pending";
+            }
+
+            if (state.PathDestination != Entity.Null)
+            {
+                return "resolved";
+            }
+
+            return "found";
         }
 
         private static bool HasResolvedPathSignal(SoftwareAcquisitionState acquisitionState, SoftwareConsumerTraceState traceState)
@@ -2192,7 +2392,7 @@ namespace NoOfficeDemandFix.Systems
                 $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
                 $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
                 $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero}); " +
-                $"softwareConsumerBuyerState(needSelected={snapshot.SoftwareConsumerNeedSelected}, resourceBuyerPresent={snapshot.SoftwareConsumerResourceBuyerPresent}, trackingExpectedSelected={snapshot.SoftwareConsumerTrackingExpectedSelected}, selectedNoResourceBuyer={snapshot.SoftwareConsumerSelectedNoResourceBuyer}, selectedRequestNoPath={snapshot.SoftwareConsumerSelectedRequestNoPath}, pathPending={snapshot.SoftwareConsumerPathPending}, resolvedVirtualNoTrackingExpected={snapshot.SoftwareConsumerResolvedVirtualNoTrackingExpected}, resolvedNoTrackingUnexpected={snapshot.SoftwareConsumerResolvedNoTrackingUnexpected}, tripPresent={snapshot.SoftwareConsumerTripPresent}, currentTradingPresent={snapshot.SoftwareConsumerCurrentTradingPresent})";
+                $"softwareConsumerBuyerState(needSelected={snapshot.SoftwareConsumerNeedSelected}, resourceBuyerPresent={snapshot.SoftwareConsumerResourceBuyerPresent}, correctiveBuyerPresent={snapshot.SoftwareConsumerCorrectiveBuyerPresent}, vanillaBuyerPresent={snapshot.SoftwareConsumerVanillaBuyerPresent}, trackingExpectedSelected={snapshot.SoftwareConsumerTrackingExpectedSelected}, selectedNoResourceBuyer={snapshot.SoftwareConsumerSelectedNoResourceBuyer}, selectedNoBuyerShortGap={snapshot.SoftwareConsumerSelectedNoBuyerShortGap}, selectedNoBuyerPersistent={snapshot.SoftwareConsumerSelectedNoBuyerPersistent}, selectedRequestNoPath={snapshot.SoftwareConsumerSelectedRequestNoPath}, selectedRequestNoPathShortGap={snapshot.SoftwareConsumerSelectedRequestNoPathShortGap}, selectedRequestNoPathPersistent={snapshot.SoftwareConsumerSelectedRequestNoPathPersistent}, pathPending={snapshot.SoftwareConsumerPathPending}, resolvedVirtualNoTrackingExpected={snapshot.SoftwareConsumerResolvedVirtualNoTrackingExpected}, resolvedNoTrackingUnexpected={snapshot.SoftwareConsumerResolvedNoTrackingUnexpected}, tripPresent={snapshot.SoftwareConsumerTripPresent}, currentTradingPresent={snapshot.SoftwareConsumerCurrentTradingPresent}, virtualResolvedThisWindow={snapshot.SoftwareConsumerVirtualResolvedThisWindow}, virtualResolvedAmount={snapshot.SoftwareConsumerVirtualResolvedAmount})";
         }
 
         private static bool TryGetObservationTrigger(

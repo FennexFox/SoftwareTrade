@@ -30,6 +30,7 @@ namespace NoOfficeDemandFix.Systems
 
         private ResourceSystem m_ResourceSystem;
         private EntityQuery m_OfficeCompanyQuery;
+        private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
@@ -56,12 +57,19 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<ResourceBuyer>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
+            m_CorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
+                ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
+                ComponentType.Exclude<ResourceBuyer>(),
+                ComponentType.Exclude<Deleted>(),
+                ComponentType.Exclude<Temp>());
             RequireForUpdate(m_OfficeCompanyQuery);
         }
 
         [Preserve]
         protected override void OnUpdate()
         {
+            CleanupCorrectiveBuyerMarkers();
+
             if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
             {
                 ResetProbeState();
@@ -80,7 +88,24 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 EntityManager.AddComponentData(company, buyerOverride.ResourceBuyer);
+                EntityManager.AddComponentData(company, new CorrectiveSoftwareBuyerTag
+                {
+                    LastIssuedAmount = buyerOverride.ResourceBuyer.m_AmountNeeded
+                });
                 AccumulateProbe(company, buyerOverride);
+            }
+        }
+
+        private void CleanupCorrectiveBuyerMarkers()
+        {
+            using NativeArray<Entity> taggedCompanies = m_CorrectiveBuyerMarkerCleanupQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < taggedCompanies.Length; i++)
+            {
+                Entity company = taggedCompanies[i];
+                if (EntityManager.HasComponent<CorrectiveSoftwareBuyerTag>(company))
+                {
+                    EntityManager.RemoveComponent<CorrectiveSoftwareBuyerTag>(company);
+                }
             }
         }
 
