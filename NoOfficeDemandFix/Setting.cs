@@ -24,13 +24,13 @@ namespace NoOfficeDemandFix
         public bool EnablePhantomVacancyFix { get; set; } = true;
 
         [SettingsUISection(kSection, kGeneralGroup)]
-        public bool EnableOutsideConnectionVirtualSellerFix { get; set; }
+        public bool EnableOutsideConnectionVirtualSellerFix { get; set; } = true;
 
         [SettingsUISection(kSection, kGeneralGroup)]
-        public bool EnableVirtualOfficeResourceBuyerFix { get; set; }
+        public bool EnableVirtualOfficeResourceBuyerFix { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
-        public bool EnableDemandDiagnostics { get; set; }
+        public bool EnableDemandDiagnostics { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
         [SettingsUISlider(min = 1, max = 8, step = 1, scalarMultiplier = 1, unit = Unit.kInteger)]
@@ -45,9 +45,9 @@ namespace NoOfficeDemandFix
         public override void SetDefaults()
         {
             EnablePhantomVacancyFix = true;
-            EnableOutsideConnectionVirtualSellerFix = false;
-            EnableVirtualOfficeResourceBuyerFix = false;
-            EnableDemandDiagnostics = false;
+            EnableOutsideConnectionVirtualSellerFix = true;
+            EnableVirtualOfficeResourceBuyerFix = true;
+            EnableDemandDiagnostics = true;
             DiagnosticsSamplesPerDay = 2;
             CaptureStableEvidence = false;
             VerboseLogging = false;
