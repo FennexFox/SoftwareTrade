@@ -313,6 +313,10 @@ namespace NoOfficeDemandFix.Systems
             public bool LastTradePartnerChanged;
             public bool PreviousPathSellerSeen;
             public Entity PreviousPathSeller;
+            public bool CurrentTradePartnerMatchesPreviousPathSeller;
+            public bool NeedClearedAfterSelected;
+            public bool BuyerSeenRecently;
+            public bool PathSeenRecently;
             public bool EvidenceResolvedVirtual;
         }
 
@@ -926,12 +930,13 @@ namespace NoOfficeDemandFix.Systems
                         }
                     }
 
-                    if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResolvedVirtualNoTrackingExpected, StringComparison.Ordinal))
+                    bool resolvedVirtualExpected = string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResolvedVirtualNoTrackingExpected, StringComparison.Ordinal) ||
+                                                 softwareConsumerState.Acquisition.VirtualResolvedThisWindow;
+                    if (resolvedVirtualExpected)
                     {
                         snapshot.SoftwareConsumerResolvedVirtualNoTrackingExpected++;
                     }
-
-                    if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResolvedNoTrackingUnexpected, StringComparison.Ordinal))
+                    else if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResolvedNoTrackingUnexpected, StringComparison.Ordinal))
                     {
                         snapshot.SoftwareConsumerResolvedNoTrackingUnexpected++;
                     }
@@ -1251,6 +1256,10 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(", previousPathSellerSeen=").Append(softwareConsumerState.Probe.PreviousPathSellerSeen);
             builder.Append(", previousPathSeller=");
             builder.Append(softwareConsumerState.Probe.PreviousPathSellerSeen && softwareConsumerState.Probe.PreviousPathSeller != Entity.Null ? FormatEntity(softwareConsumerState.Probe.PreviousPathSeller) : "none");
+            builder.Append(", currentTradePartnerMatchesPreviousPathSeller=").Append(softwareConsumerState.Probe.CurrentTradePartnerMatchesPreviousPathSeller);
+            builder.Append(", needClearedAfterSelected=").Append(softwareConsumerState.Probe.NeedClearedAfterSelected);
+            builder.Append(", buyerSeenRecently=").Append(softwareConsumerState.Probe.BuyerSeenRecently);
+            builder.Append(", pathSeenRecently=").Append(softwareConsumerState.Probe.PathSeenRecently);
             builder.Append(", evidenceResolvedVirtual=").Append(softwareConsumerState.Probe.EvidenceResolvedVirtual);
             return builder.ToString();
         }
@@ -1701,7 +1710,7 @@ namespace NoOfficeDemandFix.Systems
             SoftwareAcquisitionState acquisitionState = GetSoftwareAcquisitionState(company);
             bool hasCurrentLastTradePartnerObservation = TryGetObservedLastTradePartner(company, out Entity currentLastTradePartner);
             SoftwareConsumerTraceState traceState = UpdateSoftwareConsumerTrace(company, needState, acquisitionState, day, sampleIndex, currentLastTradePartner, hasCurrentLastTradePartnerObservation);
-            SoftwareVirtualResolutionProbeState probeState = GetSoftwareVirtualResolutionProbeState(needState, acquisitionState, traceState, currentLastTradePartner, hasCurrentLastTradePartnerObservation);
+            SoftwareVirtualResolutionProbeState probeState = GetSoftwareVirtualResolutionProbeState(needState, acquisitionState, traceState, currentLastTradePartner, hasCurrentLastTradePartnerObservation, sampleIndex);
             traceState = UpdateVirtualResolutionTrace(company, acquisitionState, probeState, traceState, sampleIndex);
             EnrichSoftwareAcquisitionState(company, needState, ref acquisitionState, traceState, probeState, sampleIndex);
             return new SoftwareConsumerDiagnosticState
@@ -1714,20 +1723,32 @@ namespace NoOfficeDemandFix.Systems
             };
         }
 
+        private static bool IsSelectedPipelineClassification(string classification)
+        {
+            return string.Equals(classification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceSelectedPathPending, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceSelectedResolvedVirtualNoTrackingExpected, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceSelectedResolvedNoTrackingUnexpected, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceSelectedTripPresent, StringComparison.Ordinal) ||
+                   string.Equals(classification, kTraceSelectedCurrentTradingPresent, StringComparison.Ordinal);
+        }
+
+        private static bool IsNeedClearedAfterSelected(SoftwareConsumerTraceState traceState)
+        {
+            return string.Equals(traceState.CurrentClassification, kTraceNeedCleared, StringComparison.Ordinal) &&
+                   IsSelectedPipelineClassification(traceState.LastTransitionFromLabel);
+        }
+
         private static SoftwareVirtualResolutionProbeState GetSoftwareVirtualResolutionProbeState(
             SoftwareNeedState needState,
             SoftwareAcquisitionState acquisitionState,
             SoftwareConsumerTraceState traceState,
             Entity currentLastTradePartner,
-            bool hasCurrentLastTradePartnerObservation)
+            bool hasCurrentLastTradePartnerObservation,
+            int sampleIndex)
         {
             SoftwareVirtualResolutionProbeState state = default;
-            state.Eligible = needState.Selected &&
-                             acquisitionState.VirtualGood &&
-                             !acquisitionState.ResourceBuyerPresent &&
-                             !acquisitionState.PathPending &&
-                             acquisitionState.TripNeededCount == 0 &&
-                             acquisitionState.CurrentTradingCount == 0;
             state.CurrentSoftwareStock = needState.Stock;
             state.PreviousSoftwareStock = traceState.PreviousSoftwareStock;
             state.HasPreviousSoftwareStock = traceState.HasPreviousSoftwareStock;
@@ -1742,9 +1763,31 @@ namespace NoOfficeDemandFix.Systems
                                            currentLastTradePartner != traceState.PreviousLastTradePartner;
             state.PreviousPathSellerSeen = traceState.HasLastPathDestination && traceState.LastPathDestination != Entity.Null;
             state.PreviousPathSeller = traceState.LastPathDestination;
-            state.EvidenceResolvedVirtual = state.LastTradePartnerChanged ||
-                                            state.StockIncreasedSincePreviousSample ||
-                                            state.PreviousPathSellerSeen;
+            state.CurrentTradePartnerMatchesPreviousPathSeller = state.PreviousPathSellerSeen &&
+                                                                hasCurrentLastTradePartnerObservation &&
+                                                                currentLastTradePartner == traceState.LastPathDestination;
+            state.NeedClearedAfterSelected = IsNeedClearedAfterSelected(traceState);
+            state.BuyerSeenRecently = traceState.HasLastBuyerSeenSampleIndex && sampleIndex - traceState.LastBuyerSeenSampleIndex <= 1;
+            state.PathSeenRecently = traceState.HasLastPathSeenSampleIndex && sampleIndex - traceState.LastPathSeenSampleIndex <= 1;
+            state.Eligible = acquisitionState.VirtualGood &&
+                             !acquisitionState.ResourceBuyerPresent &&
+                             !acquisitionState.PathPending &&
+                             acquisitionState.TripNeededCount == 0 &&
+                             acquisitionState.CurrentTradingCount == 0 &&
+                             (needState.Selected || state.NeedClearedAfterSelected);
+
+            bool recoveredAboveThreshold = !needState.Selected && needState.EffectiveStock >= needState.Threshold;
+            bool selectedStateEvidence = state.LastTradePartnerChanged ||
+                                         state.StockIncreasedSincePreviousSample ||
+                                         state.CurrentTradePartnerMatchesPreviousPathSeller;
+            bool clearedStateEvidence = state.StockIncreasedSincePreviousSample ||
+                                        state.LastTradePartnerChanged ||
+                                        state.CurrentTradePartnerMatchesPreviousPathSeller ||
+                                        (recoveredAboveThreshold && (state.BuyerSeenRecently || state.PathSeenRecently || state.PreviousPathSellerSeen));
+
+            state.EvidenceResolvedVirtual = state.Eligible &&
+                                            ((needState.Selected && selectedStateEvidence) ||
+                                             (state.NeedClearedAfterSelected && clearedStateEvidence));
             return state;
         }
 
