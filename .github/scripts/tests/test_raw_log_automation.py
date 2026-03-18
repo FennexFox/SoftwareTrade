@@ -450,6 +450,60 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("legacy setting recorded in capture: EnableTradePatch=False", draft["confounders"])
         self.assertIn("no explicit comparison baseline in raw intake", draft["confounders"])
 
+    def test_build_deterministic_confounders_marks_outside_connection_virtual_seller_fix(self) -> None:
+        confounders = automation.build_deterministic_confounders(
+            issue_fields={},
+            latest_observation={
+                "settings": {
+                    "EnableOutsideConnectionVirtualSellerFix": True,
+                    "CaptureStableEvidence": True,
+                },
+                "patch_state": "release-build",
+                "observation_window": {"clock_source": "runtime_time_system"},
+            },
+            parsed_log={"observation_count": 2},
+        )
+        self.assertIn("outside-connection virtual seller fix enabled during capture", confounders)
+
+    def test_build_deterministic_confounders_marks_virtual_office_resource_buyer_fix(self) -> None:
+        confounders = automation.build_deterministic_confounders(
+            issue_fields={},
+            latest_observation={
+                "settings": {
+                    "EnableVirtualOfficeResourceBuyerFix": True,
+                    "CaptureStableEvidence": True,
+                },
+                "patch_state": "release-build",
+                "observation_window": {"clock_source": "runtime_time_system"},
+            },
+            parsed_log={"observation_count": 2},
+        )
+        self.assertIn("virtual office resource buyer fix enabled during capture", confounders)
+
+    def test_compact_office_snapshot_keeps_new_buyer_state_fields(self) -> None:
+        snapshot = automation.compact_office_snapshot(
+            {
+                "diagnostic_counters": {
+                    "softwareConsumerBuyerState": {
+                        "needSelected": 6,
+                        "resourceBuyerPresent": 4,
+                        "correctiveBuyerPresent": 2,
+                        "vanillaBuyerPresent": 2,
+                        "selectedNoBuyerPersistent": 1,
+                        "selectedRequestNoPathShortGap": 3,
+                        "virtualResolvedThisWindow": 2,
+                        "virtualResolvedAmount": 96,
+                    }
+                }
+            }
+        )
+        self.assertIn("correctiveBuyerPresent=2", snapshot)
+        self.assertIn("vanillaBuyerPresent=2", snapshot)
+        self.assertIn("selectedNoBuyerPersistent=1", snapshot)
+        self.assertIn("selectedRequestNoPathShortGap=3", snapshot)
+        self.assertIn("virtualResolvedThisWindow=2", snapshot)
+        self.assertIn("virtualResolvedAmount=96", snapshot)
+
     def test_build_deterministic_summary_prefers_buyer_state_pressure(self) -> None:
         parsed_log = automation.parse_log(CURRENT_BRANCH_LOG)
         final_observation = parsed_log["final_observation"] or parsed_log["latest_observation"]
@@ -496,6 +550,40 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("role=consumer", "\n".join(context["selected_excerpt_candidates"][0]["lines"]))
         self.assertIn("role=producer", "\n".join(context["selected_excerpt_candidates"][1]["lines"]))
 
+    def test_build_summary_refinement_context_keeps_dynamic_buyer_semantic_facts(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(BUYER_STATE_ONLY_LOG)
+        parsed_log["latest_observation"]["diagnostic_counters"]["softwareConsumerBuyerState"] = {
+            "needSelected": 4,
+            "resourceBuyerPresent": 4,
+            "correctiveBuyerPresent": 4,
+            "vanillaBuyerPresent": 0,
+            "selectedNoResourceBuyer": 0,
+            "virtualResolvedThisWindow": 2,
+            "virtualResolvedAmount": 64,
+        }
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": BUYER_STATE_ONLY_LOG},
+            [],
+        )
+        context = automation.build_summary_refinement_context(
+            issue_fields,
+            parsed_log,
+            deterministic,
+            {"title": deterministic["title"], "evidence_summary": deterministic["evidence_summary"]},
+        )
+        self.assertTrue(
+            any("corrective buyer" in fact for fact in context["semantic_facts"]),
+            context["semantic_facts"],
+        )
+        self.assertTrue(
+            any("virtualResolvedThisWindow=2" in fact for fact in context["semantic_facts"]),
+            context["semantic_facts"],
+        )
+
     def test_build_summary_refinement_context_keeps_consumer_excerpt_when_no_producer_exists(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         parsed_log = automation.parse_log(BUYER_STATE_ONLY_LOG)
@@ -541,6 +629,27 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertEqual(context["selected_excerpt_candidate"]["label"], "producer_latest")
         self.assertIn("role=producer", "\n".join(context["selected_excerpt_candidates"][0]["lines"]))
+
+    def test_has_unsupported_notes_interpretation_allows_historical_buyer_shortage_wording(self) -> None:
+        parsed_log = automation.parse_log(BUYER_STATE_ONLY_LOG)
+        parsed_log["latest_observation"]["diagnostic_counters"]["softwareConsumerBuyerState"] = {
+            "needSelected": 4,
+            "resourceBuyerPresent": 4,
+            "correctiveBuyerPresent": 4,
+            "selectedNoResourceBuyer": 0,
+        }
+        self.assertFalse(
+            automation.has_unsupported_notes_interpretation(
+                "Earlier samples showed buyer shortage before recovery.",
+                parsed_log,
+            )
+        )
+        self.assertTrue(
+            automation.has_unsupported_evidence_summary_interpretation(
+                "The latest observation still showed buyer shortage.",
+                parsed_log,
+            )
+        )
 
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)

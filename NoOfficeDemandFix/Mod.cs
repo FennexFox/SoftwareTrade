@@ -5,6 +5,8 @@ using Game.Modding;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
+using HarmonyLib;
+using NoOfficeDemandFix.Patches;
 using NoOfficeDemandFix.Systems;
 
 namespace NoOfficeDemandFix
@@ -15,6 +17,7 @@ namespace NoOfficeDemandFix
         public static Setting Settings { get; private set; }
 
         private Setting m_Setting;
+        private Harmony m_Harmony;
 
         public void OnLoad(UpdateSystem updateSystem)
         {
@@ -31,6 +34,8 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialFindPropertySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
 
             m_Setting = new Setting(this);
             m_Setting.RegisterInOptionsUI();
@@ -38,12 +43,40 @@ namespace NoOfficeDemandFix
             Settings = m_Setting;
 
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
+
+            // The outside-connection seller patch is experimental and opt-in.
+            // Avoid wrapping the vanilla method unless the saved setting enables it.
+            if (!m_Setting.EnableOutsideConnectionVirtualSellerFix)
+            {
+                log.Info("Outside-connection virtual seller fix disabled; skipping Harmony patch bootstrap.");
+                return;
+            }
+
+            try
+            {
+                m_Harmony = new Harmony(nameof(NoOfficeDemandFix));
+                m_Harmony.PatchAll(typeof(Mod).Assembly);
+                log.Info("Outside-connection virtual seller fix enabled; Harmony patch bootstrap completed.");
+            }
+            catch (System.Exception ex)
+            {
+                log.Error($"Harmony patch bootstrap failed. Falling back to vanilla behavior for this session. {ex}");
+                m_Harmony = null;
+            }
         }
 
         public void OnDispose()
         {
             log.Info(nameof(OnDispose));
             Settings = null;
+
+            if (m_Harmony != null)
+            {
+                m_Harmony.UnpatchAll(m_Harmony.Id);
+                m_Harmony = null;
+            }
+
+            OutsideConnectionVirtualSellerFixPatch.LogProbeSummary();
 
             if (m_Setting != null)
             {

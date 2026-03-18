@@ -187,6 +187,14 @@ UNSUPPORTED_NOTES_PATTERNS = [
     r"\bunresolved\b",
     r"\blikely\b",
 ]
+UNSUPPORTED_BUYER_SHORTAGE_PATTERNS = [
+    r"\bbuyer shortage\b",
+    r"\bbuyer shortages\b",
+    r"\bbuyer absence\b",
+    r"\bno buyer\b",
+    r"\bno active buyer\b",
+    r"\bnoBuyerDespiteNeed\b",
+]
 UNSUPPORTED_PHANTOM_ZERO_PATTERNS = [
     r"\bphantom[-\s]*vacanc(?:y|ies)\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+(?:at\s+)?zero\b",
     r"\bguard[-\s]*corrections?\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+(?:at\s+)?zero\b",
@@ -1489,10 +1497,18 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
             (
                 "needSelected",
                 "resourceBuyerPresent",
+                "correctiveBuyerPresent",
+                "vanillaBuyerPresent",
                 "trackingExpectedSelected",
                 "selectedNoResourceBuyer",
+                "selectedNoBuyerShortGap",
+                "selectedNoBuyerPersistent",
                 "selectedRequestNoPath",
+                "selectedRequestNoPathShortGap",
+                "selectedRequestNoPathPersistent",
                 "resolvedVirtualNoTrackingExpected",
+                "virtualResolvedThisWindow",
+                "virtualResolvedAmount",
                 "resolvedNoTrackingUnexpected",
                 "pathPending",
                 "tripPresent",
@@ -1722,6 +1738,14 @@ def build_deterministic_confounders(
             f"legacy setting recorded in capture: EnableTradePatch={settings.get('EnableTradePatch')}"
         )
 
+    if "EnableOutsideConnectionVirtualSellerFix" in settings:
+        state = "enabled" if settings.get("EnableOutsideConnectionVirtualSellerFix") is True else "disabled"
+        confounder_lines.append(f"outside-connection virtual seller fix {state} during capture")
+
+    if "EnableVirtualOfficeResourceBuyerFix" in settings:
+        state = "enabled" if settings.get("EnableVirtualOfficeResourceBuyerFix") is True else "disabled"
+        confounder_lines.append(f"virtual office resource buyer fix {state} during capture")
+
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
 
@@ -1911,7 +1935,7 @@ def build_summary_refinement_context(
             }
             for candidate in selected_candidates
         ],
-        "semantic_facts": build_llm_semantic_facts(parsed_log)[:6],
+        "semantic_facts": build_llm_semantic_facts(parsed_log),
     }
 
 
@@ -2090,6 +2114,51 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
             f"Latest counters: softwareConsumerOffices.softwareInputZero={software_input_zero} means {software_input_zero} consumer offices had softwareInputZero in the latest observation."
         )
 
+    need_selected = safe_int(buyer_state.get("needSelected"))
+    if need_selected > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.needSelected={need_selected} is the number of selected software consumers in the latest observation."
+        )
+
+    resource_buyer_present = safe_int(buyer_state.get("resourceBuyerPresent"))
+    if resource_buyer_present > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.resourceBuyerPresent={resource_buyer_present} means that many selected software consumers already had a ResourceBuyer in the latest observation."
+        )
+
+    corrective_buyer_present = safe_int(buyer_state.get("correctiveBuyerPresent"))
+    if corrective_buyer_present > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.correctiveBuyerPresent={corrective_buyer_present} means that many selected software consumers already had a corrective buyer in the latest observation."
+        )
+
+    vanilla_buyer_present = safe_int(buyer_state.get("vanillaBuyerPresent"))
+    if vanilla_buyer_present > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.vanillaBuyerPresent={vanilla_buyer_present} means that many selected software consumers already had a vanilla buyer in the latest observation."
+        )
+
+    if (
+        need_selected > 0
+        and resource_buyer_present == need_selected
+        and safe_int(buyer_state.get("selectedNoResourceBuyer")) == 0
+    ):
+        facts.append(
+            "Do not describe the latest observation as buyer absence or buyer shortage: every selected software consumer already had a ResourceBuyer."
+        )
+
+    selected_request_no_path = safe_int(buyer_state.get("selectedRequestNoPath"))
+    if selected_request_no_path > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedRequestNoPath={selected_request_no_path} means selected software consumers had a buyer but still had no resolved path in the latest observation."
+        )
+
+    path_pending = safe_int(buyer_state.get("pathPending"))
+    if path_pending > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.pathPending={path_pending} means selected software consumers were in a pending-path state in the latest observation."
+        )
+
     selected_no_resource_buyer = safe_int(buyer_state.get("selectedNoResourceBuyer"))
     if selected_no_resource_buyer > 0:
         facts.append(
@@ -2101,10 +2170,46 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
         if virtual_resolution_probe_summary:
             facts.append(virtual_resolution_probe_summary)
 
+    selected_no_buyer_short_gap = safe_int(buyer_state.get("selectedNoBuyerShortGap"))
+    if selected_no_buyer_short_gap > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerShortGap={selected_no_buyer_short_gap} marks selected software consumers whose buyerless state still looked like a short gap in the latest observation."
+        )
+
+    selected_no_buyer_persistent = safe_int(buyer_state.get("selectedNoBuyerPersistent"))
+    if selected_no_buyer_persistent > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerPersistent={selected_no_buyer_persistent} marks selected software consumers whose buyerless state persisted across multiple windows."
+        )
+
+    selected_request_no_path_short_gap = safe_int(buyer_state.get("selectedRequestNoPathShortGap"))
+    if selected_request_no_path_short_gap > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedRequestNoPathShortGap={selected_request_no_path_short_gap} marks selected software consumers with a buyer/no-path state that still looked short-lived in the latest observation."
+        )
+
+    selected_request_no_path_persistent = safe_int(buyer_state.get("selectedRequestNoPathPersistent"))
+    if selected_request_no_path_persistent > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedRequestNoPathPersistent={selected_request_no_path_persistent} marks selected software consumers with a buyer/no-path state that persisted across multiple windows."
+        )
+
     resolved_virtual_expected = safe_int(buyer_state.get("resolvedVirtualNoTrackingExpected"))
     if resolved_virtual_expected > 0:
         facts.append(
             f"Latest counters: softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected={resolved_virtual_expected} marks selected software consumers whose zero-weight virtual-resource flow resolved without tracked TripNeeded or CurrentTrading state."
+        )
+
+    virtual_resolved_this_window = safe_int(buyer_state.get("virtualResolvedThisWindow"))
+    if virtual_resolved_this_window > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.virtualResolvedThisWindow={virtual_resolved_this_window} means actual in-window virtual Software resolution was observed."
+        )
+
+    virtual_resolved_amount = safe_int(buyer_state.get("virtualResolvedAmount"))
+    if virtual_resolved_amount > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.virtualResolvedAmount={virtual_resolved_amount} is the total observed in-window resolved virtual Software amount."
         )
 
     resolved_no_tracking_unexpected = safe_int(buyer_state.get("resolvedNoTrackingUnexpected"))
@@ -2174,6 +2279,14 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
         - Do not use `evidence_summary` for causal claims, recommendations, or likely explanations.
         - Prefer literal counter language in `evidence_summary`, such as `officeDemand.building=...`, `softwareConsumerBuyerState.selectedNoResourceBuyer=...`, or `softwareConsumerBuyerState.resolvedNoTrackingUnexpected=...`, when those counters are the main signal.
+        - If `softwareConsumerBuyerState.selectedNoResourceBuyer=0`, do not describe the latest observation as buyer absence, no-buyer pressure, or buyer shortage.
+        - If `softwareConsumerBuyerState.resourceBuyerPresent` equals `softwareConsumerBuyerState.needSelected`, describe that literally as buyer coverage rather than shortage.
+        - If `softwareConsumerBuyerState.correctiveBuyerPresent` or `softwareConsumerBuyerState.vanillaBuyerPresent` is nonzero, mention corrective or vanilla buyer coverage when buyer-state fields are central to the run.
+        - If `softwareConsumerBuyerState.selectedRequestNoPath` or `softwareConsumerBuyerState.pathPending` is nonzero, prefer path-stage wording such as buyer-present / no-path / pending-path rather than buyer-shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerPersistent` or `softwareConsumerBuyerState.selectedRequestNoPathPersistent` is nonzero, use persistence wording rather than generic shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerShortGap` or `softwareConsumerBuyerState.selectedRequestNoPathShortGap` is nonzero, use short-gap wording rather than persistent-stall wording.
+        - If `softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected` or `softwareConsumerBuyerState.virtualResolvedThisWindow` is nonzero, include that actual in-window virtual resolution was observed.
+        - Do not use legacy wording such as `noBuyerDespiteNeed` unless that exact field is present in the provided facts.
         - `comparison_baseline` should stay empty unless the provided facts explicitly support a save-lineage, issue-reference, or patch-state comparison.
         - `confidence` must be one of: high, medium, low. Use `medium` unless the facts strongly justify another choice.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
@@ -2198,7 +2311,8 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Do not say phantom-vacancy counters or guard corrections stayed zero if the provided run facts include phantom corrections or non-zero `guardCorrections` anywhere in the bounded window.
         - Avoid subjective intensifiers like "significantly"; prefer direct counter changes instead.
         - When the run is mainly showing buyer-state pressure, describe the buyer-state fields literally rather than claiming the demand was resolved or unresolved.
-        - Prefer `software_demand_mismatch` when software-track distress is present while office-demand counters stay high or rise in the provided window.
+        - Do not prefer `software_demand_mismatch` over literal buyer/path/resolution framing when buyer coverage or in-window virtual resolution is explicitly present in the latest counters.
+        - Prefer `software_demand_mismatch` when software-track distress is present while office-demand counters stay high or rise in the provided window and the latest counters do not show broad buyer coverage or actual in-window virtual resolution.
         - If you use a non-canonical symptom label, set `symptom_classification` to `other` and put the final label in `custom_symptom_classification`.
         - Use one of these labels when possible:
           software_office_propertyless, software_office_efficiency_zero,
@@ -2252,6 +2366,12 @@ def build_summary_refinement_request_payload(context: dict[str, Any], model: str
         - Do not mention labels, comparisons, recommendations, or root-cause theories.
         - Do not say phantom-vacancy activity was absent if the provided facts show phantom corrections or guardCorrections.
         - If buyer-state fields are the main signal, describe those buyer-state fields literally.
+        - If `softwareConsumerBuyerState.selectedNoResourceBuyer=0`, do not describe the latest observation as buyer absence, no-buyer pressure, or buyer shortage.
+        - If `softwareConsumerBuyerState.resourceBuyerPresent` equals `softwareConsumerBuyerState.needSelected`, describe that literally as buyer coverage rather than shortage.
+        - If `softwareConsumerBuyerState.correctiveBuyerPresent` or `softwareConsumerBuyerState.vanillaBuyerPresent` is nonzero, mention corrective or vanilla buyer coverage when buyer-state fields are central to the run.
+        - If `softwareConsumerBuyerState.selectedNoBuyerPersistent` or `softwareConsumerBuyerState.selectedRequestNoPathPersistent` is nonzero, prefer persistence wording rather than generic shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerShortGap` or `softwareConsumerBuyerState.selectedRequestNoPathShortGap` is nonzero, prefer short-gap wording rather than persistent-stall wording.
+        - If `softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected` or `softwareConsumerBuyerState.virtualResolvedThisWindow` is nonzero, include that actual in-window virtual resolution was observed.
         - Avoid subjective intensifiers like "significantly".
         - Return only a stronger factual summary, not extra commentary.
         """
@@ -2537,12 +2657,43 @@ def has_unsupported_phantom_absence_claim(text: str, parsed_log: dict[str, Any])
     )
 
 
+def has_unsupported_buyer_shortage_claim(text: str, parsed_log: dict[str, Any]) -> bool:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    counter_groups = latest_observation.get("diagnostic_counters", {})
+    buyer_state = counter_groups.get("softwareConsumerBuyerState", {})
+
+    need_selected = safe_int(buyer_state.get("needSelected"))
+    if need_selected <= 0:
+        return False
+
+    buyer_shortage_claim = any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in UNSUPPORTED_BUYER_SHORTAGE_PATTERNS
+    )
+    if not buyer_shortage_claim:
+        return False
+
+    resource_buyer_present = safe_int(buyer_state.get("resourceBuyerPresent"))
+    selected_no_resource_buyer = safe_int(buyer_state.get("selectedNoResourceBuyer"))
+    corrective_buyer_present = safe_int(buyer_state.get("correctiveBuyerPresent"))
+
+    if selected_no_resource_buyer == 0 and resource_buyer_present == need_selected:
+        return True
+
+    if selected_no_resource_buyer == 0 and corrective_buyer_present == need_selected:
+        return True
+
+    return False
+
+
 def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
         return True
     if has_unsupported_phantom_absence_claim(text, parsed_log):
         return True
     if has_unsupported_phantom_zero_claim(text, parsed_log):
+        return True
+    if has_unsupported_buyer_shortage_claim(text, parsed_log):
         return True
     return False
 
@@ -2552,7 +2703,9 @@ def has_unsupported_notes_interpretation(text: str, parsed_log: dict[str, Any]) 
         return True
     if has_unsupported_phantom_absence_claim(text, parsed_log):
         return True
-    return has_unsupported_phantom_zero_claim(text, parsed_log)
+    if has_unsupported_phantom_zero_claim(text, parsed_log):
+        return True
+    return False
 
 
 def normalize_missing_user_input(
@@ -2845,6 +2998,7 @@ def apply_llm_wording_guards(suggestions: dict[str, Any]) -> dict[str, Any]:
         value = str(normalized.get(field_name, ""))
         value = re.sub(r"\bzero resources\b", "lackResources=0", value, flags=re.IGNORECASE)
         value = re.sub(r"\bno resources\b", "lackResources=0", value, flags=re.IGNORECASE)
+        value = re.sub(r"\bnoBuyerDespiteNeed\b", "selectedNoResourceBuyer", value)
         normalized[field_name] = value
     return normalized
 

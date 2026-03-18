@@ -30,7 +30,7 @@ Required:
 
 - `game_version`: Cities: Skylines II game version
 - `mod_version`: released mod version, or `unreleased`
-- `settings`: state of `EnablePhantomVacancyFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`; older logs may also include retired legacy fields such as `EnableTradePatch`
+- `settings`: state of `EnablePhantomVacancyFix`, `EnableOutsideConnectionVirtualSellerFix`, `EnableVirtualOfficeResourceBuyerFix`, `EnableDemandDiagnostics`, `DiagnosticsSamplesPerDay`, `CaptureStableEvidence`, and `VerboseLogging`; older logs may also include retired legacy fields such as `EnableTradePatch`
 - `patch_state`: any local deviations from a normal release build, including extra logging, local patches, or disabled systems; use `unknown` when the runtime cannot determine them reliably
 
 Optional:
@@ -62,7 +62,7 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away. When buyer-lifecycle or zero-weight virtual-resolution behavior is part of the claim, preserve any emitted `softwareConsumerBuyerState(...)` subfields that separate corrective versus vanilla buyers, short-gap versus persistent buyerless states, and virtual-resolution summaries instead of collapsing them into prose
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
 - `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
@@ -70,7 +70,7 @@ Required:
 Optional:
 
 - `log_excerpt`: only short excerpts or references to attached logs, including relevant `softwareEvidenceDiagnostics detail(...)` lines when office-level state matters; when both roles exist, prefer the latest anchored consumer excerpt plus the latest anchored producer excerpt, then, when short chronology matters, also include the immediately previous distinct sample for each role (one older consumer excerpt and one older producer excerpt)
-- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates` for concise office state or verbose `detail_type=softwareTradeLifecycle` for lifecycle transitions and seller snapshots
+- `artifacts`: links or filenames for logs, saves, screenshots, or videos; may include relevant `softwareEvidenceDiagnostics detail(...)` lines such as `detail_type=softwareOfficeStates` for concise office state, verbose `detail_type=softwareTradeLifecycle` for lifecycle transitions and seller snapshots, `detail_type=softwareVirtualResolutionProbe` for zero-weight fast-path checks, `detail_type=softwareBuyerTimingProbe` for below-threshold buyer-cadence ambiguity, or `virtualOfficeBuyerFixProbe summary(...)` for buyer-fix volume and override sizing
 - `analysis_basis`: when code reading influenced interpretation, note whether the reasoning came from vanilla decompiled game code, this mod's code, or both, and what each source established
 - `notes`: anything useful that does not fit the structured fields
 
@@ -98,9 +98,52 @@ In current builds, `softwareNeed.tripNeededAmount` mirrors vanilla need selectio
 Treat `selected_resolved_virtual_no_tracking_expected` as a zero-weight fast-path candidate, not as an anomaly by itself.
 Treat `selected_no_resource_buyer`, `selected_resource_buyer_no_path`, and `selected_resolved_no_tracking_unexpected` as the primary anomaly-side acquisition states.
 
+When buyer-lifecycle interpretation helpers are emitted, preserve them together with `softwareAcquisitionState(...)` rather than paraphrasing them away. The most useful helpers are `deliveryMode`, `tripTrackingExpected`, `currentTradingExpected`, `pathExpected`, `buyerOrigin`, `buyerSeenThisWindow`, `lastBuyerSeenSampleAge`, `noBuyerReason`, `selectedNoBuyerConsecutiveWindows`, `selectedRequestNoPathConsecutiveWindows`, `belowThresholdConsecutiveWindows`, `pathStage`, `lastPathSeenSampleAge`, `virtualResolvedThisWindow`, `virtualResolvedAmount`, and `lastVirtualResolutionSampleAge`.
+Treat `deliveryMode=virtual` plus `tripTrackingExpected=False` / `currentTradingExpected=False` as interpretation context rather than as proof of a missing trade.
+Treat `selected_resource_buyer_no_path` as a pre-path intermediate state by default, especially for zero-weight virtual goods, unless the age or persistence fields show that it is lingering abnormally.
+Treat `selected_no_resource_buyer` as too broad to interpret on its own; pair it with `noBuyerReason`, the relevant age fields, and any virtual-resolution helpers before escalating it to a promoted anomaly claim.
+
+When the active question is whether a selected software need stayed below threshold long enough to justify or explain the corrective buyer pass, preserve `detail_type=softwareBuyerTimingProbe` as supplemental artifact material. Use it to distinguish short same-sample cadence gaps from repeated below-threshold windows, but do not let it replace the scheduled observation-window anchor, copied counters, or helper-rich `softwareOfficeStates` excerpts.
+
 When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone.
 
 If the interpretation relies on code reading, separate what came from vanilla decompiled game code from what came from this mod's code. Vanilla decompile is the source of truth for base-game trade lifecycle and virtual-resource handling; mod code explains instrumentation, local patches, and any deviations that belong in `patch_state`.
+
+## Buyer-Lifecycle Interpretation Support
+
+When diagnostics emit buyer-lifecycle interpretation helpers, treat them as schema-level evidence support rather than as disposable debug text.
+
+Recommended helper fields:
+
+- `deliveryMode`
+- `tripTrackingExpected`
+- `currentTradingExpected`
+- `pathExpected`
+- `buyerOrigin`
+- `buyerSeenThisWindow`
+- `lastBuyerSeenSampleAge`
+- `noBuyerReason`
+- `selectedNoBuyerConsecutiveWindows`
+- `selectedRequestNoPathConsecutiveWindows`
+- `belowThresholdConsecutiveWindows`
+- `pathStage`
+- `lastPathSeenSampleAge`
+- `virtualResolvedThisWindow`
+- `virtualResolvedAmount`
+- `lastVirtualResolutionSampleAge`
+
+Use these helpers to distinguish:
+
+- normal zero-weight fast-path behavior from suspicious missing-tracking states
+- a short pre-path gap from a persistent buyer lifecycle stall
+- a company that truly stayed buyerless from one that briefly dipped below threshold and then resolved virtually
+
+These helper fields belong in the normalized evidence vocabulary whenever they materially improve interpretation of `softwareConsumerBuyerState(...)` or `softwareAcquisitionState(...)`.
+
+`detail_type=softwareBuyerTimingProbe` is likewise supplemental artifact material for buyer-cadence questions. Keep it adjacent to the scheduled sample it helps interpret rather than treating it as a replacement for `softwareConsumerBuyerState(...)`, `softwareAcquisitionState(...)`, or the observation-window anchor.
+
+High-volume fix-specific telemetry should still remain separate from the minimum evidence schema.
+For example, `virtualOfficeBuyerFixProbe summary(...)` is useful supplemental artifact material for buyer-fix volume and override sizing, and `detail_type=softwareBuyerTimingProbe` is useful supplemental artifact material for below-threshold timing interpretation, but neither should replace the stable evidence fields above unless a specific investigation line is explicitly about that probe output itself.
 
 The following fields usually require explicit investigator input:
 
