@@ -14,9 +14,9 @@ experimental software import corrections plus diagnostics. It does not claim
 that the broader `software` track is fully solved.
 
 This release also restores the older `2x` office resource-demand baseline
-instead of keeping the newer vanilla `3x` multiplier, so office-demand
-comparisons remain compatible with earlier evidence gathered before that
-vanilla hotfix.
+with a direct Harmony patch instead of keeping the newer vanilla `3x`
+multiplier, so office-demand comparisons remain compatible with earlier
+evidence gathered before that vanilla change.
 
 ## Current Release
 
@@ -24,7 +24,7 @@ What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
 - hotfixes the vanilla office AI loop so one low-stock office no longer prevents later offices in the same chunk from consuming output and queuing virtual exports
-- restores the pre-hotfix office demand baseline for office resources, so office-demand comparisons stay on the older `2x` basis rather than vanilla's newer `3x`
+- restores the pre-hotfix office demand baseline for office resources with a direct Harmony patch, so office-demand comparisons stay on the older `2x` basis rather than vanilla's newer `3x`
 - includes an experimental Harmony-based outside-connection virtual seller correction that appends active outside connections reporting stock for office virtual-resource imports when the vanilla seller pass filtered them out because the prefab storage mask does not list that virtual resource
 - includes an experimental virtual office buyer timing correction that adds a narrow post-vanilla fallback buyer for zero-weight office inputs when a company still has no buyer, path, trip, or current-trading state
 - keeps diagnostics available for office demand, phantom vacancy, and `software` producer/consumer office state when you want troubleshooting data
@@ -54,7 +54,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 
 - `Signature` phantom-vacancy fix: [SignaturePropertyMarketGuardSystem.cs](./NoOfficeDemandFix/Systems/SignaturePropertyMarketGuardSystem.cs)
 - office AI hotfix: [OfficeAIHotfixPatch.cs](./NoOfficeDemandFix/Patches/OfficeAIHotfixPatch.cs), [OfficeAIHotfixSystem.cs](./NoOfficeDemandFix/Systems/OfficeAIHotfixSystem.cs)
-- office demand baseline rollback: [OfficeDemandHotfixSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandHotfixSystem.cs)
+- office demand direct patch: [IndustrialDemandOfficeBaselinePatch.cs](./NoOfficeDemandFix/Patches/IndustrialDemandOfficeBaselinePatch.cs)
 - outside-connection virtual seller patch: [OutsideConnectionVirtualSellerFixPatch.cs](./NoOfficeDemandFix/Patches/OutsideConnectionVirtualSellerFixPatch.cs)
 - virtual office buyer cadence fix: [VirtualOfficeResourceBuyerFixSystem.cs](./NoOfficeDemandFix/Systems/VirtualOfficeResourceBuyerFixSystem.cs)
 - diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
@@ -65,7 +65,7 @@ The safest repository-facing summary of the current release is:
 
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
 - confirmed fix for the office AI chunk-iteration abort on low stock
-- shipped comparability rollback for the pre-hotfix office demand baseline
+- shipped comparability rollback for the pre-hotfix office demand baseline via a direct Harmony patch
 - default experimental software import seller and buyer corrections, plus diagnostics
 - retired office-resource storage patch experiment
 - broader software-related office/resource stalls remain under investigation

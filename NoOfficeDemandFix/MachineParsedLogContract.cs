@@ -92,5 +92,6 @@ namespace NoOfficeDemandFix
         {
             return $"{VirtualOfficeBuyerFixProbePrefix}{eventType}({values})";
         }
+
     }
 }

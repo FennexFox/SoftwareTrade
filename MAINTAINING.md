@@ -55,7 +55,7 @@ Review defaults:
 - keep `patch_state=unknown` unless you can replace it with an exact known local deviation set
 - treat missing producer-side trade-cost fields in the concise `input1(...)` / `input2(...)` formatter as intentional; use verbose `detail_type=softwareTradeLifecycle` lines when seller-state or buyer-lifecycle detail is the active question, and `detail_type=softwareVirtualResolutionProbe` when you are checking whether a zero-weight virtual fast-path really resolved
 - keep the current split explicit: shipped office hotfixes can coexist with an unresolved `software` investigation line, and office-demand/global-sales undercount is still a separate deferred line
-- record the pre-hotfix office demand baseline rollback explicitly in comparison summaries because runs with this mod are no longer directly comparable to unmodded `3x` vanilla office-demand behavior
+- record the pre-hotfix office demand baseline direct patch explicitly in comparison summaries because runs with this mod are no longer directly comparable to unmodded `3x` vanilla office-demand behavior
 
 Detailed capture rules, interpretation rules, and comparison checkpoints live in
 [LOG_REPORTING.md](./LOG_REPORTING.md),

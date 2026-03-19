@@ -29,6 +29,9 @@ namespace NoOfficeDemandFix
         [SettingsUISection(kSection, kGeneralGroup)]
         public bool EnableVirtualOfficeResourceBuyerFix { get; set; } = true;
 
+        [SettingsUISection(kSection, kGeneralGroup)]
+        public bool EnableOfficeDemandDirectPatch { get; set; } = true;
+
         [SettingsUISection(kSection, kDiagnosticsGroup)]
         public bool EnableDemandDiagnostics { get; set; } = true;
 
@@ -47,6 +50,7 @@ namespace NoOfficeDemandFix
             EnablePhantomVacancyFix = true;
             EnableOutsideConnectionVirtualSellerFix = true;
             EnableVirtualOfficeResourceBuyerFix = true;
+            EnableOfficeDemandDirectPatch = true;
             EnableDemandDiagnostics = true;
             DiagnosticsSamplesPerDay = 2;
             CaptureStableEvidence = false;
@@ -81,6 +85,9 @@ namespace NoOfficeDemandFix
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Enable software import buyer timing correction" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Experimental software import buyer timing correction. Adds a narrow fallback ResourceBuyer for zero-weight office inputs when a company is below the vanilla low-stock threshold but no buyer, path, trip, or current trading state exists yet." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableOfficeDemandDirectPatch)), "Restore pre-1.5.6f1 office demand baseline" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableOfficeDemandDirectPatch)), "The 1.5.6f1 hotfix raises office demand by increasing the office resource-demand baseline inside IndustrialDemandSystem. Turn this on before launch when you need the pre-hotfix baseline for like-for-like comparisons, and consistent behavior across runs." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Logs office-demand factors, free office properties, phantom-vacancy counters, and software producer/consumer office state when the simulation looks suspicious. Leave it on for troubleshooting, or turn it off if you want quieter logs." },

@@ -59,6 +59,7 @@ namespace NoOfficeDemandFix.Systems
                 bool enablePhantomVacancyFix,
                 bool enableOutsideConnectionVirtualSellerFix,
                 bool enableVirtualOfficeResourceBuyerFix,
+                bool enableOfficeDemandDirectPatch,
                 bool enableDemandDiagnostics,
                 int diagnosticsSamplesPerDay,
                 bool captureStableEvidence,
@@ -67,6 +68,7 @@ namespace NoOfficeDemandFix.Systems
                 EnablePhantomVacancyFix = enablePhantomVacancyFix;
                 EnableOutsideConnectionVirtualSellerFix = enableOutsideConnectionVirtualSellerFix;
                 EnableVirtualOfficeResourceBuyerFix = enableVirtualOfficeResourceBuyerFix;
+                EnableOfficeDemandDirectPatch = enableOfficeDemandDirectPatch;
                 EnableDemandDiagnostics = enableDemandDiagnostics;
                 DiagnosticsSamplesPerDay = diagnosticsSamplesPerDay;
                 CaptureStableEvidence = captureStableEvidence;
@@ -76,6 +78,7 @@ namespace NoOfficeDemandFix.Systems
             public bool EnablePhantomVacancyFix { get; }
             public bool EnableOutsideConnectionVirtualSellerFix { get; }
             public bool EnableVirtualOfficeResourceBuyerFix { get; }
+            public bool EnableOfficeDemandDirectPatch { get; }
             public bool EnableDemandDiagnostics { get; }
             public int DiagnosticsSamplesPerDay { get; }
             public bool CaptureStableEvidence { get; }
@@ -86,6 +89,7 @@ namespace NoOfficeDemandFix.Systems
                 return EnablePhantomVacancyFix == other.EnablePhantomVacancyFix &&
                        EnableOutsideConnectionVirtualSellerFix == other.EnableOutsideConnectionVirtualSellerFix &&
                        EnableVirtualOfficeResourceBuyerFix == other.EnableVirtualOfficeResourceBuyerFix &&
+                       EnableOfficeDemandDirectPatch == other.EnableOfficeDemandDirectPatch &&
                        EnableDemandDiagnostics == other.EnableDemandDiagnostics &&
                        DiagnosticsSamplesPerDay == other.DiagnosticsSamplesPerDay &&
                        CaptureStableEvidence == other.CaptureStableEvidence &&
@@ -103,6 +107,7 @@ namespace NoOfficeDemandFix.Systems
                     EnablePhantomVacancyFix,
                     EnableOutsideConnectionVirtualSellerFix,
                     EnableVirtualOfficeResourceBuyerFix,
+                    EnableOfficeDemandDirectPatch,
                     EnableDemandDiagnostics,
                     DiagnosticsSamplesPerDay,
                     CaptureStableEvidence,
@@ -2398,6 +2403,7 @@ namespace NoOfficeDemandFix.Systems
                 Mod.Settings.EnablePhantomVacancyFix,
                 Mod.Settings.EnableOutsideConnectionVirtualSellerFix,
                 Mod.Settings.EnableVirtualOfficeResourceBuyerFix,
+                Mod.Settings.EnableOfficeDemandDirectPatch,
                 Mod.Settings.EnableDemandDiagnostics,
                 GetDiagnosticsSamplesPerDay(),
                 Mod.Settings.CaptureStableEvidence,
@@ -2409,6 +2415,7 @@ namespace NoOfficeDemandFix.Systems
             return $"EnablePhantomVacancyFix:{settingsState.EnablePhantomVacancyFix}," +
                    $"EnableOutsideConnectionVirtualSellerFix:{settingsState.EnableOutsideConnectionVirtualSellerFix}," +
                    $"EnableVirtualOfficeResourceBuyerFix:{settingsState.EnableVirtualOfficeResourceBuyerFix}," +
+                   $"EnableOfficeDemandDirectPatch:{settingsState.EnableOfficeDemandDirectPatch}," +
                    $"EnableDemandDiagnostics:{settingsState.EnableDemandDiagnostics}," +
                    $"DiagnosticsSamplesPerDay:{settingsState.DiagnosticsSamplesPerDay}," +
                    $"CaptureStableEvidence:{settingsState.CaptureStableEvidence}," +
