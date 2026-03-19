@@ -43,10 +43,12 @@ namespace NoOfficeDemandFix
             Settings = m_Setting;
 
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
+            BootstrapHarmonyPatchesIfNeeded();
+        }
 
-            // The outside-connection seller patch is experimental and opt-in.
-            // Avoid wrapping the vanilla method unless the saved setting enables it.
-            if (!m_Setting.EnableOutsideConnectionVirtualSellerFix)
+        private void BootstrapHarmonyPatchesIfNeeded()
+        {
+            if (!RequiresHarmonyPatches())
             {
                 log.Info("Outside-connection virtual seller fix disabled; skipping Harmony patch bootstrap.");
                 return;
@@ -63,6 +65,11 @@ namespace NoOfficeDemandFix
                 log.Error($"Harmony patch bootstrap failed. Falling back to vanilla behavior for this session. {ex}");
                 m_Harmony = null;
             }
+        }
+
+        private bool RequiresHarmonyPatches()
+        {
+            return m_Setting != null && m_Setting.EnableOutsideConnectionVirtualSellerFix;
         }
 
         public void OnDispose()

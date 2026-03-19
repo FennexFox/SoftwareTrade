@@ -31,6 +31,8 @@ namespace NoOfficeDemandFix.Patches
     {
         private const string PatchVariant = "findtargets-postfix-v3";
         private const int kMaxProbeSampleLogs = 3;
+        private const float kTargetPenaltyScale = 100f;
+        private const int kBuildingUpkeepPenaltyRandomRange = 300;
 
         private static readonly AccessTools.FieldRef<PathfindSetupSystem, ResourcePathfindSetup> s_ResourcePathfindSetupRef =
             AccessTools.FieldRefAccess<PathfindSetupSystem, ResourcePathfindSetup>("m_ResourcePathfindSetup");
@@ -155,7 +157,7 @@ namespace NoOfficeDemandFix.Patches
                 m_EntityType = system.GetEntityTypeHandle(),
                 m_PrefabType = system.GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
                 m_ResourceType = system.GetBufferTypeHandle<Game.Economy.Resources>(isReadOnly: true),
-                m_OwnedVehicles = system.GetBufferTypeHandle<OwnedVehicle>(isReadOnly: true),
+                m_SeekerOwnedVehicles = system.GetBufferLookup<OwnedVehicle>(isReadOnly: true),
                 m_OutsideConnections = system.GetComponentLookup<OutsideConnectionComponent>(isReadOnly: true),
                 m_StorageCompanyDatas = system.GetComponentLookup<StorageCompanyData>(isReadOnly: true),
                 m_TradeCosts = system.GetBufferLookup<TradeCost>(isReadOnly: true),
@@ -318,7 +320,7 @@ namespace NoOfficeDemandFix.Patches
             public BufferTypeHandle<Game.Economy.Resources> m_ResourceType;
 
             [ReadOnly]
-            public BufferTypeHandle<OwnedVehicle> m_OwnedVehicles;
+            public BufferLookup<OwnedVehicle> m_SeekerOwnedVehicles;
 
             [ReadOnly]
             public ComponentLookup<OutsideConnectionComponent> m_OutsideConnections;
@@ -351,7 +353,6 @@ namespace NoOfficeDemandFix.Patches
                 NativeArray<Entity> entities = chunk.GetNativeArray(m_EntityType);
                 NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref m_PrefabType);
                 BufferAccessor<Game.Economy.Resources> resources = chunk.GetBufferAccessor(ref m_ResourceType);
-                BufferAccessor<OwnedVehicle> ownedVehicles = chunk.GetBufferAccessor(ref m_OwnedVehicles);
                 Unity.Mathematics.Random random = m_RandomSeed.GetRandom(unfilteredChunkIndex);
 
                 for (int setupIndex = 0; setupIndex < m_SetupData.Length; setupIndex++)
@@ -366,7 +367,8 @@ namespace NoOfficeDemandFix.Patches
                         continue;
                     }
 
-                    if ((targetFlags & SetupTargetFlags.RequireTransport) != SetupTargetFlags.None && ownedVehicles.Length == 0)
+                    if ((targetFlags & SetupTargetFlags.RequireTransport) != SetupTargetFlags.None &&
+                        (!m_SeekerOwnedVehicles.HasBuffer(seekerEntity) || m_SeekerOwnedVehicles[seekerEntity].Length == 0))
                     {
                         continue;
                     }
@@ -411,11 +413,12 @@ namespace NoOfficeDemandFix.Patches
                         }
 
                         float fillRatio = math.min(1f, availableAmount * 1f / math.max(1, requestedAmount));
-                        float penalty = 100f * (1f - fillRatio);
+                        float penalty = kTargetPenaltyScale * (1f - fillRatio);
+                        // Keep the amount-based component aligned with the vanilla outside-connection scoring curve.
                         penalty += ResourcePathfindSetup.kOutsideConnectionAmountBasedPenalty * requestedAmount;
                         if (isBuildingUpkeep)
                         {
-                            penalty += random.NextInt(300);
+                            penalty += random.NextInt(kBuildingUpkeepPenaltyRandomRange);
                         }
 
                         if (m_TradeCosts.HasBuffer(sellerEntity))
@@ -424,7 +427,7 @@ namespace NoOfficeDemandFix.Patches
                             penalty += EconomyUtils.GetTradeCost(resource, costs).m_BuyCost * requestedAmount * 0.01f;
                         }
 
-                        targetSeeker.FindTargets(sellerEntity, penalty * 100f);
+                        targetSeeker.FindTargets(sellerEntity, penalty * kTargetPenaltyScale);
                     }
                 }
             }

@@ -27,6 +27,7 @@ namespace NoOfficeDemandFix.Systems
         private const int kResourceLowStockAmount = 4000;
         private const int kResourceMinimumRequestAmount = 2000;
         private const int kMaxProbeSampleLogs = 3;
+        private const float kLowStockThresholdRatio = 0.25f;
 
         private ResourceSystem m_ResourceSystem;
         private EntityQuery m_OfficeCompanyQuery;
@@ -251,15 +252,22 @@ namespace NoOfficeDemandFix.Systems
             stock = GetCompanyResourceAmount(company, resource);
             buyingLoad = GetCompanyBuyingLoad(company, resource);
             tripNeededAmount = GetCompanyShoppingTripAmount(company, resource);
-            effectiveStock = stock + buyingLoad + tripNeededAmount;
-            threshold = (int)math.max(kResourceLowStockAmount, maxCapacity * 0.25f);
-            if (effectiveStock >= threshold)
+            threshold = CalculateLowStockThreshold(maxCapacity);
+
+            long effectiveStockTotal = (long)stock + buyingLoad + tripNeededAmount;
+            if (effectiveStockTotal >= threshold)
             {
                 return false;
             }
 
+            effectiveStock = (int)effectiveStockTotal;
             selectedResource = resource;
             return true;
+        }
+
+        private static int CalculateLowStockThreshold(int maxCapacity)
+        {
+            return (int)math.max(kResourceLowStockAmount, maxCapacity * kLowStockThresholdRatio);
         }
 
         private int GetCompanyResourceAmount(Entity company, Resource resource)

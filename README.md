@@ -16,7 +16,7 @@ solved.
 What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
-- includes an experimental Harmony-based outside-connection virtual seller correction that lets office virtual-resource imports consider outside connections in a narrow fallback case
+- includes an experimental Harmony-based outside-connection virtual seller correction that appends active outside connections reporting stock for office virtual-resource imports when the vanilla seller pass filtered them out because the prefab storage mask does not list that virtual resource
 - includes an experimental virtual office buyer timing correction that adds a narrow post-vanilla fallback buyer for zero-weight office inputs when a company still has no buyer, path, trip, or current-trading state
 - keeps diagnostics available for office demand, phantom vacancy, and `software` producer/consumer office state when you want troubleshooting data
 - retires the earlier office-resource storage patch experiment because zero-weight office resources do not fit the current vanilla virtual-resource architecture
@@ -34,7 +34,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
-| `EnableOutsideConnectionVirtualSellerFix` | `true` | Enables the default experimental software import seller correction. It only widens outside-connection seller selection for office virtual-resource imports in a narrow fallback case and does not change cargo or storage definitions. |
+| `EnableOutsideConnectionVirtualSellerFix` | `true` | Enables the default experimental software import seller correction. It only appends active outside connections that already report stock for the requested office virtual-resource import but were filtered out by the prefab storage mask, and it does not change cargo or storage definitions. |
 | `EnableVirtualOfficeResourceBuyerFix` | `true` | Enables the default experimental software import buyer timing correction. It adds a narrow fallback `ResourceBuyer` for zero-weight office inputs such as `Software` when a company is below the low-stock threshold but still has no buyer/path/trip/current-trading state. |
 | `EnableDemandDiagnostics` | `true` | Logs office-demand, phantom-vacancy, and `software` office-state details when the simulation looks suspicious. Leave it on for troubleshooting, or turn it off if you want quieter logs. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values produce denser logs. |
