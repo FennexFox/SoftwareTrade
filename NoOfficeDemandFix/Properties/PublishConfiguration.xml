@@ -27,7 +27,7 @@ Current release status:
 - keeps non-signature phantom vacancy under observation
 	</LongDescription>
 	<!--Thumbnail. Path is relative to this PublishConfiguration.xml file, so keep it as Thumbnail.png, not Properties/Thumbnail.png.-->
-	<Thumbnail Value="Thumbnail.png" />
+	<Thumbnail Value="NoOfficeDemandFix/Properties/Thumbnail.png" />
 	<!--Tag, can be set multiple times. PDX tags are fixed categories, not free-form keywords.-->
 	<Tag Value="Code Mod" />
 	<!--Link to the forum post where the mod can be discussed-->
