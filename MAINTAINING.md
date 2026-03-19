@@ -19,8 +19,9 @@ Runtime investigation logs use the `softwareEvidenceDiagnostics` vocabulary.
 
 Settings:
 
-- default capture: enable `EnableDemandDiagnostics`; keep `CaptureStableEvidence` and `VerboseLogging` off
+- default capture: keep `EnableDemandDiagnostics=true`; keep `CaptureStableEvidence=false` and `VerboseLogging=false`
 - outside-connection virtual seller comparison capture: toggle `EnableOutsideConnectionVirtualSellerFix` only when you are explicitly comparing the outside-connection virtual seller path; record the exact state from `environment(settings=...)`
+- buyer-cadence comparison capture: toggle `EnableVirtualOfficeResourceBuyerFix` only when you are explicitly comparing the corrective post-vanilla buyer pass; record the exact state from `environment(settings=...)`
 - baseline capture: also enable `CaptureStableEvidence` when you need bounded scheduled observation windows even while the city looks stable
 - escalation capture: enable `VerboseLogging` only when you also need noisier correction traces plus supplemental `detail_type=softwareTradeLifecycle` lines and, for discussion-`#63` follow-up checks, `detail_type=softwareVirtualResolutionProbe` lines
 - treat historical `EnableTradePatch` values in old logs as legacy run context only; the storage-patch path is retired and should not be reintroduced as the default fix direction

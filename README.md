@@ -1,29 +1,30 @@
 # No Office Demand Fix
 
 `No Office Demand Fix` is a Cities: Skylines II mod with one shipped fix and one
-separate investigation toolset:
+separate software-stability toolset:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
-- office-resource / `software` instability: a separate investigation into virtual import seller/path inconsistencies and office-demand/global-sales undercount
+- office-resource / `software` instability: experimental import seller and buyer corrections plus diagnostics for remaining virtual-resource stalls
 
 The current release ships the confirmed `Signature` phantom-vacancy fix and
-keeps the `software` path available as diagnostics plus one narrow opt-in
-outside-connection virtual seller experiment rather than a finished end-user
-fix.
+also includes enabled-by-default experimental software import corrections plus
+diagnostics. It does not claim that the broader `software` track is fully
+solved.
 
 ## Current Release
 
 What the current code does:
 
 - fixes stale `PropertyOnMarket` and `PropertyToBeOnMarket` state on occupied `Signature` office and industrial properties before demand and property search evaluate them
-- includes opt-in diagnostics for office demand, phantom vacancy, and `software` producer/consumer office state when you are collecting evidence
-- includes an opt-in Harmony-based outside-connection virtual seller correction that only relaxes outside-connection import seller selection for office virtual resources
-- retires the earlier office-resource storage patch experiment because forcing zero-weight office resources through cargo/storage definitions does not match the current vanilla virtual-resource architecture
+- includes an experimental Harmony-based outside-connection virtual seller correction that lets office virtual-resource imports consider outside connections in a narrow fallback case
+- includes an experimental virtual office buyer timing correction that adds a narrow post-vanilla fallback buyer for zero-weight office inputs when a company still has no buyer, path, trip, or current-trading state
+- keeps diagnostics available for office demand, phantom vacancy, and `software` producer/consumer office state when you want troubleshooting data
+- retires the earlier office-resource storage patch experiment because zero-weight office resources do not fit the current vanilla virtual-resource architecture
 
 What it does not claim:
 
 - it is not a proven fix for every `No Office Demand` case
-- the `software` track is still under investigation and is not presented as a confirmed fix
+- broader software-related office/resource stalls are still under investigation and are not presented as a confirmed fix
 - non-signature phantom vacancy is still monitored, not ruled out
 
 ## Settings
@@ -33,12 +34,12 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
-| `EnableOutsideConnectionVirtualSellerFix` | `false` | Enables the narrow experimental outside-connection virtual seller correction for office virtual-resource imports. It only affects outside-connection seller selection, does not change cargo/storage definitions, and is meant for targeted validation rather than broad end-user use. |
-| `EnableVirtualOfficeResourceBuyerFix` | `false` | Enables an experimental corrective pass for zero-weight office inputs such as `Software` when a company is below the vanilla low-stock threshold but still has no buyer/path/trip/trading state. It is intended for targeted validation of the remaining software-track stall after seller eligibility is fixed. |
-| `EnableDemandDiagnostics` | `false` | Live-applies office-demand, phantom-vacancy, and `software` producer/consumer diagnostics when the state looks suspicious. Leave it off unless you are collecting evidence. |
-| `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples are taken per displayed in-game day while diagnostics are enabled. Higher values produce denser logs for comparison and troubleshooting. |
-| `CaptureStableEvidence` | `false` | Keeps bounded scheduled `softwareEvidenceDiagnostics observation_window(...)` lines flowing at the configured per-day cadence while diagnostics are enabled, even when the city looks stable. Use it only for baseline or no-symptom evidence collection. |
-| `VerboseLogging` | `false` | Adds the noisier correction traces and supplemental office/trade detail lines and also forces diagnostics output at the configured per-day cadence while diagnostics are enabled. Use it only for investigation. |
+| `EnableOutsideConnectionVirtualSellerFix` | `true` | Enables the default experimental software import seller correction. It only widens outside-connection seller selection for office virtual-resource imports in a narrow fallback case and does not change cargo or storage definitions. |
+| `EnableVirtualOfficeResourceBuyerFix` | `true` | Enables the default experimental software import buyer timing correction. It adds a narrow fallback `ResourceBuyer` for zero-weight office inputs such as `Software` when a company is below the low-stock threshold but still has no buyer/path/trip/current-trading state. |
+| `EnableDemandDiagnostics` | `true` | Logs office-demand, phantom-vacancy, and `software` office-state details when the simulation looks suspicious. Leave it on for troubleshooting, or turn it off if you want quieter logs. |
+| `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values produce denser logs. |
+| `CaptureStableEvidence` | `false` | Keeps scheduled software diagnostics running even when the city looks stable. Use it only when you want baseline logs for troubleshooting. |
+| `VerboseLogging` | `false` | Adds noisier correction traces and supplemental office-trade detail lines. Use it only when you want detailed troubleshooting logs. |
 
 ## Implementation
 
@@ -47,22 +48,21 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 - virtual office buyer cadence fix: [VirtualOfficeResourceBuyerFixSystem.cs](./NoOfficeDemandFix/Systems/VirtualOfficeResourceBuyerFixSystem.cs)
 - diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
 
-## Current Position
+## Current Status
 
 The safest way to describe this release is:
 
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
-- optional diagnostics plus a narrow opt-in outside-connection virtual seller experiment for follow-up investigation
+- default experimental software import seller and buyer corrections, plus diagnostics
 - retired office-resource storage patch experiment
-- current `software` investigation prioritizes narrower outside-connection virtual import seller/path inconsistencies
-- office-demand/global-sales undercount remains a separate follow-up line rather than part of the outside-connection virtual seller runtime patch
+- broader software-related office/resource stalls remain under investigation
+- office-demand/global-sales undercount remains a separate follow-up line rather than part of the current runtime corrections
 
 Current evidence does not support treating `software` producer or consumer
 distress as direct proof of lower office demand by itself. The `software` path
-remains investigational, and physicalizing zero-weight office resources through
-storage or cargo definitions is no longer treated as the right default fix
-direction. The new setting only corrects the outside-connection seller gate; it
-does not reintroduce storage or cargo physicalization.
+remains investigational. The experimental settings only address a narrow
+outside-connection seller fallback and a narrow buyer-timing gap; they do not
+reintroduce cargo or storage physicalization.
 
 ## Non-Goals
 

@@ -5,14 +5,16 @@ triage it into a normalized `software evidence` draft.
 
 ## Before You Capture Logs
 
-- turn on `EnableDemandDiagnostics`
-- leave `EnableOutsideConnectionVirtualSellerFix` off unless you are intentionally running an outside-connection virtual seller comparison
+- leave `EnableDemandDiagnostics` on
+- leave `EnableOutsideConnectionVirtualSellerFix` at its current default state unless you are intentionally running an outside-connection virtual seller comparison
+- leave `EnableVirtualOfficeResourceBuyerFix` at its current default state unless you are intentionally running a buyer-cadence comparison
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
 - turn on `VerboseLogging` only when you also need the noisier correction traces and supplemental `softwareTradeLifecycle` detail lines
 - if you are submitting an older historical log, keep any retired `EnableTradePatch` field exactly as captured in the `settings=...` snapshot; it is legacy context, not a current setting
 
 Current setting defaults are documented in [README.md](./README.md).
+When you intentionally change either experimental software fix setting, keep the exact `settings=...` snapshot because later comparisons use that logged state as the source of truth.
 
 ## How To Submit A Raw Log
 
