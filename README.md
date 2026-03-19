@@ -61,7 +61,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 
 ## Current Status
 
-The safest way to describe this release is:
+The safest repository-facing summary of the current release is:
 
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
 - confirmed fix for the office AI chunk-iteration abort on low stock
@@ -90,11 +90,11 @@ If you want to submit a raw diagnostics log for maintainer triage or later
 promotion into a normalized evidence issue, start with
 [LOG_REPORTING.md](./LOG_REPORTING.md).
 
-## Docs for Contributors and Maintainers
+## Contributor And Maintainer Docs
 
-- Contributors: [CONTRIBUTING.md](./CONTRIBUTING.md)
-- Maintainers and operators: [MAINTAINING.md](./MAINTAINING.md)
+- Contributor workflow: [CONTRIBUTING.md](./CONTRIBUTING.md)
+- Maintainer and release workflow: [MAINTAINING.md](./MAINTAINING.md)
 - Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
-- Software evidence form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
-- Software investigation umbrella form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)
+- Software evidence issue form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
+- Software investigation issue form: [`.github/ISSUE_TEMPLATE/software_investigation.yml`](./.github/ISSUE_TEMPLATE/software_investigation.yml)

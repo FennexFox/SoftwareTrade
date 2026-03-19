@@ -1,7 +1,8 @@
 # Log Reporting
 
-Use this guide when you want to share a raw diagnostics log and let maintainers
-triage it into a normalized `software evidence` draft.
+Use this guide when you want to submit a raw diagnostics log for maintainer triage.
+
+This is for raw intake. It is not the same thing as opening a finalized `Software evidence` issue.
 
 ## Before You Capture Logs
 
@@ -19,16 +20,27 @@ When you intentionally change either experimental software fix setting, keep the
 ## How To Submit A Raw Log
 
 1. Open a new issue using the `Raw log report` form.
-2. Fill in the game version, mod version, save or city label, and a short
-   summary of what happened.
-3. Add `Platform notes` when install layout, platform, or environment details
-   could matter for later comparison.
+2. Fill in the game version, mod version, save or city label, and a short summary of what happened.
+3. Add `Platform notes` when install layout, platform, or environment details could matter later.
 4. In the `Raw log` field, either:
-   - paste the relevant `softwareEvidenceDiagnostics` lines directly, or
-   - drag-and-drop a plain-text `.log` file into the field
+   - paste the relevant `softwareEvidenceDiagnostics` lines directly
+   - drag and drop a plain-text `.log` file into the field
 5. Submit the issue.
 
+## What Makes A Report Useful
+
+The best raw-log reports usually include:
+
+- a bounded reproduction or observation window
+- the setting state used for the run
+- enough city or save context to identify the scenario later
+- the relevant `softwareEvidenceDiagnostics` lines, not only a prose summary
+
+If you are unsure how much to include, err toward preserving the raw diagnostics lines and keeping your prose short.
+
 ## What The Automation Does
+
+After submission, the automation will:
 
 - read the raw log
 - redact obvious local filesystem paths before optional GitHub Models drafting
@@ -38,48 +50,38 @@ When you intentionally change either experimental software fix setting, keep the
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 
-The draft is LLM-first for semantic framing, but the automation still treats the
-observation window, copied counters, and anchored detail excerpts as the hard
-evidence that excerpts and later validation must stay aligned to. Keep
-`start_day` / `end_day` as the primary window bounds; treat `sample_count` as
-emitted observation density and `skipped_sample_slots`, when present, as
-supporting gap context.
+When both producer-side and consumer-side detail exist, the automation prefers:
+
+- the latest anchored consumer excerpt
+- the latest anchored producer excerpt
+
+It may add one immediately previous distinct sample when short chronology materially changes the interpretation.
+
+The semantic framing in the draft is provisional. The hard evidence is still the copied observation window, counters, and selected detail excerpts.
 
 ## Privacy Notes
 
+Before posting publicly, remember:
+
 - local filesystem paths can appear in mod logs
-- attached logs may include your local username inside those paths
-- the automation redacts obvious local paths before optional GitHub Models drafting, but
-  you should still review logs before posting them publicly
+- those paths may include your local username
+- automation redacts obvious local paths before optional GitHub Models drafting, but you should still review logs before posting them
 
 ## Raw Log Issue vs Software Evidence Issue
 
-Use a `Raw log report` issue when you have raw intake material that still needs
-triage.
+Use a `Raw log report` issue when you have raw intake material that still needs triage.
 
-Use a `Software evidence` issue only for a bounded run that is already worth
-keeping as reusable evidence.
+Use a `Software evidence` issue only when the run is already a reusable bounded evidence entry.
 
-Raw-log intake issues are not the final comparable record. Maintainers may
-promote one into a `Software evidence` issue after filling any missing
-maintainer-only fields. When a `Software evidence` issue is created from raw-log
-promotion, its initial symptom classification should be treated as provisional
-until later evidence synthesis reviews the counters and excerpts together.
+Raw-log intake issues are not the final comparable record. Maintainers may promote one into a `Software evidence` issue after review and cleanup.
 
-## What Maintainers Do After Submission
+## What Happens Next
+
+After you submit:
 
 - a managed triage comment will be added or updated on the raw-log issue
-- maintainers should copy the `maintainer_reply` YAML block into a new comment,
-  paste the YAML directly or wrap it in fences, edit it there, and include
-  `/promote-evidence` in that same comment
-- when the managed triage comment shows multiple excerpt candidates, prefer the
-  latest anchored consumer excerpt plus the latest anchored producer excerpt
-  when both exist; use an immediately previous sample only when it adds
-  important chronology for the final evidence entry (for example, when it
-  shows the onset of a condition that persists in the latest sample)
-- keep the copied observation window, counters, and selected detail excerpts aligned; do not swap in older detail lines unless the chronology is explicitly the point of the final evidence entry
-- the automation creates a plain-Markdown `Software evidence` issue, links it
-  back to the raw-log issue, and closes the raw-log intake issue
+- maintainers may refine the draft and promote it into a `Software evidence` issue
+- the promoted evidence issue will link back to the raw-log intake issue
+- the raw-log intake issue is then typically closed
 
-If the automation cannot download an attached log file, it will leave a comment
-asking for the relevant log text to be pasted directly into the issue.
+If the automation cannot download an attached log file, it will leave a comment asking for the relevant log text to be pasted directly into the issue.

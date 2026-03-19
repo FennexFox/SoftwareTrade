@@ -43,6 +43,7 @@ DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL = "openai/gpt-4.1"
 PRIMARY_GITHUB_MODELS_MODEL_ENV = "PRIMARY_GITHUB_MODELS_MODEL"
 ESCALATION_GITHUB_MODELS_MODEL_ENV = "ESCALATION_GITHUB_MODELS_MODEL"
 SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL_ENV = "SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL"
+GITHUB_ISSUE_COMMENT_MAX_LENGTH = 65536
 COMMENT_BODY_LIMIT = 60000
 DETAIL_PREVIEW_LIMIT = 1800
 LLM_DETAIL_EXCERPT_LIMIT = 700
@@ -959,18 +960,23 @@ def build_excerpt_candidate(
         return None
 
     detail_kind = detail_role(details[0])
+    day = observation_day(observation)
+    sample_index = observation_sample_index(observation)
+    day_prefix = f"Day {day}"
+    if sample_index > 0:
+        day_prefix += f" sample {sample_index}"
     if detail_kind == "consumer":
-        section_title = f"Day {observation_day(observation)} consumer-side detail"
+        section_title = f"{day_prefix} consumer-side detail"
     elif detail_kind == "producer":
-        section_title = f"Day {observation_day(observation)} producer-side detail"
+        section_title = f"{day_prefix} producer-side detail"
     else:
-        section_title = f"Day {observation_day(observation)} software detail"
+        section_title = f"{day_prefix} software detail"
 
     lines = [truncate_text(detail.get("values", ""), LLM_DETAIL_EXCERPT_LIMIT) for detail in details]
     return {
         "label": label,
-        "day": observation_day(observation),
-        "sample_index": observation_sample_index(observation),
+        "day": day,
+        "sample_index": sample_index,
         "title": section_title,
         "observation_window": observation.get("observation_window_raw", ""),
         "diagnostic_counters": observation.get("diagnostic_counters_raw", ""),
@@ -3282,12 +3288,133 @@ def render_managed_comment(
     redaction_summary = "; ".join(redaction_notes) if redaction_notes else "none"
     deterministic_reasoning = deterministic_draft.get("reasoning_summary", "not available")
     llm_reasoning = (llm_draft or {}).get("reasoning_summary", "")
-    preview_body = render_evidence_issue_body(issue_number, 0, preview_fields).rstrip()
+    body = render_managed_comment_body(
+        issue_number,
+        preview_fields,
+        payload,
+        reply_fields,
+        combined_missing,
+        log_source["mode"],
+        redaction_summary,
+        llm_status,
+        llm_detail,
+        deterministic_reasoning,
+        llm_reasoning,
+        compact=False,
+    )
+    if len(body) <= COMMENT_BODY_LIMIT:
+        return body, payload
 
-    body = "\n".join(
+    compact_payload = build_compact_managed_comment_payload(payload)
+    body = render_managed_comment_body(
+        issue_number,
+        preview_fields,
+        compact_payload,
+        reply_fields,
+        combined_missing,
+        log_source["mode"],
+        redaction_summary,
+        llm_status,
+        llm_detail,
+        deterministic_reasoning,
+        llm_reasoning,
+        compact=True,
+    )
+    if len(body) <= GITHUB_ISSUE_COMMENT_MAX_LENGTH:
+        return body, compact_payload
+
+    compact_preview_fields = compact_preview_evidence_fields(preview_fields)
+    body = render_managed_comment_body(
+        issue_number,
+        compact_preview_fields,
+        compact_payload,
+        reply_fields,
+        combined_missing,
+        log_source["mode"],
+        redaction_summary,
+        llm_status,
+        llm_detail,
+        deterministic_reasoning,
+        llm_reasoning,
+        compact=True,
+    )
+    return body, compact_payload
+
+
+def build_compact_managed_comment_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    parsed_log = payload.get("parsed_log", {})
+    compact_candidates = select_preferred_excerpt_candidates(
+        list(parsed_log.get("log_excerpt_candidates", [])),
+        MAX_SELECTED_EXCERPT_CANDIDATES,
+    )
+    return {
+        "raw_issue": dict(payload.get("raw_issue", {})),
+        "log_source": dict(payload.get("log_source", {})),
+        "redaction_notes": list(payload.get("redaction_notes", [])),
+        "parsed_log": {
+            "latest_observation": parsed_log.get("latest_observation"),
+            "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
+            "log_excerpt_candidates": compact_candidates,
+            "observation_count": parsed_log.get("observation_count", 0),
+            "detail_count": parsed_log.get("detail_count", 0),
+        },
+        "deterministic_draft": dict(payload.get("deterministic_draft", {})),
+        "llm_draft": dict(payload["llm_draft"]) if isinstance(payload.get("llm_draft"), dict) else None,
+        "combined_missing_user_input": list(payload.get("combined_missing_user_input", [])),
+        "llm_status": payload.get("llm_status", ""),
+        "llm_detail": payload.get("llm_detail", ""),
+    }
+
+
+def compact_preview_evidence_fields(preview_fields: dict[str, str]) -> dict[str, str]:
+    compact = dict(preview_fields)
+    compact["reproduction-conditions"] = truncate_text(compact.get("reproduction-conditions", ""), 600)
+    compact["platform-notes"] = truncate_text(compact.get("platform-notes", ""), 600)
+    compact["other-mods"] = truncate_text(compact.get("other-mods", ""), 600)
+    compact["diagnostic-counters"] = truncate_text(compact.get("diagnostic-counters", ""), 1500)
+    compact["comparison-baseline"] = truncate_text(compact.get("comparison-baseline", ""), 600)
+    compact["confounders"] = truncate_text(compact.get("confounders", ""), 900)
+    compact["analysis-basis"] = truncate_text(compact.get("analysis-basis", ""), 600)
+    compact["notes"] = truncate_text(compact.get("notes", ""), 1200)
+    compact["log-excerpt"] = ""
+    return compact
+
+
+def render_managed_comment_body(
+    issue_number: int,
+    preview_fields: dict[str, str],
+    payload: dict[str, Any],
+    reply_fields: dict[str, str],
+    combined_missing: list[str],
+    raw_log_source_mode: str,
+    redaction_summary: str,
+    llm_status: str,
+    llm_detail: str,
+    deterministic_reasoning: str,
+    llm_reasoning: str,
+    *,
+    compact: bool,
+) -> str:
+    preview_body = render_evidence_issue_body(issue_number, 0, preview_fields).rstrip()
+    reasoning_line = f"- LLM reasoning: `{llm_reasoning if llm_reasoning else 'not used'}`"
+    if compact:
+        if llm_reasoning:
+            reasoning_line = (
+                f"- LLM reasoning: `{llm_reasoning}`"
+                if len(llm_reasoning) <= LLM_REASONING_SUMMARY_MAX_LENGTH
+                else "- LLM reasoning: `see machine payload`"
+            )
+        else:
+            reasoning_line = "- LLM reasoning: `not used`"
+
+    return "\n".join(
         [
             MANAGED_COMMENT_MARKER,
-            f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML below into a new maintainer comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment when the evidence issue is ready. Pasting the copied YAML directly is valid; code fences are optional.",
+            (
+                f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML below into a new maintainer comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment when the evidence issue is ready. Pasting the copied YAML directly is valid; code fences are optional."
+                if not compact
+                else f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML into a new maintainer comment and add `{PROMOTE_COMMAND}` there when ready. Plain pasted YAML is accepted."
+            ),
             "",
             "## Draft Evidence Issue Preview",
             f"Draft title: `{preview_fields.get('title', '')}`",
@@ -3297,13 +3424,17 @@ def render_managed_comment(
             f"- LLM status: `{llm_status}`",
             f"- LLM detail: `{llm_detail}`",
             f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
-            f"- Raw log source: `{log_source['mode']}`",
-            f"- Redaction notes: `{redaction_summary}`",
+            f"- Raw log source: `{raw_log_source_mode}`" if not compact else "",
+            f"- Redaction notes: `{redaction_summary}`" if not compact else "",
             f"- Deterministic reasoning: `{deterministic_reasoning}`",
-            f"- LLM reasoning: `{llm_reasoning if llm_reasoning else 'not used'}`",
+            reasoning_line,
             "",
             "### Maintainer reply template",
-            f"Copy this YAML into a new comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment. GitHub's code-block Copy button returns plain YAML text, and that plain YAML is accepted.",
+            (
+                f"Copy this YAML into a new comment, edit it there, and add `{PROMOTE_COMMAND}` in that same comment. GitHub's code-block Copy button returns plain YAML text, and that plain YAML is accepted."
+                if not compact
+                else ""
+            ),
             REPLY_TEMPLATE_START_MARKER,
             "```yaml",
             dump_reply_yaml(reply_fields),
@@ -3382,7 +3513,6 @@ def render_managed_comment(
 
     return body, payload
 
-
 def parse_managed_comment(comment_body: str) -> dict[str, Any]:
     reply_yaml = extract_fenced_block(comment_body, REPLY_TEMPLATE_START_MARKER, REPLY_TEMPLATE_END_MARKER)
     if not reply_yaml:
@@ -3437,6 +3567,7 @@ def get_issue(repo: str, issue_number: int, token: str) -> dict[str, Any]:
 
 
 def create_issue_comment(repo: str, issue_number: int, body: str, token: str) -> dict[str, Any]:
+    validate_issue_comment_body_size(body)
     comments_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/{issue_number}/comments"
     status, payload, raw = http_request("POST", comments_url, token=token, payload={"body": body})
     if status >= 400:
@@ -3445,11 +3576,20 @@ def create_issue_comment(repo: str, issue_number: int, body: str, token: str) ->
 
 
 def update_issue_comment(repo: str, comment_id: int, body: str, token: str) -> dict[str, Any]:
+    validate_issue_comment_body_size(body)
     comment_url = f"{GITHUB_API_BASE_URL}/repos/{repo}/issues/comments/{comment_id}"
     status, payload, raw = http_request("PATCH", comment_url, token=token, payload={"body": body})
     if status >= 400:
         raise AutomationError(f"Failed to update issue comment ({status}): {raw}")
     return payload
+
+
+def validate_issue_comment_body_size(body: str) -> None:
+    if len(body) <= GITHUB_ISSUE_COMMENT_MAX_LENGTH:
+        return
+    raise AutomationError(
+        f"Issue comment body is too long ({len(body)} characters; GitHub limit is {GITHUB_ISSUE_COMMENT_MAX_LENGTH})."
+    )
 
 
 def find_managed_comment(comments: list[dict[str, Any]]) -> dict[str, Any] | None:
