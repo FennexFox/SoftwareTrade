@@ -2419,6 +2419,8 @@ namespace NoOfficeDemandFix.Systems
         {
 #if DEBUG
             return "debug-build";
+#elif RELEASE_BUILD
+            return "release-build";
 #else
             return "unknown";
 #endif
