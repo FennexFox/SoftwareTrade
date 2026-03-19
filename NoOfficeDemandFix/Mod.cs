@@ -35,6 +35,9 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeAIHotfixSystem, OfficeAISystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<OfficeAIHotfixSystem, ProcessingCompanySystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<OfficeDemandHotfixSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<OfficeDemandHotfixSystem, OfficeDemandDiagnosticsSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<OfficeDemandHotfixSystem, IndustrialSpawnSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
@@ -50,28 +53,17 @@ namespace NoOfficeDemandFix
 
         private void BootstrapHarmonyPatchesIfNeeded()
         {
-            if (!RequiresHarmonyPatches())
-            {
-                log.Info("Outside-connection virtual seller fix disabled; skipping Harmony patch bootstrap.");
-                return;
-            }
-
             try
             {
                 m_Harmony = new Harmony(nameof(NoOfficeDemandFix));
                 m_Harmony.PatchAll(typeof(Mod).Assembly);
-                log.Info("Outside-connection virtual seller fix enabled; Harmony patch bootstrap completed.");
+                log.Info("Harmony patch bootstrap completed.");
             }
             catch (System.Exception ex)
             {
                 log.Error($"Harmony patch bootstrap failed. Falling back to vanilla behavior for this session. {ex}");
                 m_Harmony = null;
             }
-        }
-
-        private bool RequiresHarmonyPatches()
-        {
-            return m_Setting != null && m_Setting.EnableOutsideConnectionVirtualSellerFix;
         }
 
         public void OnDispose()
