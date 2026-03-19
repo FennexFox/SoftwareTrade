@@ -17,13 +17,28 @@ body:
       description: Summarize the user-facing changes.
     validations:
       required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Release-gate evidence
+      description: Link the release-build software evidence entry, the comparison summary against #71, and any PR #75 validation note. If the release does not ship experimental software-track behavior, say so explicitly.
+      placeholder: |
+        - comparable evidence: #...
+        - #71 comparison summary: same / better / worse / unclear
+        - PR #75 validation note: ...
+    validations:
+      required: true
   - type: checkboxes
     id: checks
     attributes:
       label: Checklist
       options:
         - label: README updated
+        - label: PublishConfiguration wording reviewed against shipped behavior
         - label: Diagnostics wording reviewed
+        - label: Release build completed successfully
+        - label: Release-build software evidence captured and compared against #71
+        - label: PR #75 diagnostic validity reviewed on the release candidate
         - label: Tag/version confirmed
         - label: Release notes reviewed
         - label: Local release script verified

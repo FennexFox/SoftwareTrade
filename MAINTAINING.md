@@ -12,6 +12,12 @@ branching, commit, PR, and testing expectations stay there.
 - Treat [`.github/workflows/release.yml`](./.github/workflows/release.yml) as the authoritative release definition.
 - For maintainer releases and local dry-runs, use the same inputs and sequence defined in the release workflow.
 - Keep release-version and player-facing release-copy decisions in the release or merge-specific change, not in investigation docs.
+- Treat `develop -> master` releases as evidence-gated when the release still ships experimental `software`-track behavior.
+- Before tagging a release that includes the current software import corrections, collect at least one release-build bounded evidence run that is directly comparable to [#71](https://github.com/FennexFox/NoOfficeDemandFix/issues/71) on the same or a tightly matched save lineage.
+- Use release-candidate settings that preserve comparison value: `EnablePhantomVacancyFix=True`, `EnableOutsideConnectionVirtualSellerFix=True`, `EnableVirtualOfficeResourceBuyerFix=True`, `EnableDemandDiagnostics=True`, `DiagnosticsSamplesPerDay=8`, `CaptureStableEvidence=True`, `VerboseLogging=True`.
+- Treat `3 days` as the minimum reusable release-gate window and prefer `5 days` when buyer-lifecycle interpretation is part of the release decision.
+- Record a short maintainer note for PR [#75](https://github.com/FennexFox/NoOfficeDemandFix/pull/75) before release confirming whether release-build diagnostics still preserve the current schema-level fields and verbose lifecycle artifacts needed for comparison.
+- Do not tag the release until `PublishConfiguration.xml`, `README.md`, and the release evidence summary all agree that the software path remains experimental rather than solved.
 
 ## Software Investigation Quickstart
 
