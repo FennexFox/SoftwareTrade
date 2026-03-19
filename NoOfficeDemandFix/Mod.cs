@@ -33,6 +33,8 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, CompanyMoveAwaySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialFindPropertySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<SignaturePropertyMarketGuardSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<OfficeAIHotfixSystem, OfficeAISystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<OfficeAIHotfixSystem, ProcessingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
