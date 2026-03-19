@@ -12,17 +12,32 @@ branching, commit, PR, and testing expectations stay there.
 - Treat [`.github/workflows/release.yml`](./.github/workflows/release.yml) as the authoritative release definition.
 - For maintainer releases and local dry-runs, use the same inputs and sequence defined in the release workflow.
 - Keep release-version and player-facing release-copy decisions in the release or merge-specific change, not in investigation docs.
+- Treat `develop -> master` releases as evidence-gated when the release still ships experimental `software`-track behavior.
+- Before tagging a release that includes the current software import corrections, collect at least one release-build bounded evidence run that is directly comparable to the current comparison-anchor software evidence entry on the same or a tightly matched save lineage.
+- Use release-candidate settings that preserve comparison value: `EnablePhantomVacancyFix=True`, `EnableOutsideConnectionVirtualSellerFix=True`, `EnableVirtualOfficeResourceBuyerFix=True`, `EnableDemandDiagnostics=True`, `DiagnosticsSamplesPerDay=8`, `CaptureStableEvidence=True`, `VerboseLogging=True`.
+- Treat `3 days` as the minimum reusable release-gate window and prefer `5 days` when buyer-lifecycle interpretation is part of the release decision.
+- Record a short validation note on the release PR before release confirming whether release-build diagnostics still preserve the current schema-level fields and verbose lifecycle artifacts needed for comparison.
+- Do not tag the release until `PublishConfiguration.xml`, `README.md`, and the release evidence summary all agree that the software path remains experimental rather than solved.
 
 ## Software Investigation Quickstart
+
+Shipped runtime lines versus investigation lines:
+
+- shipped runtime fixes: `Signature` phantom-vacancy cleanup and the office AI chunk-iteration hotfix
+- shipped comparability rollback: restore the pre-hotfix office demand baseline when you need like-for-like comparison against older `2x` office-demand runs rather than the newer vanilla `3x` multiplier
+- active investigation line: outside-connection virtual import seller / buyer lifecycle instability for zero-weight office resources
+- separate deferred line: office-demand / global-sales undercount remains a follow-up question rather than part of the shipped office AI fix
 
 Runtime investigation logs use the `softwareEvidenceDiagnostics` vocabulary.
 
 Settings:
 
-- default capture: enable `EnableDemandDiagnostics`; keep `CaptureStableEvidence` and `VerboseLogging` off
+- default capture: keep `EnableDemandDiagnostics=true`; keep `CaptureStableEvidence=false` and `VerboseLogging=false`
+- outside-connection virtual seller comparison capture: toggle `EnableOutsideConnectionVirtualSellerFix` only when you are explicitly comparing the outside-connection virtual seller path; record the exact state from `environment(settings=...)`
+- buyer-cadence comparison capture: toggle `EnableVirtualOfficeResourceBuyerFix` only when you are explicitly comparing the corrective post-vanilla buyer pass; record the exact state from `environment(settings=...)`
 - baseline capture: also enable `CaptureStableEvidence` when you need bounded scheduled observation windows even while the city looks stable
-- escalation capture: enable `VerboseLogging` only when you also need noisier patch and correction traces
-- keep `EnableTradePatch` off unless you are deliberately collecting comparison data
+- escalation capture: enable `VerboseLogging` only when you also need noisier correction traces plus supplemental `detail_type=softwareTradeLifecycle` lines and, for discussion-`#63` follow-up checks, `detail_type=softwareVirtualResolutionProbe` lines
+- treat historical `EnableTradePatch` values in old logs as legacy run context only; the storage-patch path is retired and should not be reintroduced as the default fix direction
 
 Promotion flow:
 
@@ -38,7 +53,9 @@ Review defaults:
 - include at most the immediately previous distinct sample when short chronology materially improves the evidence entry
 - treat copied observation anchors, counters, and selected detail excerpts as the hard evidence
 - keep `patch_state=unknown` unless you can replace it with an exact known local deviation set
-- treat missing producer-side trade-cost fields in the concise `input1(...)` / `input2(...)` formatter as intentional unless the change explicitly adds a separate verbose diagnostic path; see [LOG_REPORTING.md](./LOG_REPORTING.md) for formatter and diagnostic-path conventions
+- treat missing producer-side trade-cost fields in the concise `input1(...)` / `input2(...)` formatter as intentional; use verbose `detail_type=softwareTradeLifecycle` lines when seller-state or buyer-lifecycle detail is the active question, and `detail_type=softwareVirtualResolutionProbe` when you are checking whether a zero-weight virtual fast-path really resolved
+- keep the current split explicit: shipped office hotfixes can coexist with an unresolved `software` investigation line, and office-demand/global-sales undercount is still a separate deferred line
+- record the pre-hotfix office demand baseline direct patch explicitly in comparison summaries because runs with this mod are no longer directly comparable to unmodded `3x` vanilla office-demand behavior
 
 Detailed capture rules, interpretation rules, and comparison checkpoints live in
 [LOG_REPORTING.md](./LOG_REPORTING.md),

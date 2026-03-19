@@ -26,11 +26,14 @@ PROMOTE_COMMAND = "/promote-evidence"
 DIAGNOSTICS_OBSERVATION_PREFIX = "softwareEvidenceDiagnostics observation_window("
 DIAGNOSTICS_DETAIL_PREFIX = "softwareEvidenceDiagnostics detail("
 SOFTWARE_OFFICE_STATES_DETAIL_MARKER = "detail_type=softwareOfficeStates"
+SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER = "detail_type=softwareTradeLifecycle"
+SOFTWARE_VIRTUAL_RESOLUTION_PROBE_DETAIL_MARKER = "detail_type=softwareVirtualResolutionProbe"
 PHANTOM_CORRECTION_PREFIX = "Signature phantom vacancy guard corrected"
 PATCH_SUMMARY_PREFIXES = (
     "Office resource storage patch applied for the current load.",
     "Office resource storage patch applied.",
 )
+MAX_RECENT_TRADE_LIFECYCLE_DETAILS = 5
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
@@ -185,6 +188,14 @@ UNSUPPORTED_NOTES_PATTERNS = [
     r"\bunresolved\b",
     r"\blikely\b",
 ]
+UNSUPPORTED_BUYER_SHORTAGE_PATTERNS = [
+    r"\bbuyer shortage\b",
+    r"\bbuyer shortages\b",
+    r"\bbuyer absence\b",
+    r"\bno buyer\b",
+    r"\bno active buyer\b",
+    r"\bnoBuyerDespiteNeed\b",
+]
 UNSUPPORTED_PHANTOM_ZERO_PATTERNS = [
     r"\bphantom[-\s]*vacanc(?:y|ies)\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+(?:at\s+)?zero\b",
     r"\bguard[-\s]*corrections?\b.{0,120}\b(?:remain|remained|stayed|stay|were|was)\s+(?:at\s+)?zero\b",
@@ -203,7 +214,7 @@ EVIDENCE_STYLE_EXAMPLES = [
     {
         "name": "same-save comparison run",
         "summary_style": "Start with the tested condition, then describe the bounded window outcome without causal claims.",
-        "example_summary": "With `EnableTradePatch=False`, the same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
+        "example_summary": "The same save lineage still reproduced consumer-side shortage before ending with producer-side distress while office demand remained high.",
         "log_excerpt_style": "Use `### Day ...` subsections with fenced `text` blocks that quote only the selected producer or consumer detail lines.",
         "notes_style": "Use 3-5 factual bullets that walk through the run chronologically: stable start, recent anchored detail, final sample, and any important trade-state cue.",
     },
@@ -726,6 +737,130 @@ def detail_role(detail: dict[str, Any] | None) -> str:
     return ""
 
 
+def select_latest_detail_for_observation(
+    latest_observation: dict[str, Any] | None,
+    details: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not latest_observation or not details:
+        return None
+
+    latest_run_id = latest_observation["observation_window"].get("run_id")
+    latest_session_id = latest_observation["observation_window"].get("session_id")
+    latest_sample_index = latest_observation["observation_window"].get("sample_index")
+    matching_details = [
+        detail
+        for detail in details
+        if detail["metadata"].get("run_id") == latest_run_id
+        and detail["metadata"].get("session_id") == latest_session_id
+        and detail["metadata"].get("observation_end_sample_index") == latest_sample_index
+    ]
+    return matching_details[-1] if matching_details else details[-1]
+
+
+def split_batched_detail_values(values: str) -> list[str]:
+    return [part.strip() for part in values.split(" | ") if part.strip()]
+
+
+def parse_virtual_resolution_probe_entries(detail: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not detail:
+        return []
+
+    if str(detail.get("detail_type", "")) != "softwareVirtualResolutionProbe":
+        return []
+
+    values = str(detail.get("values", "")).strip()
+    if not values:
+        return []
+
+    return [parse_key_value_text(entry, "=") for entry in split_batched_detail_values(values)]
+
+
+def build_virtual_resolution_probe_summary(detail: dict[str, Any] | None) -> dict[str, Any]:
+    entries = parse_virtual_resolution_probe_entries(detail)
+    if not entries:
+        return {}
+
+    classifications = sorted(
+        {
+            str(entry.get("currentClassification", "")).strip()
+            for entry in entries
+            if str(entry.get("currentClassification", "")).strip()
+        }
+    )
+    true_count = sum(1 for entry in entries if entry.get("evidenceResolvedVirtual") is True)
+    false_count = sum(1 for entry in entries if entry.get("evidenceResolvedVirtual") is False)
+    summary: dict[str, Any] = {
+        "entry_count": len(entries),
+        "evidence_resolved_virtual_true_count": true_count,
+        "evidence_resolved_virtual_false_count": false_count,
+        "last_trade_partner_changed_true_count": sum(
+            1 for entry in entries if entry.get("lastTradePartnerChanged") is True
+        ),
+        "stock_increased_since_previous_sample_true_count": sum(
+            1 for entry in entries if entry.get("stockIncreasedSincePreviousSample") is True
+        ),
+    }
+    if len(classifications) == 1:
+        summary["current_classification"] = classifications[0]
+    elif classifications:
+        summary["current_classifications"] = classifications
+    return summary
+
+
+def summarize_virtual_resolution_probe(detail: dict[str, Any] | None) -> str:
+    summary = build_virtual_resolution_probe_summary(detail)
+    if not summary:
+        return ""
+
+    entry_count = safe_int(summary.get("entry_count"))
+    true_count = safe_int(summary.get("evidence_resolved_virtual_true_count"))
+    false_count = safe_int(summary.get("evidence_resolved_virtual_false_count"))
+    last_trade_partner_changed_true_count = safe_int(summary.get("last_trade_partner_changed_true_count"))
+    stock_increased_true_count = safe_int(summary.get("stock_increased_since_previous_sample_true_count"))
+    classification = str(summary.get("current_classification", "")).strip()
+    classification_text = (
+        f" for `currentClassification={classification}`"
+        if classification
+        else ""
+    )
+
+    if true_count > 0 and false_count > 0:
+        evidence_text = (
+            f"`evidenceResolvedVirtual=True` on {true_count}/{entry_count} entries "
+            f"and `False` on {false_count}/{entry_count}"
+        )
+    elif true_count > 0:
+        evidence_text = f"`evidenceResolvedVirtual=True` on all {entry_count} entries"
+    elif false_count > 0:
+        evidence_text = f"`evidenceResolvedVirtual=False` on all {entry_count} entries"
+    else:
+        evidence_text = f"`evidenceResolvedVirtual` was not parsed on {entry_count} entries"
+
+    signal_parts: list[str] = []
+    if last_trade_partner_changed_true_count > 0:
+        signal_parts.append(
+            f"`lastTradePartnerChanged=True` on {last_trade_partner_changed_true_count}/{entry_count}"
+        )
+    if stock_increased_true_count > 0:
+        signal_parts.append(
+            f"`stockIncreasedSincePreviousSample=True` on {stock_increased_true_count}/{entry_count}"
+        )
+
+    if signal_parts:
+        return (
+            "Latest `softwareVirtualResolutionProbe` detail"
+            f"{classification_text} kept {evidence_text}; "
+            + ", ".join(signal_parts)
+            + "."
+        )
+
+    return (
+        "Latest `softwareVirtualResolutionProbe` detail"
+        f"{classification_text} kept {evidence_text}; no "
+        "`lastTradePartnerChanged=True` or `stockIncreasedSincePreviousSample=True` evidence was recorded."
+    )
+
+
 def counter_value(observation: dict[str, Any] | None, group_name: str, field_name: str) -> int:
     counter_groups = (observation or {}).get("diagnostic_counters", {})
     return safe_int(counter_groups.get(group_name, {}).get(field_name))
@@ -1059,6 +1194,8 @@ def build_selected_snippets(
 def parse_log(log_text: str) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     software_office_details: list[dict[str, Any]] = []
+    software_trade_lifecycle_details: list[dict[str, Any]] = []
+    software_virtual_resolution_probe_details: list[dict[str, Any]] = []
     patch_summaries: list[str] = []
     phantom_corrections: list[str] = []
     anchors: list[dict[str, Any]] = []
@@ -1095,6 +1232,34 @@ def parse_log(log_text: str) -> dict[str, Any]:
                     message=extract_log_message(stripped),
                 )
             software_office_details.append(detail)
+            anchors.append(detail)
+            continue
+
+        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER in message:
+            try:
+                detail = parse_detail_line(stripped)
+            except Exception:
+                detail = build_anchor_record(
+                    "detail",
+                    stripped,
+                    parse_confidence="low",
+                    message=extract_log_message(stripped),
+                )
+            software_trade_lifecycle_details.append(detail)
+            anchors.append(detail)
+            continue
+
+        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_VIRTUAL_RESOLUTION_PROBE_DETAIL_MARKER in message:
+            try:
+                detail = parse_detail_line(stripped)
+            except Exception:
+                detail = build_anchor_record(
+                    "detail",
+                    stripped,
+                    parse_confidence="low",
+                    message=extract_log_message(stripped),
+                )
+            software_virtual_resolution_probe_details.append(detail)
             anchors.append(detail)
             continue
 
@@ -1144,16 +1309,44 @@ def parse_log(log_text: str) -> dict[str, Any]:
         ]
         latest_detail = matching_details[-1] if matching_details else (latest_run_details[-1] if latest_run_details else None)
 
+    latest_trade_lifecycle_detail = select_latest_detail_for_observation(
+        latest_observation,
+        software_trade_lifecycle_details,
+    )
+    latest_virtual_resolution_probe_detail = select_latest_detail_for_observation(
+        latest_observation,
+        software_virtual_resolution_probe_details,
+    )
+    latest_virtual_resolution_probe = build_virtual_resolution_probe_summary(
+        latest_virtual_resolution_probe_detail
+    )
+    virtual_resolution_probe_entry_count = 0
+    virtual_resolution_probe_true_count = 0
+    virtual_resolution_probe_false_count = 0
+    for detail in software_virtual_resolution_probe_details:
+        summary = build_virtual_resolution_probe_summary(detail)
+        virtual_resolution_probe_entry_count += safe_int(summary.get("entry_count"))
+        virtual_resolution_probe_true_count += safe_int(summary.get("evidence_resolved_virtual_true_count"))
+        virtual_resolution_probe_false_count += safe_int(summary.get("evidence_resolved_virtual_false_count"))
+
     return {
         "anchors": anchors,
         "anchor_index": build_anchor_index(anchors),
         "latest_observation": latest_observation,
         "latest_software_office_detail": latest_detail,
+        "latest_trade_lifecycle_detail": latest_trade_lifecycle_detail,
+        "latest_virtual_resolution_probe_detail": latest_virtual_resolution_probe_detail,
+        "latest_virtual_resolution_probe": latest_virtual_resolution_probe,
         "latest_patch_summary": patch_summaries[-1] if patch_summaries else "",
         "patch_summaries": patch_summaries[-5:],
         "phantom_corrections": phantom_corrections[-5:],
         "observation_count": len(observations),
         "detail_count": len(software_office_details),
+        "trade_lifecycle_detail_count": len(software_trade_lifecycle_details),
+        "virtual_resolution_probe_detail_count": len(software_virtual_resolution_probe_details),
+        "virtual_resolution_probe_entry_count": virtual_resolution_probe_entry_count,
+        "virtual_resolution_probe_true_count": virtual_resolution_probe_true_count,
+        "virtual_resolution_probe_false_count": virtual_resolution_probe_false_count,
         "latest_run_observations": latest_run_candidates["latest_run_observations"],
         "latest_run_details": latest_run_details,
         "final_observation": latest_run_candidates["final_observation"],
@@ -1161,6 +1354,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_producer_detail_observation": latest_run_candidates["latest_producer_detail_observation"],
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
+        "recent_trade_lifecycle_details": software_trade_lifecycle_details[-MAX_RECENT_TRADE_LIFECYCLE_DETAILS:],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
         "selected_snippets": build_selected_snippets(
             latest_run_candidates["log_excerpt_candidates"],
@@ -1200,8 +1394,6 @@ def build_deterministic_title(
 ) -> str:
     final_observation = parsed_log.get("final_observation") or parsed_log.get("latest_observation") or {}
     final_day = observation_day(final_observation)
-    settings = final_observation.get("settings", {})
-    trade_patch = settings.get("EnableTradePatch")
     _ = derived_classification
 
     scenario_label = issue_fields.get("save_or_city_label", "").strip()
@@ -1209,10 +1401,6 @@ def build_deterministic_title(
         return f"[Software Evidence] {scenario_label} evidence by day {final_day}"
     if scenario_label:
         return f"[Software Evidence] {scenario_label}"
-    if final_day > 0 and trade_patch is True:
-        return f"[Software Evidence] EnableTradePatch-enabled diagnostics by day {final_day}"
-    if final_day > 0 and trade_patch is False:
-        return f"[Software Evidence] EnableTradePatch-disabled diagnostics by day {final_day}"
     if final_day > 0:
         return f"[Software Evidence] raw-log diagnostics by day {final_day}"
     return "[Software Evidence] from raw log intake"
@@ -1312,8 +1500,26 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
         buyer_state_snapshot = format_relevant_counter_group(
             "softwareConsumerBuyerState",
             buyer_state,
-            ("needSelected", "noBuyerDespiteNeed", "tradeCostOnly", "buyerActive"),
-            include_zero_fields=("buyerActive",),
+            (
+                "needSelected",
+                "resourceBuyerPresent",
+                "correctiveBuyerPresent",
+                "vanillaBuyerPresent",
+                "trackingExpectedSelected",
+                "selectedNoResourceBuyer",
+                "selectedNoBuyerShortGap",
+                "selectedNoBuyerPersistent",
+                "selectedRequestNoPath",
+                "selectedRequestNoPathShortGap",
+                "selectedRequestNoPathPersistent",
+                "resolvedVirtualNoTrackingExpected",
+                "virtualResolvedThisWindow",
+                "virtualResolvedAmount",
+                "resolvedNoTrackingUnexpected",
+                "pathPending",
+                "tripPresent",
+                "currentTradingPresent",
+            ),
         )
         if buyer_state_snapshot:
             lines.append(buyer_state_snapshot)
@@ -1374,6 +1580,12 @@ def build_deterministic_notes(parsed_log: dict[str, Any]) -> str:
         note_lines.append(
             "Sampled trade-state detail still showed `tradeCostEntry=True` on affected office lines."
         )
+
+    virtual_resolution_probe_summary = summarize_virtual_resolution_probe(
+        parsed_log.get("latest_virtual_resolution_probe_detail")
+    )
+    if virtual_resolution_probe_summary:
+        note_lines.append(virtual_resolution_probe_summary)
 
     office_demand = (final_observation or {}).get("diagnostic_counters", {}).get("officeDemand", {})
     if "buildingDemand" in office_demand:
@@ -1528,10 +1740,17 @@ def build_deterministic_confounders(
         confounder_lines.append(f"patch_state={patch_state}")
 
     if "EnableTradePatch" in settings:
-        if settings.get("EnableTradePatch"):
-            confounder_lines.append("trade patch enabled during capture")
-        else:
-            confounder_lines.append("trade patch disabled during capture")
+        confounder_lines.append(
+            f"legacy setting recorded in capture: EnableTradePatch={settings.get('EnableTradePatch')}"
+        )
+
+    if "EnableOutsideConnectionVirtualSellerFix" in settings:
+        state = "enabled" if settings.get("EnableOutsideConnectionVirtualSellerFix") is True else "disabled"
+        confounder_lines.append(f"outside-connection virtual seller fix {state} during capture")
+
+    if "EnableVirtualOfficeResourceBuyerFix" in settings:
+        state = "enabled" if settings.get("EnableVirtualOfficeResourceBuyerFix") is True else "disabled"
+        confounder_lines.append(f"virtual office resource buyer fix {state} during capture")
 
     if not settings.get("CaptureStableEvidence"):
         confounder_lines.append("no stable baseline capture in this raw intake")
@@ -1722,7 +1941,7 @@ def build_summary_refinement_context(
             }
             for candidate in selected_candidates
         ],
-        "semantic_facts": build_llm_semantic_facts(parsed_log)[:6],
+        "semantic_facts": build_llm_semantic_facts(parsed_log),
     }
 
 
@@ -1873,7 +2092,9 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
         "softwareProducerOffices.lackResourcesZero and softwareConsumerOffices.lackResourcesZero count offices where the diagnostic field lackResources=0.",
         "lackResourcesZero does not mean the office had zero resources, no resources, or a confirmed input shortage.",
         "softwareConsumerOffices.softwareInputZero counts consumer offices where the software input state was zero in diagnostics; it is not a citywide demand verdict by itself.",
-        "softwareConsumerBuyerState.noBuyerDespiteNeed counts consumer offices with selected software need but no active buyer in the latest observation.",
+        "softwareConsumerBuyerState.selectedNoResourceBuyer counts selected software consumers with no matching ResourceBuyer in the latest observation.",
+        "softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected counts selected software consumers where zero-weight virtual-resource flow had a resolved path signal and no tracked trip/currentTrading state was expected.",
+        "softwareConsumerBuyerState.resolvedNoTrackingUnexpected counts selected software consumers with a resolved path signal but no tracked trip/currentTrading state where tracking was still expected or request resolution looked inconsistent.",
         "If a detail line shows softwareInputZero=False, do not summarize that office as a confirmed softwareInputZero case or a confirmed shortage; describe the buyer-state fields literally.",
         "If the facts show efficiency=0 and lackResources=0, summarize that conservatively as 'efficiency=0 while lackResources=0'.",
         "Do not use phrases like 'zero resources' or 'no resources' unless the provided facts literally support that wording.",
@@ -1899,10 +2120,108 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
             f"Latest counters: softwareConsumerOffices.softwareInputZero={software_input_zero} means {software_input_zero} consumer offices had softwareInputZero in the latest observation."
         )
 
-    no_buyer_despite_need = safe_int(buyer_state.get("noBuyerDespiteNeed"))
-    if no_buyer_despite_need > 0:
+    need_selected = safe_int(buyer_state.get("needSelected"))
+    if need_selected > 0:
         facts.append(
-            f"Latest counters: softwareConsumerBuyerState.noBuyerDespiteNeed={no_buyer_despite_need} and buyerActive={safe_int(buyer_state.get('buyerActive'))} describe selected software need with no active buyer in the latest observation."
+            f"Latest counters: softwareConsumerBuyerState.needSelected={need_selected} is the number of selected software consumers in the latest observation."
+        )
+
+    resource_buyer_present = safe_int(buyer_state.get("resourceBuyerPresent"))
+    if resource_buyer_present > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.resourceBuyerPresent={resource_buyer_present} means that many selected software consumers already had a ResourceBuyer in the latest observation."
+        )
+
+    corrective_buyer_present = safe_int(buyer_state.get("correctiveBuyerPresent"))
+    if corrective_buyer_present > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.correctiveBuyerPresent={corrective_buyer_present} means that many selected software consumers already had a corrective buyer in the latest observation."
+        )
+
+    vanilla_buyer_present = safe_int(buyer_state.get("vanillaBuyerPresent"))
+    if vanilla_buyer_present > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.vanillaBuyerPresent={vanilla_buyer_present} means that many selected software consumers already had a vanilla buyer in the latest observation."
+        )
+
+    if (
+        need_selected > 0
+        and resource_buyer_present == need_selected
+        and safe_int(buyer_state.get("selectedNoResourceBuyer")) == 0
+    ):
+        facts.append(
+            "Do not describe the latest observation as buyer absence or buyer shortage: every selected software consumer already had a ResourceBuyer."
+        )
+
+    selected_request_no_path = safe_int(buyer_state.get("selectedRequestNoPath"))
+    if selected_request_no_path > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedRequestNoPath={selected_request_no_path} means selected software consumers had a buyer but still had no resolved path in the latest observation."
+        )
+
+    path_pending = safe_int(buyer_state.get("pathPending"))
+    if path_pending > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.pathPending={path_pending} means selected software consumers were in a pending-path state in the latest observation."
+        )
+
+    selected_no_resource_buyer = safe_int(buyer_state.get("selectedNoResourceBuyer"))
+    if selected_no_resource_buyer > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoResourceBuyer={selected_no_resource_buyer} describes selected software consumers with no matching ResourceBuyer in the latest observation."
+        )
+        virtual_resolution_probe_summary = summarize_virtual_resolution_probe(
+            parsed_log.get("latest_virtual_resolution_probe_detail")
+        )
+        if virtual_resolution_probe_summary:
+            facts.append(virtual_resolution_probe_summary)
+
+    selected_no_buyer_short_gap = safe_int(buyer_state.get("selectedNoBuyerShortGap"))
+    if selected_no_buyer_short_gap > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerShortGap={selected_no_buyer_short_gap} marks selected software consumers whose buyerless state still looked like a short gap in the latest observation."
+        )
+
+    selected_no_buyer_persistent = safe_int(buyer_state.get("selectedNoBuyerPersistent"))
+    if selected_no_buyer_persistent > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerPersistent={selected_no_buyer_persistent} marks selected software consumers whose buyerless state persisted across multiple windows."
+        )
+
+    selected_request_no_path_short_gap = safe_int(buyer_state.get("selectedRequestNoPathShortGap"))
+    if selected_request_no_path_short_gap > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedRequestNoPathShortGap={selected_request_no_path_short_gap} marks selected software consumers with a buyer/no-path state that still looked short-lived in the latest observation."
+        )
+
+    selected_request_no_path_persistent = safe_int(buyer_state.get("selectedRequestNoPathPersistent"))
+    if selected_request_no_path_persistent > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedRequestNoPathPersistent={selected_request_no_path_persistent} marks selected software consumers with a buyer/no-path state that persisted across multiple windows."
+        )
+
+    resolved_virtual_expected = safe_int(buyer_state.get("resolvedVirtualNoTrackingExpected"))
+    if resolved_virtual_expected > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected={resolved_virtual_expected} marks selected software consumers whose zero-weight virtual-resource flow resolved without tracked TripNeeded or CurrentTrading state."
+        )
+
+    virtual_resolved_this_window = safe_int(buyer_state.get("virtualResolvedThisWindow"))
+    if virtual_resolved_this_window > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.virtualResolvedThisWindow={virtual_resolved_this_window} means actual in-window virtual Software resolution was observed."
+        )
+
+    virtual_resolved_amount = safe_int(buyer_state.get("virtualResolvedAmount"))
+    if virtual_resolved_amount > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.virtualResolvedAmount={virtual_resolved_amount} is the total observed in-window resolved virtual Software amount."
+        )
+
+    resolved_no_tracking_unexpected = safe_int(buyer_state.get("resolvedNoTrackingUnexpected"))
+    if resolved_no_tracking_unexpected > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.resolvedNoTrackingUnexpected={resolved_no_tracking_unexpected} marks selected software consumers with a resolved path signal but no tracked TripNeeded or CurrentTrading state where tracking was still expected."
         )
 
     office_demand_building = safe_int(counter_groups.get("officeDemand", {}).get("building"))
@@ -1965,7 +2284,15 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - `evidence_summary` must stay factual and observational. Keep it to 2-4 short sentences about what the provided diagnostics showed.
         - Do not mention the chosen symptom label, classification process, or why a label applies inside `evidence_summary`.
         - Do not use `evidence_summary` for causal claims, recommendations, or likely explanations.
-        - Prefer literal counter language in `evidence_summary`, such as `officeDemand.building=...`, `softwareConsumerBuyerState.noBuyerDespiteNeed=...`, or `buyerActive=0`, when those counters are the main signal.
+        - Prefer literal counter language in `evidence_summary`, such as `officeDemand.building=...`, `softwareConsumerBuyerState.selectedNoResourceBuyer=...`, or `softwareConsumerBuyerState.resolvedNoTrackingUnexpected=...`, when those counters are the main signal.
+        - If `softwareConsumerBuyerState.selectedNoResourceBuyer=0`, do not describe the latest observation as buyer absence, no-buyer pressure, or buyer shortage.
+        - If `softwareConsumerBuyerState.resourceBuyerPresent` equals `softwareConsumerBuyerState.needSelected`, describe that literally as buyer coverage rather than shortage.
+        - If `softwareConsumerBuyerState.correctiveBuyerPresent` or `softwareConsumerBuyerState.vanillaBuyerPresent` is nonzero, mention corrective or vanilla buyer coverage when buyer-state fields are central to the run.
+        - If `softwareConsumerBuyerState.selectedRequestNoPath` or `softwareConsumerBuyerState.pathPending` is nonzero, prefer path-stage wording such as buyer-present / no-path / pending-path rather than buyer-shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerPersistent` or `softwareConsumerBuyerState.selectedRequestNoPathPersistent` is nonzero, use persistence wording rather than generic shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerShortGap` or `softwareConsumerBuyerState.selectedRequestNoPathShortGap` is nonzero, use short-gap wording rather than persistent-stall wording.
+        - If `softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected` or `softwareConsumerBuyerState.virtualResolvedThisWindow` is nonzero, include that actual in-window virtual resolution was observed.
+        - Do not use legacy wording such as `noBuyerDespiteNeed` unless that exact field is present in the provided facts.
         - `comparison_baseline` should stay empty unless the provided facts explicitly support a save-lineage, issue-reference, or patch-state comparison.
         - `confidence` must be one of: high, medium, low. Use `medium` unless the facts strongly justify another choice.
         - Keep confounders short and checklist-like. Prefer 1-4 short lines about run conditions, other mods, patch state, missing baseline, or similar evidence limits.
@@ -1990,7 +2317,8 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - Do not say phantom-vacancy counters or guard corrections stayed zero if the provided run facts include phantom corrections or non-zero `guardCorrections` anywhere in the bounded window.
         - Avoid subjective intensifiers like "significantly"; prefer direct counter changes instead.
         - When the run is mainly showing buyer-state pressure, describe the buyer-state fields literally rather than claiming the demand was resolved or unresolved.
-        - Prefer `software_demand_mismatch` when software-track distress is present while office-demand counters stay high or rise in the provided window.
+        - Do not prefer `software_demand_mismatch` over literal buyer/path/resolution framing when buyer coverage or in-window virtual resolution is explicitly present in the latest counters.
+        - Prefer `software_demand_mismatch` when software-track distress is present while office-demand counters stay high or rise in the provided window and the latest counters do not show broad buyer coverage or actual in-window virtual resolution.
         - If you use a non-canonical symptom label, set `symptom_classification` to `other` and put the final label in `custom_symptom_classification`.
         - Use one of these labels when possible:
           software_office_propertyless, software_office_efficiency_zero,
@@ -2044,6 +2372,12 @@ def build_summary_refinement_request_payload(context: dict[str, Any], model: str
         - Do not mention labels, comparisons, recommendations, or root-cause theories.
         - Do not say phantom-vacancy activity was absent if the provided facts show phantom corrections or guardCorrections.
         - If buyer-state fields are the main signal, describe those buyer-state fields literally.
+        - If `softwareConsumerBuyerState.selectedNoResourceBuyer=0`, do not describe the latest observation as buyer absence, no-buyer pressure, or buyer shortage.
+        - If `softwareConsumerBuyerState.resourceBuyerPresent` equals `softwareConsumerBuyerState.needSelected`, describe that literally as buyer coverage rather than shortage.
+        - If `softwareConsumerBuyerState.correctiveBuyerPresent` or `softwareConsumerBuyerState.vanillaBuyerPresent` is nonzero, mention corrective or vanilla buyer coverage when buyer-state fields are central to the run.
+        - If `softwareConsumerBuyerState.selectedNoBuyerPersistent` or `softwareConsumerBuyerState.selectedRequestNoPathPersistent` is nonzero, prefer persistence wording rather than generic shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerShortGap` or `softwareConsumerBuyerState.selectedRequestNoPathShortGap` is nonzero, prefer short-gap wording rather than persistent-stall wording.
+        - If `softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected` or `softwareConsumerBuyerState.virtualResolvedThisWindow` is nonzero, include that actual in-window virtual resolution was observed.
         - Avoid subjective intensifiers like "significantly".
         - Return only a stronger factual summary, not extra commentary.
         """
@@ -2221,7 +2555,7 @@ def supports_explicit_comparison(issue_fields: dict[str, str]) -> bool:
             issue_fields.get("save_or_city_label", ""),
         ]
     ).lower()
-    keywords = ("same save", "same lineage", "baseline", "compare", "comparison", "#", "trade patch")
+    keywords = ("same save", "same lineage", "baseline", "compare", "comparison", "#", "reload", "restart")
     return any(keyword in comparison_hints for keyword in keywords)
 
 
@@ -2329,12 +2663,43 @@ def has_unsupported_phantom_absence_claim(text: str, parsed_log: dict[str, Any])
     )
 
 
+def has_unsupported_buyer_shortage_claim(text: str, parsed_log: dict[str, Any]) -> bool:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    counter_groups = latest_observation.get("diagnostic_counters", {})
+    buyer_state = counter_groups.get("softwareConsumerBuyerState", {})
+
+    need_selected = safe_int(buyer_state.get("needSelected"))
+    if need_selected <= 0:
+        return False
+
+    buyer_shortage_claim = any(
+        re.search(pattern, text, flags=re.IGNORECASE)
+        for pattern in UNSUPPORTED_BUYER_SHORTAGE_PATTERNS
+    )
+    if not buyer_shortage_claim:
+        return False
+
+    resource_buyer_present = safe_int(buyer_state.get("resourceBuyerPresent"))
+    selected_no_resource_buyer = safe_int(buyer_state.get("selectedNoResourceBuyer"))
+    corrective_buyer_present = safe_int(buyer_state.get("correctiveBuyerPresent"))
+
+    if selected_no_resource_buyer == 0 and resource_buyer_present == need_selected:
+        return True
+
+    if selected_no_resource_buyer == 0 and corrective_buyer_present == need_selected:
+        return True
+
+    return False
+
+
 def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
         return True
     if has_unsupported_phantom_absence_claim(text, parsed_log):
         return True
     if has_unsupported_phantom_zero_claim(text, parsed_log):
+        return True
+    if has_unsupported_buyer_shortage_claim(text, parsed_log):
         return True
     return False
 
@@ -2344,7 +2709,9 @@ def has_unsupported_notes_interpretation(text: str, parsed_log: dict[str, Any]) 
         return True
     if has_unsupported_phantom_absence_claim(text, parsed_log):
         return True
-    return has_unsupported_phantom_zero_claim(text, parsed_log)
+    if has_unsupported_phantom_zero_claim(text, parsed_log):
+        return True
+    return False
 
 
 def normalize_missing_user_input(
@@ -2637,6 +3004,7 @@ def apply_llm_wording_guards(suggestions: dict[str, Any]) -> dict[str, Any]:
         value = str(normalized.get(field_name, ""))
         value = re.sub(r"\bzero resources\b", "lackResources=0", value, flags=re.IGNORECASE)
         value = re.sub(r"\bno resources\b", "lackResources=0", value, flags=re.IGNORECASE)
+        value = re.sub(r"\bnoBuyerDespiteNeed\b", "selectedNoResourceBuyer", value)
         normalized[field_name] = value
     return normalized
 
@@ -2876,7 +3244,11 @@ def render_managed_comment(
     payload = {
         "raw_issue": {
             "number": issue_number,
-            "fields": issue_fields,
+            "fields": {
+                field_name: field_value
+                for field_name, field_value in issue_fields.items()
+                if field_name != "raw_log"
+            },
         },
         "log_source": {
             "mode": log_source["mode"],
@@ -2885,21 +3257,24 @@ def render_managed_comment(
         },
         "redaction_notes": redaction_notes,
         "parsed_log": {
-            "anchors": parsed_log.get("anchors", []),
             "anchor_index": parsed_log.get("anchor_index", {}),
             "latest_observation": latest_observation,
             "final_observation": parsed_log.get("final_observation"),
             "consumer_peak_observation": parsed_log.get("consumer_peak_observation"),
             "producer_peak_observation": parsed_log.get("producer_peak_observation"),
             "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
+            "latest_virtual_resolution_probe": parsed_log.get("latest_virtual_resolution_probe"),
             "latest_patch_summary": parsed_log.get("latest_patch_summary", ""),
             "patch_summaries": parsed_log.get("patch_summaries", []),
             "phantom_corrections": parsed_log.get("phantom_corrections", []),
             "observation_count": parsed_log.get("observation_count", 0),
             "detail_count": parsed_log.get("detail_count", 0),
+            "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
+            "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
+            "virtual_resolution_probe_entry_count": parsed_log.get("virtual_resolution_probe_entry_count", 0),
+            "virtual_resolution_probe_true_count": parsed_log.get("virtual_resolution_probe_true_count", 0),
+            "virtual_resolution_probe_false_count": parsed_log.get("virtual_resolution_probe_false_count", 0),
             "log_excerpt_candidates": parsed_log.get("log_excerpt_candidates", []),
-            "selected_snippets": parsed_log.get("selected_snippets", []),
-            "fallback_hints": parsed_log.get("fallback_hints", {}),
         },
         "deterministic_draft": deterministic_draft,
         "llm_draft": llm_draft,
@@ -3080,6 +3455,63 @@ def render_managed_comment_body(
         ]
     ).strip()
 
+    if len(body) > COMMENT_BODY_LIMIT:
+        compact_payload = dict(payload)
+        compact_parsed = dict(payload["parsed_log"])
+        compact_parsed["latest_software_office_detail"] = None
+        compact_parsed["latest_virtual_resolution_probe"] = None
+        compact_parsed["log_excerpt_candidates"] = select_preferred_excerpt_candidates(
+            list(compact_parsed.get("log_excerpt_candidates", [])),
+            2,
+        )
+        compact_parsed["patch_summaries"] = compact_parsed["patch_summaries"][-3:]
+        compact_parsed["phantom_corrections"] = compact_parsed["phantom_corrections"][-3:]
+        compact_payload["parsed_log"] = compact_parsed
+        body = "\n".join(
+            [
+                MANAGED_COMMENT_MARKER,
+                f"Raw log triage draft for #{issue_number}. Do not edit this bot comment. Copy the `maintainer_reply` YAML into a new maintainer comment and add `{PROMOTE_COMMAND}` there when ready. Plain pasted YAML is accepted.",
+                "",
+                "## Draft Evidence Issue Preview",
+                f"Draft title: `{preview_fields.get('title', '')}`",
+                preview_body,
+                "",
+                "### Draft provenance",
+                f"- LLM status: `{llm_status}`",
+                f"- LLM detail: `{llm_detail}`",
+                f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
+                f"- Deterministic reasoning: `{deterministic_reasoning}`",
+                (
+                    f"- LLM reasoning: `{llm_reasoning}`"
+                    if llm_reasoning and len(llm_reasoning) <= LLM_REASONING_SUMMARY_MAX_LENGTH
+                    else "- LLM reasoning: `see machine payload`"
+                )
+                if llm_reasoning
+                else "- LLM reasoning: `not used`",
+                "",
+                "### Maintainer reply template",
+                REPLY_TEMPLATE_START_MARKER,
+                "```yaml",
+                dump_reply_yaml(reply_fields),
+                "```",
+                REPLY_TEMPLATE_END_MARKER,
+                "",
+                PAYLOAD_START_MARKER,
+                "<details>",
+                "<summary>Machine payload</summary>",
+                "",
+                "Do not edit this block manually.",
+                "",
+                "```json",
+                json.dumps(compact_payload, ensure_ascii=True, indent=2),
+                "```",
+                "</details>",
+                PAYLOAD_END_MARKER,
+            ]
+        ).strip()
+        payload = compact_payload
+
+    return body, payload
 
 def parse_managed_comment(comment_body: str) -> dict[str, Any]:
     reply_yaml = extract_fenced_block(comment_body, REPLY_TEMPLATE_START_MARKER, REPLY_TEMPLATE_END_MARKER)
