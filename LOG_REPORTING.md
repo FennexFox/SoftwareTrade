@@ -5,12 +5,16 @@ triage it into a normalized `software evidence` draft.
 
 ## Before You Capture Logs
 
-- turn on `EnableDemandDiagnostics`
+- leave `EnableDemandDiagnostics` on
+- leave `EnableOutsideConnectionVirtualSellerFix` at its current default state unless you are intentionally running an outside-connection virtual seller comparison
+- leave `EnableVirtualOfficeResourceBuyerFix` at its current default state unless you are intentionally running a buyer-cadence comparison
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
-- turn on `VerboseLogging` only when you also need the noisier patch and correction traces
+- turn on `VerboseLogging` only when you also need the noisier correction traces and supplemental `softwareTradeLifecycle` detail lines
+- if you are submitting an older historical log, keep any retired `EnableTradePatch` field exactly as captured in the `settings=...` snapshot; it is legacy context, not a current setting
 
 Current setting defaults are documented in [README.md](./README.md).
+When you intentionally change either experimental software fix setting, keep the exact `settings=...` snapshot because later comparisons use that logged state as the source of truth.
 
 ## How To Submit A Raw Log
 
@@ -30,6 +34,7 @@ Current setting defaults are documented in [README.md](./README.md).
 - redact obvious local filesystem paths before optional GitHub Models drafting
 - extract the latest `softwareEvidenceDiagnostics observation_window(...)`
 - preserve recent anchored `softwareEvidenceDiagnostics detail(...)` lines, using the latest consumer excerpt plus the latest producer excerpt as the default pair when both roles exist and adding at most one immediately previous distinct sample only when short chronology materially affects interpretation
+- keep verbose `detail_type=softwareTradeLifecycle` lines as supplemental artifacts when buyer/seller lifecycle transitions or seller snapshots matter; they do not replace the scheduled observation window or the concise `softwareOfficeStates` detail anchors
 - post a managed triage comment with a normalized draft and a copy-ready
   `maintainer_reply` YAML block
 

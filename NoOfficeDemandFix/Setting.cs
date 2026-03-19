@@ -21,13 +21,16 @@ namespace NoOfficeDemandFix
         }
 
         [SettingsUISection(kSection, kGeneralGroup)]
-        public bool EnableTradePatch { get; set; }
-
-        [SettingsUISection(kSection, kGeneralGroup)]
         public bool EnablePhantomVacancyFix { get; set; } = true;
 
+        [SettingsUISection(kSection, kGeneralGroup)]
+        public bool EnableOutsideConnectionVirtualSellerFix { get; set; } = true;
+
+        [SettingsUISection(kSection, kGeneralGroup)]
+        public bool EnableVirtualOfficeResourceBuyerFix { get; set; } = true;
+
         [SettingsUISection(kSection, kDiagnosticsGroup)]
-        public bool EnableDemandDiagnostics { get; set; }
+        public bool EnableDemandDiagnostics { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
         [SettingsUISlider(min = 1, max = 8, step = 1, scalarMultiplier = 1, unit = Unit.kInteger)]
@@ -41,9 +44,10 @@ namespace NoOfficeDemandFix
 
         public override void SetDefaults()
         {
-            EnableTradePatch = false;
             EnablePhantomVacancyFix = true;
-            EnableDemandDiagnostics = false;
+            EnableOutsideConnectionVirtualSellerFix = true;
+            EnableVirtualOfficeResourceBuyerFix = true;
+            EnableDemandDiagnostics = true;
             DiagnosticsSamplesPerDay = 2;
             CaptureStableEvidence = false;
             VerboseLogging = false;
@@ -69,23 +73,26 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionGroupLocaleID(Setting.kGeneralGroup), "General" },
                 { m_Setting.GetOptionGroupLocaleID(Setting.kDiagnosticsGroup), "Diagnostics" },
 
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableTradePatch)), "Enable office resource trade patch" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableTradePatch)), "Experimental software-track investigation aid. Adds office resources to outside connection and cargo station storage definitions so software can pass existing import and storage gates while you collect diagnostics. Changes apply the next time you load a city or save; a full game restart is usually not required. For clean comparison runs, restart before loading if other mods may also change these storage resource definitions." },
-
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Enable phantom vacancy fix" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePhantomVacancyFix)), "Applies immediately to future simulation ticks by removing PropertyOnMarket and PropertyToBeOnMarket from occupied signature office and industrial properties before demand and property search evaluate them. Disabling it stops future corrections but does not restore already cleaned-up market state." },
 
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableOutsideConnectionVirtualSellerFix)), "Enable software import seller correction" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableOutsideConnectionVirtualSellerFix)), "Experimental software import seller correction. Takes effect on the next game launch by letting office virtual-resource imports consider outside connections in a narrow fallback case. It does not modify cargo or storage definitions." },
+
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Enable software import buyer timing correction" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Experimental software import buyer timing correction. Adds a narrow fallback ResourceBuyer for zero-weight office inputs when a company is below the vanilla low-stock threshold but no buyer, path, trip, or current trading state exists yet." },
+
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Live-applies and logs office demand factors, free office properties, phantom vacancy counters, and software producer/consumer office state. Leave it off by default unless you are actively collecting software-track evidence." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Logs office-demand factors, free office properties, phantom-vacancy counters, and software producer/consumer office state when the simulation looks suspicious. Leave it on for troubleshooting, or turn it off if you want quieter logs." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DiagnosticsSamplesPerDay)), "Diagnostics samples per day" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DiagnosticsSamplesPerDay)), "Controls how many scheduled diagnostic sample slots exist per displayed in-game day. `sample_slot` follows the runtime `TimeSystem` time-of-day path, while `sample_day` uses a logical displayed-clock day that is seeded from the runtime day value and advances when the sampled slot wraps at midnight. `clock_source` is normally `runtime_time_system`, `sample_count` counts emitted observation windows in the current run, and `skipped_sample_slots` reports scheduled gaps that were not backfilled. This only matters when diagnostics are enabled. Default is 2." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.DiagnosticsSamplesPerDay)), "Controls how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values create denser logs. Default is 2." },
 
-                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.CaptureStableEvidence)), "Capture stable evidence windows" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.CaptureStableEvidence)), "Keeps scheduled softwareEvidenceDiagnostics observation windows flowing at the configured per-day cadence while diagnostics are enabled, even when no suspicious signal is currently present. Missed scheduled slots are reported through `skipped_sample_slots` instead of backfilled logs. Use it only when you want baseline or no-symptom evidence for investigation." },
+                { m_Setting.GetOptionLabelLocaleID(nameof(Setting.CaptureStableEvidence)), "Capture stable baseline windows" },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.CaptureStableEvidence)), "Keeps scheduled software diagnostics running at the configured cadence even when the city looks stable. Use it only when you want baseline troubleshooting logs." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.VerboseLogging)), "Verbose logging" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom vacancy corrections, forces office diagnostics output at the configured per-day cadence while diagnostics are enabled, and adds the noisier correction and patch traces. Use it for investigation only; it does not replay one-shot prefab patch logs that already happened earlier in the session." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom-vacancy corrections, forces diagnostics output at the configured cadence, and adds noisier correction and office-trade detail traces. Use it only when you want detailed troubleshooting logs." },
             };
         }
 

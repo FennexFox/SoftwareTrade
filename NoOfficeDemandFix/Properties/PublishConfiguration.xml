@@ -4,20 +4,23 @@
 	<!--Name of the mod to display to players-->
 	<DisplayName Value="No Office Demand Fix" />
 	<!--Short description of the mod-->
-	<ShortDescription Value="Fixes the confirmed Signature phantom vacancy case and adds optional software-track diagnostics." />
+	<ShortDescription Value="Fixes the confirmed Signature phantom vacancy case and includes experimental software import corrections." />
 	<!--Long description of the mod. Single line or multi line. Supports minimal markdown subset-->
 	<!--LongDescription Value="There is a notorious "No Office Demand" bug in the current game: the Efficient of some Office Buildings drops to 0, causing the game to mistakenly treat them as Vacant and therefore not generate Office Demand. The reason some Office Buildings' Efficient falls to 0 is known to be related to the production and consumption of software." /-->
 	<LongDescription>
-No Office Demand Fix currently covers one shipped office-demand fix and one separate software/resource investigation path in Cities: Skylines II.
+No Office Demand Fix currently ships one confirmed office-demand fix plus a narrower software troubleshooting path in Cities: Skylines II.
 
 - Signature Phantom Vacancy fix: removes stale PropertyOnMarket and PropertyToBeOnMarket state from occupied Signature office and industrial properties so false free-space counts stop suppressing demand.
-- Software track tools: includes an optional office-resource trade patch plus opt-in diagnostics for software producer/consumer investigation and evidence collection.
+- Software import seller correction: a narrow fallback that lets office virtual-resource imports consider outside connections when vanilla seller selection is too restrictive.
+- Software import buyer timing correction: a narrow fallback buyer for zero-weight office inputs that remain below threshold without a buyer, path, trip, or current trading state.
+- Diagnostics: optional logs for office demand, phantom vacancy, and software office state.
 
 Current release status:
 
 - fixes the reproduced Signature phantom vacancy case
+- includes experimental software import seller and buyer corrections by default
+- keeps broader software-related office stalls under investigation
 - keeps non-signature phantom vacancy under observation
-- keeps the software path available for comparison and diagnostics, not as a claimed full fix
 	</LongDescription>
 	<!--Thumbnail. Path is relative to this PublishConfiguration.xml file, so keep it as Thumbnail.png, not Properties/Thumbnail.png.-->
 	<Thumbnail Value="Thumbnail.png" />
@@ -31,9 +34,10 @@ Current release status:
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 	<ChangeLog>
+- Clarified player-facing wording around the experimental software import seller and buyer corrections.
 - Expanded software-track diagnostics with clearer producer/consumer detail and buyer-state visibility.
 - Extended phantom-vacancy investigation coverage beyond the confirmed Signature case.
-- Kept the software path positioned as comparison tooling rather than a claimed full fix.
+- Kept the broader software path positioned as investigational rather than a claimed full fix.
 	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
