@@ -14,8 +14,10 @@ using Game.Prefabs;
 using Game.Simulation;
 using Game.Tools;
 using Game.Vehicles;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine.Scripting;
 
@@ -44,6 +46,343 @@ namespace NoOfficeDemandFix.Systems
         private int m_ProbeAboveMinimumOverrideCount;
         private int m_ProbeMaxOverrideAmount;
         private int m_ProbeMaxShortfall;
+
+        private struct BuyerOverrideProbeRecord
+        {
+            public Entity Company;
+            public Resource Resource;
+            public int Stock;
+            public int BuyingLoad;
+            public int TripNeededAmount;
+            public int EffectiveStock;
+            public int Threshold;
+            public int OverrideAmount;
+        }
+
+        [BurstCompile]
+        private struct ApplyBuyerOverridesJob : IJobChunk
+        {
+            [ReadOnly]
+            public EntityTypeHandle EntityType;
+
+            [ReadOnly]
+            public ComponentTypeHandle<PrefabRef> PrefabType;
+
+            [ReadOnly]
+            public ComponentTypeHandle<PropertyRenter> PropertyType;
+
+            [ReadOnly]
+            public BufferTypeHandle<Resources> ResourceType;
+
+            [ReadOnly]
+            public BufferTypeHandle<CitizenTripNeeded> TripNeededType;
+
+            [ReadOnly]
+            public ComponentLookup<Transform> Transforms;
+
+            [ReadOnly]
+            public ComponentLookup<IndustrialProcessData> IndustrialProcessDatas;
+
+            [ReadOnly]
+            public ComponentLookup<StorageLimitData> StorageLimitDatas;
+
+            [ReadOnly]
+            public ComponentLookup<ResourceData> ResourceDatas;
+
+            [ReadOnly]
+            public BufferLookup<OwnedVehicle> OwnedVehicles;
+
+            [ReadOnly]
+            public ComponentLookup<Game.Vehicles.DeliveryTruck> DeliveryTrucks;
+
+            [ReadOnly]
+            public BufferLookup<LayoutElement> LayoutElements;
+
+            [ReadOnly]
+            public ResourcePrefabs ResourcePrefabs;
+
+            public EntityCommandBuffer.ParallelWriter CommandBuffer;
+            public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
+            public bool CaptureProbeResults;
+
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
+            {
+                NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
+                NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref PrefabType);
+                NativeArray<PropertyRenter> properties = chunk.GetNativeArray(ref PropertyType);
+                BufferAccessor<Resources> resources = chunk.GetBufferAccessor(ref ResourceType);
+                BufferAccessor<CitizenTripNeeded> tripNeeds = chunk.GetBufferAccessor(ref TripNeededType);
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    Entity company = entities[i];
+                    Entity prefab = prefabs[i].m_Prefab;
+                    Entity property = properties[i].m_Property;
+                    if (property == Entity.Null || !Transforms.HasComponent(property))
+                    {
+                        continue;
+                    }
+
+                    PrefabVirtualInputInfo prefabInfo = GetPrefabVirtualInputInfo(prefab);
+                    if (!prefabInfo.HasEligibleVirtualInput)
+                    {
+                        continue;
+                    }
+
+                    DynamicBuffer<Resources> companyResources = resources[i];
+                    DynamicBuffer<CitizenTripNeeded> tripNeededBuffer = tripNeeds[i];
+                    if (!TrySelectVirtualOfficeInput(
+                            company,
+                            prefabInfo.Input1,
+                            prefabInfo.SlotCapacity,
+                            companyResources,
+                            tripNeededBuffer,
+                            out Resource selectedResource,
+                            out int stock,
+                            out int buyingLoad,
+                            out int tripNeededAmount,
+                            out int effectiveStock,
+                            out int threshold) &&
+                        !TrySelectVirtualOfficeInput(
+                            company,
+                            prefabInfo.Input2,
+                            prefabInfo.SlotCapacity,
+                            companyResources,
+                            tripNeededBuffer,
+                            out selectedResource,
+                            out stock,
+                            out buyingLoad,
+                            out tripNeededAmount,
+                            out effectiveStock,
+                            out threshold))
+                    {
+                        continue;
+                    }
+
+                    if (HasAnyTripForResource(tripNeededBuffer, selectedResource))
+                    {
+                        continue;
+                    }
+
+                    int overrideAmount = math.max(kResourceMinimumRequestAmount, threshold - effectiveStock);
+                    if (overrideAmount <= 0)
+                    {
+                        continue;
+                    }
+
+                    ResourceBuyer resourceBuyer = new ResourceBuyer
+                    {
+                        m_Payer = company,
+                        m_AmountNeeded = overrideAmount,
+                        m_Flags = SetupTargetFlags.Industrial | SetupTargetFlags.Import,
+                        m_Location = Transforms[property].m_Position,
+                        m_ResourceNeeded = selectedResource
+                    };
+
+                    CommandBuffer.AddComponent(unfilteredChunkIndex, company, resourceBuyer);
+                    CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerTag
+                    {
+                        LastIssuedAmount = overrideAmount
+                    });
+
+                    if (!CaptureProbeResults)
+                    {
+                        continue;
+                    }
+
+                    ProbeResults.Enqueue(new BuyerOverrideProbeRecord
+                    {
+                        Company = company,
+                        Resource = selectedResource,
+                        Stock = stock,
+                        BuyingLoad = buyingLoad,
+                        TripNeededAmount = tripNeededAmount,
+                        EffectiveStock = effectiveStock,
+                        Threshold = threshold,
+                        OverrideAmount = overrideAmount
+                    });
+                }
+            }
+
+            private PrefabVirtualInputInfo GetPrefabVirtualInputInfo(Entity prefab)
+            {
+                if (!IndustrialProcessDatas.HasComponent(prefab) || !StorageLimitDatas.HasComponent(prefab))
+                {
+                    return default;
+                }
+
+                IndustrialProcessData processData = IndustrialProcessDatas[prefab];
+                int slotCapacity = StorageLimitDatas[prefab].m_Limit;
+                bool hasSecondInput = processData.m_Input2.m_Resource != Resource.NoResource;
+                int divisor = hasSecondInput ? 2 : 1;
+                if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource &&
+                    ResourceHasWeight(processData.m_Output.m_Resource))
+                {
+                    divisor++;
+                }
+
+                if (divisor > 0 && slotCapacity != int.MaxValue)
+                {
+                    slotCapacity /= divisor;
+                }
+
+                Resource input1 = IsVirtualOfficeInput(processData.m_Input1.m_Resource)
+                    ? processData.m_Input1.m_Resource
+                    : Resource.NoResource;
+                Resource input2 = hasSecondInput && IsVirtualOfficeInput(processData.m_Input2.m_Resource)
+                    ? processData.m_Input2.m_Resource
+                    : Resource.NoResource;
+                return new PrefabVirtualInputInfo(input1, input2, slotCapacity);
+            }
+
+            private bool TrySelectVirtualOfficeInput(
+                Entity company,
+                Resource resource,
+                int maxCapacity,
+                DynamicBuffer<Resources> companyResources,
+                DynamicBuffer<CitizenTripNeeded> tripNeededBuffer,
+                out Resource selectedResource,
+                out int stock,
+                out int buyingLoad,
+                out int tripNeededAmount,
+                out int effectiveStock,
+                out int threshold)
+            {
+                selectedResource = Resource.NoResource;
+                stock = 0;
+                buyingLoad = 0;
+                tripNeededAmount = 0;
+                effectiveStock = 0;
+                threshold = 0;
+
+                if (resource == Resource.NoResource)
+                {
+                    return false;
+                }
+
+                stock = EconomyUtils.GetResources(resource, companyResources);
+                buyingLoad = GetCompanyBuyingLoad(company, resource);
+                tripNeededAmount = GetCompanyShoppingTripAmount(tripNeededBuffer, resource);
+                threshold = CalculateLowStockThreshold(maxCapacity);
+
+                long effectiveStockTotal = (long)stock + buyingLoad + tripNeededAmount;
+                if (effectiveStockTotal >= threshold)
+                {
+                    return false;
+                }
+
+                effectiveStock = (int)effectiveStockTotal;
+                selectedResource = resource;
+                return true;
+            }
+
+            private int GetCompanyBuyingLoad(Entity company, Resource resource)
+            {
+                if (!OwnedVehicles.HasBuffer(company))
+                {
+                    return 0;
+                }
+
+                int amount = 0;
+                DynamicBuffer<OwnedVehicle> vehicles = OwnedVehicles[company];
+                for (int i = 0; i < vehicles.Length; i++)
+                {
+                    Entity vehicle = vehicles[i].m_Vehicle;
+                    if (!DeliveryTrucks.HasComponent(vehicle))
+                    {
+                        continue;
+                    }
+
+                    amount += GetBuyingTruckLoad(vehicle, resource);
+                }
+
+                return amount;
+            }
+
+            private int GetBuyingTruckLoad(Entity vehicle, Resource resource)
+            {
+                Game.Vehicles.DeliveryTruck truck = DeliveryTrucks[vehicle];
+                if (LayoutElements.HasBuffer(vehicle))
+                {
+                    DynamicBuffer<LayoutElement> layout = LayoutElements[vehicle];
+                    if (layout.Length > 0)
+                    {
+                        int layoutAmount = 0;
+                        for (int i = 0; i < layout.Length; i++)
+                        {
+                            Entity layoutVehicle = layout[i].m_Vehicle;
+                            if (!DeliveryTrucks.HasComponent(layoutVehicle))
+                            {
+                                continue;
+                            }
+
+                            Game.Vehicles.DeliveryTruck layoutTruck = DeliveryTrucks[layoutVehicle];
+                            if (layoutTruck.m_Resource == resource && (layoutTruck.m_State & DeliveryTruckFlags.Buying) != 0)
+                            {
+                                layoutAmount += layoutTruck.m_Amount;
+                            }
+                        }
+
+                        return layoutAmount;
+                    }
+                }
+
+                return truck.m_Resource == resource && (truck.m_State & DeliveryTruckFlags.Buying) != 0
+                    ? truck.m_Amount
+                    : 0;
+            }
+
+            private static int GetCompanyShoppingTripAmount(DynamicBuffer<CitizenTripNeeded> trips, Resource resource)
+            {
+                int amount = 0;
+                for (int i = 0; i < trips.Length; i++)
+                {
+                    CitizenTripNeeded trip = trips[i];
+                    if ((trip.m_Purpose == Game.Citizens.Purpose.Shopping || trip.m_Purpose == Game.Citizens.Purpose.CompanyShopping) &&
+                        trip.m_Resource == resource)
+                    {
+                        amount += trip.m_Data;
+                    }
+                }
+
+                return amount;
+            }
+
+            private static bool HasAnyTripForResource(DynamicBuffer<CitizenTripNeeded> trips, Resource resource)
+            {
+                for (int i = 0; i < trips.Length; i++)
+                {
+                    if (trips[i].m_Resource == resource)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            private bool IsVirtualOfficeInput(Resource resource)
+            {
+                return resource != Resource.NoResource && !ResourceHasWeight(resource);
+            }
+
+            private bool ResourceHasWeight(Resource resource)
+            {
+                if (resource == Resource.NoResource)
+                {
+                    return false;
+                }
+
+                Entity resourcePrefab = ResourcePrefabs[resource];
+                return ResourceDatas.HasComponent(resourcePrefab) &&
+                       ResourceDatas[resourcePrefab].m_Weight > 0f;
+            }
+
+            private static int CalculateLowStockThreshold(int maxCapacity)
+            {
+                return (int)math.max(kResourceLowStockAmount, maxCapacity * kLowStockThresholdRatio);
+            }
+        }
 
         [Preserve]
         protected override void OnCreate()
@@ -81,23 +420,51 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
-            ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
-
-            using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < companies.Length; i++)
+            if (m_OfficeCompanyQuery.IsEmptyIgnoreFilter)
             {
-                Entity company = companies[i];
-                if (!TryBuildOverride(company, resourcePrefabs, out BuyerOverride buyerOverride))
-                {
-                    continue;
-                }
+                return;
+            }
 
-                EntityManager.AddComponentData(company, buyerOverride.ResourceBuyer);
-                EntityManager.AddComponentData(company, new CorrectiveSoftwareBuyerTag
+            ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
+            bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
+            using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+            using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
+
+            JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                new ApplyBuyerOverridesJob
                 {
-                    LastIssuedAmount = buyerOverride.ResourceBuyer.m_AmountNeeded
-                });
-                AccumulateProbe(company, buyerOverride);
+                    EntityType = GetEntityTypeHandle(),
+                    PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
+                    PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
+                    ResourceType = GetBufferTypeHandle<Resources>(isReadOnly: true),
+                    TripNeededType = GetBufferTypeHandle<CitizenTripNeeded>(isReadOnly: true),
+                    Transforms = GetComponentLookup<Transform>(isReadOnly: true),
+                    IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
+                    StorageLimitDatas = GetComponentLookup<StorageLimitData>(isReadOnly: true),
+                    ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
+                    OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
+                    DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
+                    LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
+                    ResourcePrefabs = resourcePrefabs,
+                    CommandBuffer = commandBuffer.AsParallelWriter(),
+                    ProbeResults = probeResults.AsParallelWriter(),
+                    CaptureProbeResults = captureProbeResults
+                },
+                m_OfficeCompanyQuery,
+                Dependency);
+
+            jobHandle.Complete();
+            commandBuffer.Playback(EntityManager);
+            Dependency = default;
+
+            if (!captureProbeResults)
+            {
+                return;
+            }
+
+            while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
+            {
+                AccumulateProbe(probeRecord);
             }
         }
 
@@ -383,7 +750,7 @@ namespace NoOfficeDemandFix.Systems
             return hasWeight;
         }
 
-        private void AccumulateProbe(Entity company, BuyerOverride buyerOverride)
+        private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord)
         {
             if (Mod.Settings == null)
             {
@@ -396,9 +763,9 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
-            int overrideAmount = buyerOverride.ResourceBuyer.m_AmountNeeded;
-            int shortfall = math.max(0, buyerOverride.Threshold - buyerOverride.EffectiveStock);
-            string companyKey = FormatEntity(company);
+            int overrideAmount = probeRecord.OverrideAmount;
+            int shortfall = math.max(0, probeRecord.Threshold - probeRecord.EffectiveStock);
+            string companyKey = FormatEntity(probeRecord.Company);
 
             m_ProbeTotalOverrideCount++;
             m_ProbeDistinctCompanies.Add(companyKey);
@@ -415,7 +782,7 @@ namespace NoOfficeDemandFix.Systems
             m_ProbeMaxOverrideAmount = math.max(m_ProbeMaxOverrideAmount, overrideAmount);
             m_ProbeMaxShortfall = math.max(m_ProbeMaxShortfall, shortfall);
 
-            if (!m_ProbeResourceAggregates.TryGetValue(buyerOverride.Resource, out ResourceOverrideAggregate aggregate))
+            if (!m_ProbeResourceAggregates.TryGetValue(probeRecord.Resource, out ResourceOverrideAggregate aggregate))
             {
                 aggregate = new ResourceOverrideAggregate();
             }
@@ -424,7 +791,7 @@ namespace NoOfficeDemandFix.Systems
             aggregate.TotalOverrideAmount += overrideAmount;
             aggregate.MaxOverrideAmount = math.max(aggregate.MaxOverrideAmount, overrideAmount);
             aggregate.MaxShortfall = math.max(aggregate.MaxShortfall, shortfall);
-            m_ProbeResourceAggregates[buyerOverride.Resource] = aggregate;
+            m_ProbeResourceAggregates[probeRecord.Resource] = aggregate;
 
             if (!Mod.Settings.VerboseLogging)
             {
@@ -433,12 +800,12 @@ namespace NoOfficeDemandFix.Systems
 
             TryCaptureTopSample(new BuyerOverrideSample(
                 companyKey,
-                buyerOverride.Resource,
-                buyerOverride.Stock,
-                buyerOverride.BuyingLoad,
-                buyerOverride.TripNeededAmount,
-                buyerOverride.EffectiveStock,
-                buyerOverride.Threshold,
+                probeRecord.Resource,
+                probeRecord.Stock,
+                probeRecord.BuyingLoad,
+                probeRecord.TripNeededAmount,
+                probeRecord.EffectiveStock,
+                probeRecord.Threshold,
                 overrideAmount,
                 shortfall));
         }
