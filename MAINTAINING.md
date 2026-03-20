@@ -44,9 +44,10 @@ Promotion flow:
 
 1. Use the `Raw log report` issue for raw diagnostics intake.
 2. Wait for the managed triage comment with the normalized draft and `maintainer_reply` YAML block.
-3. Copy that `maintainer_reply` block into a new maintainer comment, paste it directly or wrap it in fences, edit it there, and include `/promote-evidence` in that same comment.
-4. Promote only reusable bounded runs into a `Software evidence` issue.
-5. Keep one `Software investigation` issue per hypothesis or investigation line and record comparison summaries there.
+3. If parser or draft wording changed on `master`, add a maintainer comment with `/retriage` on the raw-log issue to regenerate the managed triage comment with the latest parser.
+4. Copy that `maintainer_reply` block into a new maintainer comment, paste it directly or wrap it in fences, edit it there, and include `/promote-evidence` in that same comment.
+5. Promote only reusable bounded runs into a `Software evidence` issue.
+6. Keep one `Software investigation` issue per hypothesis or investigation line and record comparison summaries there.
 
 Review defaults:
 
@@ -66,6 +67,7 @@ and [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.m
 ## Automation Notes
 
 - raw-log triage runs on raw-log intake issue open and edit events
+- maintainers can rerun raw-log triage with `/retriage` after parser or prompt changes land on `master`
 - evidence promotion runs primarily from maintainer comments that include `/promote-evidence` and a non-empty `maintainer_reply` YAML block
 - optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow
 - deterministic automation is responsible for redaction, anchor extraction, excerpt-candidate bounds, validation, and conservative fallbacks

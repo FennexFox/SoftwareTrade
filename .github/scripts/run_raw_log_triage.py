@@ -64,6 +64,70 @@ def build_default_reply_fields(
     }
 
 
+def run_triage_for_issue(
+    repo: str,
+    issue_number: int,
+    issue_title: str,
+    issue_body: str,
+    github_token: str,
+) -> dict[str, str]:
+    if not is_raw_log_issue(issue_body, issue_title):
+        raise AutomationError(f"Issue #{issue_number} is not a raw-log intake issue.")
+
+    issue_fields = parse_issue_form_sections(issue_body)
+    log_source = select_raw_log_source(issue_fields)
+    redacted_log, redaction_notes = redact_log_text(log_source["text"])
+    parsed_log = parse_log(redacted_log)
+    deterministic_draft = build_deterministic_draft(
+        issue_number, issue_fields, parsed_log, log_source, redaction_notes
+    )
+
+    llm_draft = None
+    llm_status = "skipped"
+    llm_detail = "no eligible observation"
+    if not github_token:
+        llm_detail = "missing token"
+    elif parsed_log.get("latest_observation"):
+        llm_context = build_llm_context(
+            issue_fields,
+            parsed_log,
+            deterministic_draft,
+            redaction_notes,
+        )
+        try:
+            llm_result = generate_validated_llm_draft(
+                llm_context,
+                issue_fields,
+                parsed_log,
+                deterministic_draft,
+                github_token,
+            )
+            llm_draft = llm_result["draft"]
+            llm_status = str(llm_result["status"])
+            llm_detail = str(llm_result["detail"])
+        except AutomationError as error:
+            llm_status = "failed"
+            llm_detail = sanitize_llm_detail(str(error))
+            print(f"LLM draft generation failed for issue #{issue_number}: {error}")
+    reply_fields = build_default_reply_fields(issue_fields, deterministic_draft, llm_draft)
+
+    comment_body, _ = render_managed_comment(
+        issue_number,
+        issue_fields,
+        log_source,
+        parsed_log,
+        deterministic_draft,
+        llm_draft,
+        reply_fields,
+        redaction_notes,
+        llm_status,
+        llm_detail,
+    )
+    updated_comment = upsert_managed_comment(repo, issue_number, comment_body, github_token)
+    print(f"Managed triage comment upserted for issue #{issue_number}: {updated_comment.get('html_url', '')}")
+    return updated_comment
+
+
 def main() -> None:
     event_path = os.environ["GITHUB_EVENT_PATH"]
     repo = os.environ["GITHUB_REPOSITORY"]
@@ -80,63 +144,10 @@ def main() -> None:
         return
 
     try:
-        issue_fields = parse_issue_form_sections(issue_body)
-        try:
-            log_source = select_raw_log_source(issue_fields)
-        except AttachmentDownloadError as error:
-            try_post_issue_comment(repo, issue_number, build_attachment_failure_comment(str(error)), github_token)
-            print(f"Attachment download failed for issue #{issue_number}: {error}")
-            return
-
-        redacted_log, redaction_notes = redact_log_text(log_source["text"])
-        parsed_log = parse_log(redacted_log)
-        deterministic_draft = build_deterministic_draft(
-            issue_number, issue_fields, parsed_log, log_source, redaction_notes
-        )
-
-        llm_draft = None
-        llm_status = "skipped"
-        llm_detail = "no eligible observation"
-        if not github_token:
-            llm_detail = "missing token"
-        elif parsed_log.get("latest_observation"):
-            llm_context = build_llm_context(
-                issue_fields,
-                parsed_log,
-                deterministic_draft,
-                redaction_notes,
-            )
-            try:
-                llm_result = generate_validated_llm_draft(
-                    llm_context,
-                    issue_fields,
-                    parsed_log,
-                    deterministic_draft,
-                    github_token,
-                )
-                llm_draft = llm_result["draft"]
-                llm_status = str(llm_result["status"])
-                llm_detail = str(llm_result["detail"])
-            except AutomationError as error:
-                llm_status = "failed"
-                llm_detail = sanitize_llm_detail(str(error))
-                print(f"LLM draft generation failed for issue #{issue_number}: {error}")
-        reply_fields = build_default_reply_fields(issue_fields, deterministic_draft, llm_draft)
-
-        comment_body, _ = render_managed_comment(
-            issue_number,
-            issue_fields,
-            log_source,
-            parsed_log,
-            deterministic_draft,
-            llm_draft,
-            reply_fields,
-            redaction_notes,
-            llm_status,
-            llm_detail,
-        )
-        updated_comment = upsert_managed_comment(repo, issue_number, comment_body, github_token)
-        print(f"Managed triage comment upserted for issue #{issue_number}: {updated_comment.get('html_url', '')}")
+        run_triage_for_issue(repo, issue_number, issue_title, issue_body, github_token)
+    except AttachmentDownloadError as error:
+        try_post_issue_comment(repo, issue_number, build_attachment_failure_comment(str(error)), github_token)
+        print(f"Attachment download failed for issue #{issue_number}: {error}")
     except AutomationError as error:
         try_post_issue_comment(repo, issue_number, build_raw_log_triage_failure_comment(str(error)), github_token)
         print(f"Raw log triage failed for issue #{issue_number}: {error}")

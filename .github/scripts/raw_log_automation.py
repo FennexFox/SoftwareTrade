@@ -20,6 +20,8 @@ PAYLOAD_END_MARKER = "<!-- raw-log-triage:machine-payload:end -->"
 SOURCE_RAW_ISSUE_MARKER = "<!-- source-raw-log-issue:{issue_number} -->"
 SOURCE_RAW_COMMENT_MARKER = "<!-- source-raw-log-comment:{comment_id} -->"
 PROMOTE_COMMAND = "/promote-evidence"
+RETRIAGE_COMMAND = "/retriage"
+AUTOMATION_PARSER_VERSION = "2026-03-20-generic-artifacts-v1"
 
 # MachineParsedLogContract.cs is the source of truth for these machine-parsed
 # prefixes. Keep the Python parser in sync with that contract.
@@ -28,12 +30,18 @@ DIAGNOSTICS_DETAIL_PREFIX = "softwareEvidenceDiagnostics detail("
 SOFTWARE_OFFICE_STATES_DETAIL_MARKER = "detail_type=softwareOfficeStates"
 SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER = "detail_type=softwareTradeLifecycle"
 SOFTWARE_VIRTUAL_RESOLUTION_PROBE_DETAIL_MARKER = "detail_type=softwareVirtualResolutionProbe"
+SOFTWARE_BUYER_TIMING_PROBE_DETAIL_MARKER = "detail_type=softwareBuyerTimingProbe"
 PHANTOM_CORRECTION_PREFIX = "Signature phantom vacancy guard corrected"
+OUTSIDE_CONNECTION_VIRTUAL_SELLER_PROBE_PREFIX = "outsideConnectionVirtualSellerProbe "
+VIRTUAL_OFFICE_BUYER_FIX_PROBE_PREFIX = "virtualOfficeBuyerFixProbe "
 PATCH_SUMMARY_PREFIXES = (
     "Office resource storage patch applied for the current load.",
     "Office resource storage patch applied.",
 )
 MAX_RECENT_TRADE_LIFECYCLE_DETAILS = 5
+MAX_RECENT_SUPPLEMENTAL_DETAILS = 5
+MAX_RECENT_PROBE_LINES = 5
+MAX_SUPPLEMENTAL_ARTIFACTS = 4
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_MODELS_CHAT_COMPLETIONS_URL = "https://models.github.ai/inference/chat/completions"
@@ -249,6 +257,10 @@ def get_summary_refinement_github_models_model() -> str:
         os.getenv(SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL_ENV, "").strip()
         or DEFAULT_SUMMARY_REFINEMENT_GITHUB_MODELS_MODEL
     )
+
+
+def get_parser_version() -> str:
+    return AUTOMATION_PARSER_VERSION
 
 
 def load_event_payload(event_path: str) -> dict[str, Any]:
@@ -700,6 +712,28 @@ def parse_detail_line(line: str) -> dict[str, Any]:
         observation_end_day=safe_int(metadata.get("observation_end_day")),
         observation_end_sample_index=safe_int(metadata.get("observation_end_sample_index")),
         role=role,
+    )
+
+
+def parse_probe_line(line: str, prefix: str, kind: str) -> dict[str, Any]:
+    message = extract_log_message(line)
+    start = message.index(prefix) + len(prefix)
+    event_start = message.index("(", start)
+    values = message[event_start + 1 : -1] if message.endswith(")") else message[event_start + 1 :]
+    event_type = message[start:event_start].strip()
+    parsed_values = parse_key_value_text(values, "=")
+
+    return build_anchor_record(
+        kind,
+        line,
+        parse_confidence="high",
+        message=message,
+        event_type=event_type,
+        values=values.strip(),
+        parsed_values=parsed_values,
+        sample_day=safe_int(parsed_values.get("sample_day")),
+        sample_index=safe_int(parsed_values.get("sample_index")),
+        sample_slot=safe_int(parsed_values.get("sample_slot")),
     )
 
 
@@ -1191,11 +1225,92 @@ def build_selected_snippets(
     return snippets
 
 
+def collect_recent_supplemental_artifacts(parsed_log: dict[str, Any]) -> list[dict[str, str]]:
+    artifacts: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def append_artifact(label: str, raw_line: str) -> None:
+        cleaned = raw_line.strip()
+        if not cleaned or cleaned in seen:
+            return
+        seen.add(cleaned)
+        artifacts.append({"label": label, "raw_line": cleaned})
+
+    latest_trade_lifecycle_detail = parsed_log.get("latest_trade_lifecycle_detail")
+    if latest_trade_lifecycle_detail:
+        append_artifact(
+            "supplemental detail: softwareTradeLifecycle",
+            str(latest_trade_lifecycle_detail.get("raw_line", "")),
+        )
+
+    latest_virtual_resolution_probe_detail = parsed_log.get("latest_virtual_resolution_probe_detail")
+    if latest_virtual_resolution_probe_detail:
+        append_artifact(
+            "supplemental detail: softwareVirtualResolutionProbe",
+            str(latest_virtual_resolution_probe_detail.get("raw_line", "")),
+        )
+
+    latest_supplemental_detail = parsed_log.get("latest_supplemental_detail")
+    if latest_supplemental_detail:
+        detail_type = str(latest_supplemental_detail.get("detail_type", "")).strip() or "unknown"
+        append_artifact(
+            f"supplemental detail: {detail_type}",
+            str(latest_supplemental_detail.get("raw_line", "")),
+        )
+
+    for detail in reversed(list(parsed_log.get("recent_supplemental_details", []))):
+        detail_type = str(detail.get("detail_type", "")).strip() or "unknown"
+        append_artifact(
+            f"supplemental detail: {detail_type}",
+            str(detail.get("raw_line", "")),
+        )
+
+    latest_outside_connection_virtual_seller_probe = parsed_log.get(
+        "latest_outside_connection_virtual_seller_probe"
+    )
+    if latest_outside_connection_virtual_seller_probe:
+        append_artifact(
+            "supplemental probe: outsideConnectionVirtualSellerProbe",
+            str(latest_outside_connection_virtual_seller_probe.get("raw_line", "")),
+        )
+
+    latest_virtual_office_buyer_fix_probe = parsed_log.get("latest_virtual_office_buyer_fix_probe")
+    if latest_virtual_office_buyer_fix_probe:
+        append_artifact(
+            "supplemental probe: virtualOfficeBuyerFixProbe",
+            str(latest_virtual_office_buyer_fix_probe.get("raw_line", "")),
+        )
+
+    return artifacts[:MAX_SUPPLEMENTAL_ARTIFACTS]
+
+
+def build_supplemental_artifacts_text(parsed_log: dict[str, Any]) -> str:
+    artifacts = collect_recent_supplemental_artifacts(parsed_log)
+    if not artifacts:
+        return ""
+
+    lines: list[str] = []
+    for artifact in artifacts:
+        lines.extend(
+            [
+                f"- {artifact['label']}",
+                "```text",
+                truncate_text(artifact["raw_line"], DETAIL_PREVIEW_LIMIT),
+                "```",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def parse_log(log_text: str) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
+    all_details: list[dict[str, Any]] = []
     software_office_details: list[dict[str, Any]] = []
     software_trade_lifecycle_details: list[dict[str, Any]] = []
     software_virtual_resolution_probe_details: list[dict[str, Any]] = []
+    supplemental_details: list[dict[str, Any]] = []
+    outside_connection_virtual_seller_probes: list[dict[str, Any]] = []
+    virtual_office_buyer_fix_probes: list[dict[str, Any]] = []
     patch_summaries: list[str] = []
     phantom_corrections: list[str] = []
     anchors: list[dict[str, Any]] = []
@@ -1221,7 +1336,7 @@ def parse_log(log_text: str) -> dict[str, Any]:
             anchors.append(observation)
             continue
 
-        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_OFFICE_STATES_DETAIL_MARKER in message:
+        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX):
             try:
                 detail = parse_detail_line(stripped)
             except Exception:
@@ -1231,36 +1346,53 @@ def parse_log(log_text: str) -> dict[str, Any]:
                     parse_confidence="low",
                     message=extract_log_message(stripped),
                 )
-            software_office_details.append(detail)
+            all_details.append(detail)
             anchors.append(detail)
+            detail_type = str(detail.get("detail_type", "")).strip()
+            if detail_type == "softwareOfficeStates":
+                software_office_details.append(detail)
+            elif detail_type == "softwareTradeLifecycle":
+                software_trade_lifecycle_details.append(detail)
+            elif detail_type == "softwareVirtualResolutionProbe":
+                software_virtual_resolution_probe_details.append(detail)
+            else:
+                supplemental_details.append(detail)
             continue
 
-        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_TRADE_LIFECYCLE_DETAIL_MARKER in message:
+        if message.startswith(OUTSIDE_CONNECTION_VIRTUAL_SELLER_PROBE_PREFIX):
             try:
-                detail = parse_detail_line(stripped)
+                probe = parse_probe_line(
+                    stripped,
+                    OUTSIDE_CONNECTION_VIRTUAL_SELLER_PROBE_PREFIX,
+                    "outside_connection_virtual_seller_probe",
+                )
             except Exception:
-                detail = build_anchor_record(
-                    "detail",
+                probe = build_anchor_record(
+                    "outside_connection_virtual_seller_probe",
                     stripped,
                     parse_confidence="low",
                     message=extract_log_message(stripped),
                 )
-            software_trade_lifecycle_details.append(detail)
-            anchors.append(detail)
+            outside_connection_virtual_seller_probes.append(probe)
+            anchors.append(probe)
             continue
 
-        if message.startswith(DIAGNOSTICS_DETAIL_PREFIX) and SOFTWARE_VIRTUAL_RESOLUTION_PROBE_DETAIL_MARKER in message:
+        if message.startswith(VIRTUAL_OFFICE_BUYER_FIX_PROBE_PREFIX):
             try:
-                detail = parse_detail_line(stripped)
+                probe = parse_probe_line(
+                    stripped,
+                    VIRTUAL_OFFICE_BUYER_FIX_PROBE_PREFIX,
+                    "virtual_office_buyer_fix_probe",
+                )
             except Exception:
-                detail = build_anchor_record(
-                    "detail",
+                probe = build_anchor_record(
+                    "virtual_office_buyer_fix_probe",
                     stripped,
                     parse_confidence="low",
                     message=extract_log_message(stripped),
                 )
-            software_virtual_resolution_probe_details.append(detail)
-            anchors.append(detail)
+            virtual_office_buyer_fix_probes.append(probe)
+            anchors.append(probe)
             continue
 
         if any(message.startswith(prefix) for prefix in PATCH_SUMMARY_PREFIXES):
@@ -1317,6 +1449,10 @@ def parse_log(log_text: str) -> dict[str, Any]:
         latest_observation,
         software_virtual_resolution_probe_details,
     )
+    latest_supplemental_detail = select_latest_detail_for_observation(
+        latest_observation,
+        supplemental_details,
+    )
     latest_virtual_resolution_probe = build_virtual_resolution_probe_summary(
         latest_virtual_resolution_probe_detail
     )
@@ -1336,14 +1472,25 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "latest_software_office_detail": latest_detail,
         "latest_trade_lifecycle_detail": latest_trade_lifecycle_detail,
         "latest_virtual_resolution_probe_detail": latest_virtual_resolution_probe_detail,
+        "latest_supplemental_detail": latest_supplemental_detail,
         "latest_virtual_resolution_probe": latest_virtual_resolution_probe,
+        "latest_outside_connection_virtual_seller_probe": (
+            outside_connection_virtual_seller_probes[-1] if outside_connection_virtual_seller_probes else None
+        ),
+        "latest_virtual_office_buyer_fix_probe": (
+            virtual_office_buyer_fix_probes[-1] if virtual_office_buyer_fix_probes else None
+        ),
         "latest_patch_summary": patch_summaries[-1] if patch_summaries else "",
         "patch_summaries": patch_summaries[-5:],
         "phantom_corrections": phantom_corrections[-5:],
         "observation_count": len(observations),
+        "all_detail_count": len(all_details),
         "detail_count": len(software_office_details),
         "trade_lifecycle_detail_count": len(software_trade_lifecycle_details),
         "virtual_resolution_probe_detail_count": len(software_virtual_resolution_probe_details),
+        "supplemental_detail_count": len(supplemental_details),
+        "outside_connection_virtual_seller_probe_count": len(outside_connection_virtual_seller_probes),
+        "virtual_office_buyer_fix_probe_count": len(virtual_office_buyer_fix_probes),
         "virtual_resolution_probe_entry_count": virtual_resolution_probe_entry_count,
         "virtual_resolution_probe_true_count": virtual_resolution_probe_true_count,
         "virtual_resolution_probe_false_count": virtual_resolution_probe_false_count,
@@ -1355,6 +1502,9 @@ def parse_log(log_text: str) -> dict[str, Any]:
         "consumer_peak_observation": latest_run_candidates["consumer_peak_observation"],
         "producer_peak_observation": latest_run_candidates["producer_peak_observation"],
         "recent_trade_lifecycle_details": software_trade_lifecycle_details[-MAX_RECENT_TRADE_LIFECYCLE_DETAILS:],
+        "recent_supplemental_details": supplemental_details[-MAX_RECENT_SUPPLEMENTAL_DETAILS:],
+        "recent_outside_connection_virtual_seller_probes": outside_connection_virtual_seller_probes[-MAX_RECENT_PROBE_LINES:],
+        "recent_virtual_office_buyer_fix_probes": virtual_office_buyer_fix_probes[-MAX_RECENT_PROBE_LINES:],
         "log_excerpt_candidates": latest_run_candidates["log_excerpt_candidates"],
         "selected_snippets": build_selected_snippets(
             latest_run_candidates["log_excerpt_candidates"],
@@ -1682,6 +1832,15 @@ def build_anchor_summaries_for_llm(parsed_log: dict[str, Any]) -> list[dict[str,
                     "observation_end_sample_index": safe_int(anchor.get("observation_end_sample_index")),
                     "detail_type": str(anchor.get("detail_type", "")),
                     "role": str(anchor.get("role", "")),
+                    "values": truncate_text(str(anchor.get("values", "")), DETAIL_PREVIEW_LIMIT),
+                }
+            )
+        elif kind in {"outside_connection_virtual_seller_probe", "virtual_office_buyer_fix_probe"}:
+            summary.update(
+                {
+                    "event_type": str(anchor.get("event_type", "")),
+                    "sample_day": safe_int(anchor.get("sample_day")),
+                    "sample_index": safe_int(anchor.get("sample_index")),
                     "values": truncate_text(str(anchor.get("values", "")), DETAIL_PREVIEW_LIMIT),
                 }
             )
@@ -2692,6 +2851,149 @@ def has_unsupported_buyer_shortage_claim(text: str, parsed_log: dict[str, Any]) 
     return False
 
 
+def split_summary_sentences(text: str) -> list[str]:
+    normalized = text.replace("\r\n", "\n").strip()
+    if not normalized:
+        return []
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", normalized) if part.strip()]
+    return parts or [normalized]
+
+
+def build_latest_counter_lookup(parsed_log: dict[str, Any]) -> dict[str, Any]:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    counter_groups = latest_observation.get("diagnostic_counters", {})
+    qualified_values: dict[str, int] = {}
+    bare_groups: dict[str, set[str]] = {}
+
+    for group_name, values in counter_groups.items():
+        if not isinstance(values, dict):
+            continue
+        for field_name, value in values.items():
+            qualified_name = f"{group_name}.{field_name}"
+            qualified_values[qualified_name] = safe_int(value)
+            bare_groups.setdefault(field_name, set()).add(group_name)
+
+    bare_to_qualified = {
+        field_name: f"{next(iter(group_names))}.{field_name}"
+        for field_name, group_names in bare_groups.items()
+        if len(group_names) == 1
+    }
+    return {
+        "qualified_values": qualified_values,
+        "bare_to_qualified": bare_to_qualified,
+        "field_groups": bare_groups,
+    }
+
+
+def sentence_targets_latest_observation(
+    sentence: str,
+    latest_day: int,
+    latest_sample_index: int,
+) -> bool:
+    lowered = sentence.lower()
+    day_refs = [int(match.group(1)) for match in re.finditer(r"\bday[- ]?(\d+)\b", lowered)]
+    if day_refs and latest_day > 0 and latest_day not in day_refs:
+        return False
+
+    sample_refs = [
+        int(match.group(1))
+        for match in re.finditer(r"\bsample(?:[_ -]?index)?[ =:-]?(\d+)\b", lowered)
+    ]
+    if sample_refs and latest_sample_index > 0 and latest_sample_index not in sample_refs:
+        return False
+
+    if re.search(r"\b(?:latest|final|current)\b", lowered):
+        return True
+    if latest_day > 0 and re.search(rf"\b(?:at|on|by|during)\s+day[- ]?{latest_day}\b", lowered):
+        return True
+    if latest_day > 0 and re.search(rf"\bday[- ]?{latest_day}\b", lowered) and any(
+        marker in lowered for marker in ("sample", "observation", "anchor")
+    ):
+        return True
+    if latest_sample_index > 0 and re.search(
+        rf"\bsample(?:[_ -]?index)?[ =:-]?{latest_sample_index}\b",
+        lowered,
+    ):
+        return True
+    return False
+
+
+def resolve_summary_counter_field(
+    token: str,
+    sentence: str,
+    counter_lookup: dict[str, Any],
+) -> str:
+    qualified_values = counter_lookup.get("qualified_values", {})
+    bare_to_qualified = counter_lookup.get("bare_to_qualified", {})
+    field_groups = counter_lookup.get("field_groups", {})
+
+    if token in qualified_values:
+        return token
+    if token in bare_to_qualified:
+        return str(bare_to_qualified[token])
+
+    candidate_groups = sorted(field_groups.get(token, set()))
+    if not candidate_groups:
+        return ""
+
+    matching_groups = [
+        group_name
+        for group_name in candidate_groups
+        if re.search(rf"\b{re.escape(group_name)}\b", sentence)
+    ]
+    if len(matching_groups) == 1:
+        return f"{matching_groups[0]}.{token}"
+    return ""
+
+
+def extract_summary_counter_claims(
+    sentence: str,
+    counter_lookup: dict[str, Any],
+) -> dict[str, int]:
+    claims: dict[str, int] = {}
+
+    for match in re.finditer(
+        r"\b(?P<field>(?:[A-Za-z][A-Za-z0-9]*\.)?[A-Za-z][A-Za-z0-9]*)\s*=\s*(?P<value>-?\d+)\b",
+        sentence,
+    ):
+        qualified_field = resolve_summary_counter_field(match.group("field"), sentence, counter_lookup)
+        if qualified_field:
+            claims[qualified_field] = int(match.group("value"))
+
+    for match in re.finditer(
+        r"\b(?P<field>(?:[A-Za-z][A-Za-z0-9]*\.)?[A-Za-z][A-Za-z0-9]*)(?:[^.!?\n]{0,40}?)\bat\s+(?P<value>-?\d+)\b",
+        sentence,
+    ):
+        qualified_field = resolve_summary_counter_field(match.group("field"), sentence, counter_lookup)
+        if qualified_field and qualified_field not in claims:
+            claims[qualified_field] = int(match.group("value"))
+
+    return claims
+
+
+def has_unsupported_latest_counter_summary_claim(text: str, parsed_log: dict[str, Any]) -> bool:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    if not latest_observation:
+        return False
+
+    counter_lookup = build_latest_counter_lookup(parsed_log)
+    qualified_values = counter_lookup.get("qualified_values", {})
+    if not qualified_values:
+        return False
+
+    latest_day = observation_day(latest_observation)
+    latest_sample_index = observation_sample_index(latest_observation)
+
+    for sentence in split_summary_sentences(text):
+        if not sentence_targets_latest_observation(sentence, latest_day, latest_sample_index):
+            continue
+        for qualified_field, claimed_value in extract_summary_counter_claims(sentence, counter_lookup).items():
+            actual_value = qualified_values.get(qualified_field)
+            if actual_value is not None and actual_value != claimed_value:
+                return True
+    return False
+
+
 def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
         return True
@@ -2700,6 +3002,8 @@ def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[
     if has_unsupported_phantom_zero_claim(text, parsed_log):
         return True
     if has_unsupported_buyer_shortage_claim(text, parsed_log):
+        return True
+    if has_unsupported_latest_counter_summary_claim(text, parsed_log):
         return True
     return False
 
@@ -3172,8 +3476,16 @@ def extract_first_named_yaml_block(body: str, root_key: str) -> str:
     return ""
 
 
+def comment_has_command(comment_body: str, command: str) -> bool:
+    return re.search(rf"(?mi)(?:^|\s){re.escape(command)}(?:\s|$)", comment_body) is not None
+
+
 def comment_has_promote_command(comment_body: str) -> bool:
-    return re.search(rf"(?mi)(?:^|\s){re.escape(PROMOTE_COMMAND)}(?:\s|$)", comment_body) is not None
+    return comment_has_command(comment_body, PROMOTE_COMMAND)
+
+
+def comment_has_retriage_command(comment_body: str) -> bool:
+    return comment_has_command(comment_body, RETRIAGE_COMMAND)
 
 
 def is_bot_comment(comment: dict[str, Any]) -> bool:
@@ -3242,6 +3554,7 @@ def render_managed_comment(
     )
 
     payload = {
+        "parser_version": get_parser_version(),
         "raw_issue": {
             "number": issue_number,
             "fields": {
@@ -3263,17 +3576,39 @@ def render_managed_comment(
             "consumer_peak_observation": parsed_log.get("consumer_peak_observation"),
             "producer_peak_observation": parsed_log.get("producer_peak_observation"),
             "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
+            "latest_trade_lifecycle_detail": parsed_log.get("latest_trade_lifecycle_detail"),
+            "latest_virtual_resolution_probe_detail": parsed_log.get("latest_virtual_resolution_probe_detail"),
             "latest_virtual_resolution_probe": parsed_log.get("latest_virtual_resolution_probe"),
+            "latest_supplemental_detail": parsed_log.get("latest_supplemental_detail"),
+            "latest_outside_connection_virtual_seller_probe": parsed_log.get(
+                "latest_outside_connection_virtual_seller_probe"
+            ),
+            "latest_virtual_office_buyer_fix_probe": parsed_log.get("latest_virtual_office_buyer_fix_probe"),
             "latest_patch_summary": parsed_log.get("latest_patch_summary", ""),
             "patch_summaries": parsed_log.get("patch_summaries", []),
             "phantom_corrections": parsed_log.get("phantom_corrections", []),
             "observation_count": parsed_log.get("observation_count", 0),
+            "all_detail_count": parsed_log.get("all_detail_count", 0),
             "detail_count": parsed_log.get("detail_count", 0),
             "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
             "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
+            "supplemental_detail_count": parsed_log.get("supplemental_detail_count", 0),
+            "outside_connection_virtual_seller_probe_count": parsed_log.get(
+                "outside_connection_virtual_seller_probe_count", 0
+            ),
+            "virtual_office_buyer_fix_probe_count": parsed_log.get(
+                "virtual_office_buyer_fix_probe_count", 0
+            ),
             "virtual_resolution_probe_entry_count": parsed_log.get("virtual_resolution_probe_entry_count", 0),
             "virtual_resolution_probe_true_count": parsed_log.get("virtual_resolution_probe_true_count", 0),
             "virtual_resolution_probe_false_count": parsed_log.get("virtual_resolution_probe_false_count", 0),
+            "recent_supplemental_details": parsed_log.get("recent_supplemental_details", []),
+            "recent_outside_connection_virtual_seller_probes": parsed_log.get(
+                "recent_outside_connection_virtual_seller_probes", []
+            ),
+            "recent_virtual_office_buyer_fix_probes": parsed_log.get(
+                "recent_virtual_office_buyer_fix_probes", []
+            ),
             "log_excerpt_candidates": parsed_log.get("log_excerpt_candidates", []),
         },
         "deterministic_draft": deterministic_draft,
@@ -3348,15 +3683,33 @@ def build_compact_managed_comment_payload(payload: dict[str, Any]) -> dict[str, 
         MAX_SELECTED_EXCERPT_CANDIDATES,
     )
     return {
+        "parser_version": payload.get("parser_version", get_parser_version()),
         "raw_issue": dict(payload.get("raw_issue", {})),
         "log_source": dict(payload.get("log_source", {})),
         "redaction_notes": list(payload.get("redaction_notes", [])),
         "parsed_log": {
             "latest_observation": parsed_log.get("latest_observation"),
             "latest_software_office_detail": parsed_log.get("latest_software_office_detail"),
+            "latest_trade_lifecycle_detail": parsed_log.get("latest_trade_lifecycle_detail"),
+            "latest_virtual_resolution_probe_detail": parsed_log.get("latest_virtual_resolution_probe_detail"),
+            "latest_supplemental_detail": parsed_log.get("latest_supplemental_detail"),
+            "latest_outside_connection_virtual_seller_probe": parsed_log.get(
+                "latest_outside_connection_virtual_seller_probe"
+            ),
+            "latest_virtual_office_buyer_fix_probe": parsed_log.get("latest_virtual_office_buyer_fix_probe"),
             "log_excerpt_candidates": compact_candidates,
             "observation_count": parsed_log.get("observation_count", 0),
+            "all_detail_count": parsed_log.get("all_detail_count", 0),
             "detail_count": parsed_log.get("detail_count", 0),
+            "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
+            "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
+            "supplemental_detail_count": parsed_log.get("supplemental_detail_count", 0),
+            "outside_connection_virtual_seller_probe_count": parsed_log.get(
+                "outside_connection_virtual_seller_probe_count", 0
+            ),
+            "virtual_office_buyer_fix_probe_count": parsed_log.get(
+                "virtual_office_buyer_fix_probe_count", 0
+            ),
         },
         "deterministic_draft": dict(payload.get("deterministic_draft", {})),
         "llm_draft": dict(payload["llm_draft"]) if isinstance(payload.get("llm_draft"), dict) else None,
@@ -3421,6 +3774,7 @@ def render_managed_comment_body(
             preview_body,
             "",
             "### Draft provenance",
+            f"- Parser version: `{payload.get('parser_version', get_parser_version())}`",
             f"- LLM status: `{llm_status}`",
             f"- LLM detail: `{llm_detail}`",
             f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
@@ -3477,6 +3831,7 @@ def render_managed_comment_body(
                 preview_body,
                 "",
                 "### Draft provenance",
+                f"- Parser version: `{payload.get('parser_version', get_parser_version())}`",
                 f"- LLM status: `{llm_status}`",
                 f"- LLM detail: `{llm_detail}`",
                 f"- Missing before promote: `{', '.join(combined_missing) if combined_missing else 'none'}`",
@@ -3689,10 +4044,21 @@ def display_symptom_label(fields: dict[str, str]) -> str:
     return label
 
 
-def build_preview_artifacts_text(issue_number: int, log_source: dict[str, Any]) -> str:
-    lines = [f"- raw intake issue: #{issue_number}", "- triage draft comment: this managed triage comment"]
+def build_preview_artifacts_text(
+    issue_number: int,
+    log_source: dict[str, Any],
+    parsed_log: dict[str, Any],
+) -> str:
+    lines = [
+        f"- parser version: {get_parser_version()}",
+        f"- raw intake issue: #{issue_number}",
+        "- triage draft comment: this managed triage comment",
+    ]
     if log_source.get("url"):
         lines.append(f"- raw log attachment: {sanitize_url(log_source['url'])}")
+    supplemental_artifacts = build_supplemental_artifacts_text(parsed_log)
+    if supplemental_artifacts:
+        lines.append(supplemental_artifacts)
     return "\n".join(lines)
 
 
@@ -3749,7 +4115,7 @@ def build_preview_evidence_fields(
         "confidence": merged_text("confidence", "medium"),
         "confounders": confounders or "none known",
         "analysis-basis": merged_text("analysis_basis"),
-        "artifacts": build_preview_artifacts_text(issue_number, log_source),
+        "artifacts": build_preview_artifacts_text(issue_number, log_source, parsed_log),
         "notes": merged_text("notes"),
     }
 
@@ -3789,11 +4155,18 @@ def build_artifacts_text(
     raw_issue_url: str,
     maintainer_reply_url: str = "",
 ) -> str:
-    lines = [f"- raw intake issue: {raw_issue_url}", f"- triage draft comment: {triage_comment_url}"]
+    lines = [
+        f"- parser version: {payload.get('parser_version', get_parser_version())}",
+        f"- raw intake issue: {raw_issue_url}",
+        f"- triage draft comment: {triage_comment_url}",
+    ]
     if maintainer_reply_url:
         lines.append(f"- maintainer promote reply: {maintainer_reply_url}")
     if payload["log_source"].get("url"):
         lines.append(f"- raw log attachment: {payload['log_source']['url']}")
+    supplemental_artifacts = build_supplemental_artifacts_text(payload.get("parsed_log", {}))
+    if supplemental_artifacts:
+        lines.append(supplemental_artifacts)
     return "\n".join(lines)
 
 

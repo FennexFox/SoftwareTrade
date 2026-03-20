@@ -81,6 +81,7 @@ Raw-log intake issues are not the final comparable record. Maintainers may promo
 After you submit:
 
 - a managed triage comment will be added or updated on the raw-log issue
+- maintainers may rerun that managed triage comment later with `/retriage` after parser or wording updates land on `master`
 - maintainers may refine the draft and promote it into a `Software evidence` issue
 - the promoted evidence issue will link back to the raw-log intake issue
 - the raw-log intake issue is then typically closed
