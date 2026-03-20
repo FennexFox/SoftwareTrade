@@ -538,7 +538,7 @@ namespace NoOfficeDemandFix.Systems
         private sealed class ResourceOverrideAggregate
         {
             public int Count;
-            public int TotalOverrideAmount;
+            public long TotalOverrideAmount;
             public int MaxOverrideAmount;
             public int MaxShortfall;
         }
