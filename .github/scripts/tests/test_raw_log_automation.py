@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import raw_log_automation as automation  # noqa: E402
 import run_promote_evidence_comment as promote_script  # noqa: E402
+import run_retriage_comment as retriage_script  # noqa: E402
 
 
 CURRENT_BRANCH_LOG = textwrap.dedent(
@@ -97,6 +98,18 @@ VIRTUAL_RESOLUTION_PROBE_BATCHED_LOG = (
     + textwrap.dedent(
         """
         [2026-03-10 16:00:00,002] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T160000000Z, run_id=1, observation_end_day=22, observation_end_sample_index=200, detail_type=softwareVirtualResolutionProbe, values=role=consumer, company=276439:1, prefab="Office_MediaCompany" (420:1), property=71688:1, capture=virtual_resolution_probe, currentClassification=selected_no_resource_buyer, virtualGood=True, resourceWeight=0, currentSoftwareStock=16, previousSoftwareStock=0, stockIncreasedSincePreviousSample=True, currentLastTradePartner=144:1, previousLastTradePartner=none, lastTradePartnerChanged=True, previousPathSellerSeen=False, previousPathSeller=none, evidenceResolvedVirtual=True | role=consumer, company=276447:1, prefab="Office_Bank" (419:1), property=71715:1, capture=virtual_resolution_probe, currentClassification=selected_no_resource_buyer, virtualGood=True, resourceWeight=0, currentSoftwareStock=0, previousSoftwareStock=0, stockIncreasedSincePreviousSample=False, currentLastTradePartner=none, previousLastTradePartner=none, lastTradePartnerChanged=False, previousPathSellerSeen=False, previousPathSeller=none, evidenceResolvedVirtual=False | role=consumer, company=276448:1, prefab="Office_Bank" (419:1), property=71716:1, capture=virtual_resolution_probe, currentClassification=selected_no_resource_buyer, virtualGood=True, resourceWeight=0, currentSoftwareStock=22, previousSoftwareStock=11, stockIncreasedSincePreviousSample=True, currentLastTradePartner=145:1, previousLastTradePartner=144:1, lastTradePartnerChanged=True, previousPathSellerSeen=False, previousPathSeller=none, evidenceResolvedVirtual=True)
+        """
+    ).strip()
+)
+
+GENERIC_SUPPLEMENTAL_ARTIFACT_LOG = (
+    CURRENT_BRANCH_LOG
+    + "\n"
+    + textwrap.dedent(
+        """
+        [2026-03-10 15:28:36,543] [INFO]  softwareEvidenceDiagnostics detail(session_id=20260310T052953590Z, run_id=1, observation_end_day=22, observation_end_sample_index=153, detail_type=softwareBuyerTimingProbe, values=role=consumer, company=275099:1, capture=buyer_timing_probe, currentClassification=selected_no_resource_buyer, output=Financial, outputStock=0, input1=Software(stock=0), softwareNeed(stock=0, buyingLoad=0, tripNeededAmount=0, effectiveStock=0, threshold=4000, selected=True, expensive=False))
+        [2026-03-10 15:28:36,544] [INFO]  outsideConnectionVirtualSellerProbe summary(sample_day=22, sample_index=153, sample_slot=1, patch_variant=current_load, resource_seller_calls=4, calls_with_office_import_seekers=2, office_import_seekers=3, requested_resources=[Software], seller_state_captured=True, seller_state_samples=1, outside_connection_sellers=6, missing_stored_resource_pairs=2, inactive_outside_connections=0, sampled_calls=1)
+        [2026-03-10 15:28:36,545] [INFO]  virtualOfficeBuyerFixProbe summary(sample_day=22, sample_index=153, sample_slot=1, total_overrides=3, distinct_companies=2, clamped_minimum=1, above_minimum=2, max_override_amount=64, max_shortfall=128, resources=[Software(count=3,total_override=96,max_override=64,max_shortfall=128)], sampled_overrides=1)
         """
     ).strip()
 )
@@ -375,6 +388,30 @@ class RawLogAutomationTests(unittest.TestCase):
             parsed["latest_virtual_resolution_probe_detail"]["raw_line"],
         )
 
+    def test_parse_log_keeps_generic_supplemental_details_and_probe_lines(self) -> None:
+        parsed = automation.parse_log(GENERIC_SUPPLEMENTAL_ARTIFACT_LOG)
+        self.assertEqual(parsed["detail_count"], 1)
+        self.assertEqual(parsed["supplemental_detail_count"], 1)
+        self.assertEqual(parsed["outside_connection_virtual_seller_probe_count"], 1)
+        self.assertEqual(parsed["virtual_office_buyer_fix_probe_count"], 1)
+        self.assertEqual(parsed["latest_supplemental_detail"]["detail_type"], "softwareBuyerTimingProbe")
+        self.assertEqual(
+            parsed["latest_outside_connection_virtual_seller_probe"]["event_type"],
+            "summary",
+        )
+        self.assertEqual(
+            parsed["latest_virtual_office_buyer_fix_probe"]["event_type"],
+            "summary",
+        )
+        self.assertEqual(
+            parsed["latest_outside_connection_virtual_seller_probe"]["sample_index"],
+            153,
+        )
+        self.assertIn(
+            "softwareBuyerTimingProbe",
+            parsed["latest_supplemental_detail"]["raw_line"],
+        )
+
     def test_parse_log_retains_latest_run_candidates_across_multiple_observations(self) -> None:
         parsed = automation.parse_log(MULTI_OBSERVATION_LOG)
         self.assertEqual(len(parsed["latest_run_observations"]), 3)
@@ -548,6 +585,18 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("2/3 entries", notes)
         self.assertIn("lastTradePartnerChanged=True", notes)
 
+    def test_build_preview_artifacts_text_includes_parser_version_and_supplemental_artifacts(self) -> None:
+        parsed_log = automation.parse_log(GENERIC_SUPPLEMENTAL_ARTIFACT_LOG)
+        artifacts_text = automation.build_preview_artifacts_text(
+            21,
+            {"mode": "inline", "url": "", "attachment_urls": []},
+            parsed_log,
+        )
+        self.assertIn(automation.get_parser_version(), artifacts_text)
+        self.assertIn("softwareBuyerTimingProbe", artifacts_text)
+        self.assertIn("outsideConnectionVirtualSellerProbe", artifacts_text)
+        self.assertIn("virtualOfficeBuyerFixProbe", artifacts_text)
+
     def test_build_summary_refinement_context_keeps_latest_consumer_and_producer(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         parsed_log = automation.parse_log(RECENT_MIXED_HISTORY_LOG)
@@ -703,6 +752,35 @@ class RawLogAutomationTests(unittest.TestCase):
         parsed = automation.parse_managed_comment(body)
         self.assertEqual(parsed["reply_template"]["mod_ref"], "track/software-instability @ abc1234")
         self.assertIn("Maintainer note line 2", parsed["reply_template"]["notes"])
+
+    def test_render_managed_comment_payload_keeps_parser_version(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": GENERIC_SUPPLEMENTAL_ARTIFACT_LOG}
+        parsed_log = automation.parse_log(GENERIC_SUPPLEMENTAL_ARTIFACT_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        body, payload = automation.render_managed_comment(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            {
+                "scenario_label": "New Seoul",
+                "scenario_type": "existing save",
+                "reproduction_conditions": "Loaded the same save and waited 3 in-game days.",
+                "mod_ref": "",
+                "symptom_classification": "software_track_unclear",
+                "evidence_summary": "summary",
+                "confounders": "none known",
+                "notes": "note",
+            },
+            [],
+            "skipped",
+            "no eligible observation",
+        )
+        self.assertEqual(payload["parser_version"], automation.get_parser_version())
+        self.assertIn(f"- Parser version: `{automation.get_parser_version()}`", body)
 
     def test_render_managed_comment_formats_markdown_at_column_zero(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
@@ -2029,6 +2107,10 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertEqual(parsed["mod_ref"], "track/software-instability @ abc1234")
         self.assertIn("trade patch enabled", parsed["confounders"])
 
+    def test_comment_has_retriage_command(self) -> None:
+        self.assertTrue(automation.comment_has_retriage_command("Please refresh this.\n/retriage"))
+        self.assertFalse(automation.comment_has_retriage_command("Please refresh this."))
+
     def test_parse_reply_comment_accepts_plain_copied_yaml(self) -> None:
         comment_body = textwrap.dedent(
             """
@@ -2264,6 +2346,85 @@ class RawLogAutomationTests(unittest.TestCase):
                         with mock.patch.object(promote_script, "create_issue_comment") as comment_mock:
                             promote_script.main()
         create_issue_mock.assert_not_called()
+        comment_mock.assert_not_called()
+
+    def test_retriage_script_updates_managed_comment_for_maintainer_command(self) -> None:
+        event = {
+            "issue": {
+                "number": 21,
+                "state": "open",
+                "title": "[Raw Log] automation test",
+                "body": RAW_ISSUE_BODY,
+            },
+            "comment": {
+                "id": 700,
+                "body": "/retriage",
+                "html_url": "https://example.invalid/comment/700",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
+            },
+        }
+        with mock.patch.dict(
+            retriage_script.os.environ,
+            {
+                "GITHUB_EVENT_PATH": "event.json",
+                "GITHUB_REPOSITORY": "FennexFox/NoOfficeDemandFix",
+                "GITHUB_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            with mock.patch.object(retriage_script, "load_event_payload", return_value=event):
+                with mock.patch.object(
+                    retriage_script,
+                    "get_issue",
+                    return_value={"number": 21, "state": "open", "title": "[Raw Log] automation test", "body": RAW_ISSUE_BODY},
+                ):
+                    with mock.patch.object(
+                        retriage_script,
+                        "run_triage_for_issue",
+                        return_value={"html_url": "https://example.invalid/comments/managed"},
+                    ) as triage_mock:
+                        with mock.patch.object(retriage_script, "create_issue_comment") as comment_mock:
+                            retriage_script.main()
+        triage_mock.assert_called_once()
+        self.assertIn(automation.get_parser_version(), comment_mock.call_args.args[2])
+        self.assertIn("managed triage comment", comment_mock.call_args.args[2])
+
+    def test_retriage_script_skips_non_retriage_comments(self) -> None:
+        event = {
+            "issue": {
+                "number": 21,
+                "state": "open",
+                "title": "[Raw Log] automation test",
+                "body": RAW_ISSUE_BODY,
+            },
+            "comment": {
+                "id": 701,
+                "body": "Please refresh this soon.",
+                "html_url": "https://example.invalid/comment/701",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
+            },
+        }
+        with mock.patch.dict(
+            retriage_script.os.environ,
+            {
+                "GITHUB_EVENT_PATH": "event.json",
+                "GITHUB_REPOSITORY": "FennexFox/NoOfficeDemandFix",
+                "GITHUB_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            with mock.patch.object(retriage_script, "load_event_payload", return_value=event):
+                with mock.patch.object(
+                    retriage_script,
+                    "get_issue",
+                    return_value={"number": 21, "state": "open", "title": "[Raw Log] automation test", "body": RAW_ISSUE_BODY},
+                ):
+                    with mock.patch.object(retriage_script, "run_triage_for_issue") as triage_mock:
+                        with mock.patch.object(retriage_script, "create_issue_comment") as comment_mock:
+                            retriage_script.main()
+        triage_mock.assert_not_called()
         comment_mock.assert_not_called()
 
     def test_sanitize_llm_detail_maps_common_failures(self) -> None:
