@@ -236,6 +236,7 @@ When a time-scaling mod is active:
 - default diagnostics: enable `EnableDemandDiagnostics=true`, keep `CaptureStableEvidence=false`, and let suspicious-state runs emit evidence only when the state looks interesting
 - Bucket B comparison diagnostics: change `EnableOutsideConnectionVirtualSellerFix` only when you are explicitly comparing the outside-connection virtual seller path, and preserve that exact state in the copied `settings`
 - buyer-cadence comparison diagnostics: change `EnableVirtualOfficeResourceBuyerFix` only when you are explicitly comparing the corrective post-vanilla buyer pass, and preserve that exact state in the copied `settings`
+- office-demand baseline comparison diagnostics: change `EnableOfficeDemandDirectPatch` only when you are explicitly comparing the restored pre-hotfix `2x` baseline against the newer vanilla `3x` baseline, and preserve that exact state in the copied `settings`
 - baseline capture: enable `CaptureStableEvidence=true` to emit bounded observation windows at the configured per-day cadence even while the city looks stable
 - escalation capture: enable `VerboseLogging=true` only when you also need the noisier correction traces beyond the normalized evidence lines
 
@@ -243,7 +244,7 @@ When a time-scaling mod is active:
 
 Use the checkpoint that matches the active question. Do not force every investigation through every checkpoint.
 
-#### 1. Comparable same-save rerun
+### 1. Comparable Same-Save Rerun
 
 - baseline entry: evidence entry from a save lineage with the relevant counters and detail preserved
 - comparison entry: a later bounded run on the same save lineage or a tightly matched rerun of the same scenario
@@ -273,6 +274,8 @@ Use the checkpoint that matches the active question. Do not force every investig
 - primary fields / counters: `symptom_classification`, `diagnostic_counters.software(...)`, `diagnostic_counters.softwareProducerOffices(...)`, `diagnostic_counters.softwareConsumerOffices(...)`, relevant `softwareEvidenceDiagnostics detail(...)` lines if property state changes matter
 - invalid comparison cases: any unrelated code or settings change between runs, or materially different city state before capture
 
+### 4. Outside-Connection Availability State
+
 - question: does a materially different outside-connection state explain the change?
 - hold constant: same save lineage, same game/mod/settings as far as possible, same general hypothesis under test
 - primary evidence: `software(resourceProduction, resourceDemand, companies, propertyless)`, `softwareProducerOffices(... lackResourcesZero ...)`, and `softwareConsumerOffices(... softwareInputZero ...)`
@@ -284,6 +287,8 @@ Use the checkpoint that matches the active question. Do not force every investig
 - variable under test: outside-connection availability state
 - primary fields / counters: `diagnostic_counters.software(resourceProduction, resourceDemand, companies, propertyless)`, `diagnostic_counters.softwareProducerOffices(... lackResourcesZero ...)`, `diagnostic_counters.softwareConsumerOffices(... softwareInputZero ...)`
 - invalid comparison cases: outside-connection change confounded with unrelated settings shifts or unrelated city growth
+
+### 5. Starvation Or Recovery Transition Within A Run
 
 - question: did the same run show a bounded starvation or recovery transition?
 - hold constant: same session or tightly bounded same-save sequence, same settings, same game/mod state
@@ -308,8 +313,6 @@ Use the checkpoint that matches the active question. Do not force every investig
 
 ### 8. Software Need Selection Vs Buyer Lifecycle State
 
-#### 8. Software need selection vs buyer lifecycle state
-
 - baseline entry: evidence entry from a run where `softwareConsumerBuyerState(...)` and consumer-side `softwareOfficeStates` detail were preserved
 - comparison entry: a matched evidence entry or later bounded window on the same save lineage where the software-consumer anomaly was sampled again
 - required invariants: same game/mod/settings except the variable under test, comparable observation window, and preserved consumer detail with `softwareNeed(...)`, `softwareTradeCost(...)`, and `softwareAcquisitionState(...)`; keep `detail_type=softwareTradeLifecycle` when transition or seller-snapshot evidence is needed
@@ -318,7 +321,7 @@ Use the checkpoint that matches the active question. Do not force every investig
 - interpretation guidance: prefer this checkpoint over simply extending the off/on window when the active question is whether selected software consumers are stuck before request creation or are taking a zero-weight virtual-resource fast path; when helper fields are available, interpret the checkpoint through `deliveryMode`, `buyerOrigin`, `noBuyerReason`, persistence counters, and virtual-resolution markers before proposing a behavior-changing patch
 - invalid comparison cases: consumer detail was not preserved, `tradeCostEntry` was read as buyer proof, or the windows were too sparse to tell same-sample buyer state from a transient trace
 
-#### 9. Buyer-cadence corrective pass on the same save
+### 9. Buyer-Cadence Corrective Pass On The Same Save
 
 - baseline entry: evidence entry from a run with `EnableVirtualOfficeResourceBuyerFix=false` where `softwareConsumerBuyerState(...)` and consumer-side detail were preserved
 - comparison entry: a matched evidence entry on the same save lineage with `EnableVirtualOfficeResourceBuyerFix=true` and otherwise comparable settings

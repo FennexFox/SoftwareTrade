@@ -38,9 +38,9 @@ body:
     id: settings
     attributes:
       label: Settings
-      description: Copy only the `settings=...` portion from `environment(settings=..., patch_state=...)` when available. Current logs may include `EnableOutsideConnectionVirtualSellerFix` and `EnableVirtualOfficeResourceBuyerFix`; older logs may include retired legacy fields such as `EnableTradePatch`. Keep captured fields exactly as logged.
+      description: Copy only the `settings=...` portion from `environment(settings=..., patch_state=...)` when available. Current logs may include `EnableOutsideConnectionVirtualSellerFix`, `EnableVirtualOfficeResourceBuyerFix`, and `EnableOfficeDemandDirectPatch`; older logs may include retired legacy fields such as `EnableTradePatch`. Keep captured fields exactly as logged.
       placeholder: |
-        EnablePhantomVacancyFix:True,EnableOutsideConnectionVirtualSellerFix:False,EnableVirtualOfficeResourceBuyerFix:False,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:False,VerboseLogging:False
+        EnablePhantomVacancyFix:True,EnableOutsideConnectionVirtualSellerFix:False,EnableVirtualOfficeResourceBuyerFix:False,EnableOfficeDemandDirectPatch:True,EnableDemandDiagnostics:True,DiagnosticsSamplesPerDay:2,CaptureStableEvidence:False,VerboseLogging:False
     validations:
       required: true
   - type: input

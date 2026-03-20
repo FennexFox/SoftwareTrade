@@ -9,6 +9,7 @@ This is for raw intake. It is not the same thing as opening a finalized `Softwar
 - leave `EnableDemandDiagnostics` on
 - leave `EnableOutsideConnectionVirtualSellerFix` at its current default state unless you are intentionally running an outside-connection virtual seller comparison
 - leave `EnableVirtualOfficeResourceBuyerFix` at its current default state unless you are intentionally running a buyer-cadence comparison
+- leave `EnableOfficeDemandDirectPatch` at its current default state unless you are intentionally comparing against the newer vanilla `3x` office-demand baseline
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
 - turn on `VerboseLogging` only when you also need the noisier correction traces and supplemental `softwareTradeLifecycle` detail lines
