@@ -34,6 +34,8 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
+        private readonly Dictionary<Resource, bool> m_ResourceWeightCache = new();
+        private readonly Dictionary<Entity, PrefabVirtualInputInfo> m_VirtualInputPrefabCache = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
         private readonly List<BuyerOverrideSample> m_ProbeTopSamples = new();
 
@@ -101,15 +103,12 @@ namespace NoOfficeDemandFix.Systems
 
         private void CleanupCorrectiveBuyerMarkers()
         {
-            using NativeArray<Entity> taggedCompanies = m_CorrectiveBuyerMarkerCleanupQuery.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < taggedCompanies.Length; i++)
+            if (m_CorrectiveBuyerMarkerCleanupQuery.IsEmptyIgnoreFilter)
             {
-                Entity company = taggedCompanies[i];
-                if (EntityManager.HasComponent<CorrectiveSoftwareBuyerTag>(company))
-                {
-                    EntityManager.RemoveComponent<CorrectiveSoftwareBuyerTag>(company);
-                }
+                return;
             }
+
+            EntityManager.RemoveComponent(m_CorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
         }
 
         private bool TryBuildOverride(Entity company, ResourcePrefabs resourcePrefabs, out BuyerOverride buyerOverride)
@@ -120,13 +119,12 @@ namespace NoOfficeDemandFix.Systems
             PropertyRenter propertyRenter = EntityManager.GetComponentData<PropertyRenter>(company);
             if (propertyRenter.m_Property == Entity.Null ||
                 !EntityManager.HasComponent<Transform>(propertyRenter.m_Property) ||
-                !EntityManager.HasComponent<IndustrialProcessData>(prefabRef.m_Prefab))
+                !TryGetPrefabVirtualInputInfo(prefabRef.m_Prefab, resourcePrefabs, out PrefabVirtualInputInfo prefabInfo))
             {
                 return false;
             }
 
-            IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefabRef.m_Prefab);
-            if (!TryGetSelectedVirtualOfficeInput(company, prefabRef.m_Prefab, processData, resourcePrefabs, out Resource resource, out int stock, out int buyingLoad, out int tripNeededAmount, out int effectiveStock, out int threshold))
+            if (!TryGetSelectedVirtualOfficeInput(company, prefabInfo, out Resource resource, out int stock, out int buyingLoad, out int tripNeededAmount, out int effectiveStock, out int threshold))
             {
                 return false;
             }
@@ -170,9 +168,7 @@ namespace NoOfficeDemandFix.Systems
 
         private bool TryGetSelectedVirtualOfficeInput(
             Entity company,
-            Entity prefab,
-            IndustrialProcessData processData,
-            ResourcePrefabs resourcePrefabs,
+            PrefabVirtualInputInfo prefabInfo,
             out Resource selectedResource,
             out int stock,
             out int buyingLoad,
@@ -187,34 +183,17 @@ namespace NoOfficeDemandFix.Systems
             effectiveStock = 0;
             threshold = 0;
 
-            if (!EntityManager.HasComponent<StorageLimitData>(prefab))
+            if (!prefabInfo.HasEligibleVirtualInput)
             {
                 return false;
             }
 
-            int storageLimit = EntityManager.GetComponentData<StorageLimitData>(prefab).m_Limit;
-
-            bool hasSecondInput = processData.m_Input2.m_Resource != Resource.NoResource;
-            int slotCapacity = storageLimit;
-            int divisor = hasSecondInput ? 2 : 1;
-            if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource &&
-                ResourceHasWeight(processData.m_Output.m_Resource, resourcePrefabs))
-            {
-                divisor++;
-            }
-
-            if (divisor > 0 && slotCapacity != int.MaxValue)
-            {
-                slotCapacity /= divisor;
-            }
-
-            if (TrySelectVirtualOfficeInput(company, processData.m_Input1.m_Resource, slotCapacity, resourcePrefabs, ref selectedResource, ref stock, ref buyingLoad, ref tripNeededAmount, ref effectiveStock, ref threshold))
+            if (TrySelectVirtualOfficeInput(company, prefabInfo.Input1, prefabInfo.SlotCapacity, ref selectedResource, ref stock, ref buyingLoad, ref tripNeededAmount, ref effectiveStock, ref threshold))
             {
                 return true;
             }
 
-            if (hasSecondInput &&
-                TrySelectVirtualOfficeInput(company, processData.m_Input2.m_Resource, slotCapacity, resourcePrefabs, ref selectedResource, ref stock, ref buyingLoad, ref tripNeededAmount, ref effectiveStock, ref threshold))
+            if (TrySelectVirtualOfficeInput(company, prefabInfo.Input2, prefabInfo.SlotCapacity, ref selectedResource, ref stock, ref buyingLoad, ref tripNeededAmount, ref effectiveStock, ref threshold))
             {
                 return true;
             }
@@ -226,7 +205,6 @@ namespace NoOfficeDemandFix.Systems
             Entity company,
             Resource resource,
             int maxCapacity,
-            ResourcePrefabs resourcePrefabs,
             ref Resource selectedResource,
             ref int stock,
             ref int buyingLoad,
@@ -234,7 +212,7 @@ namespace NoOfficeDemandFix.Systems
             ref int effectiveStock,
             ref int threshold)
         {
-            if (resource == Resource.NoResource || ResourceHasWeight(resource, resourcePrefabs))
+            if (resource == Resource.NoResource)
             {
                 return false;
             }
@@ -339,6 +317,53 @@ namespace NoOfficeDemandFix.Systems
             return amount;
         }
 
+        private bool TryGetPrefabVirtualInputInfo(Entity prefab, ResourcePrefabs resourcePrefabs, out PrefabVirtualInputInfo prefabInfo)
+        {
+            if (m_VirtualInputPrefabCache.TryGetValue(prefab, out prefabInfo))
+            {
+                return prefabInfo.HasEligibleVirtualInput;
+            }
+
+            if (!EntityManager.HasComponent<IndustrialProcessData>(prefab) ||
+                !EntityManager.HasComponent<StorageLimitData>(prefab))
+            {
+                prefabInfo = default;
+                m_VirtualInputPrefabCache[prefab] = prefabInfo;
+                return false;
+            }
+
+            IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefab);
+            int slotCapacity = EntityManager.GetComponentData<StorageLimitData>(prefab).m_Limit;
+            bool hasSecondInput = processData.m_Input2.m_Resource != Resource.NoResource;
+            int divisor = hasSecondInput ? 2 : 1;
+            if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource &&
+                ResourceHasWeight(processData.m_Output.m_Resource, resourcePrefabs))
+            {
+                divisor++;
+            }
+
+            if (divisor > 0 && slotCapacity != int.MaxValue)
+            {
+                slotCapacity /= divisor;
+            }
+
+            Resource input1 = IsVirtualOfficeInput(processData.m_Input1.m_Resource, resourcePrefabs)
+                ? processData.m_Input1.m_Resource
+                : Resource.NoResource;
+            Resource input2 = hasSecondInput && IsVirtualOfficeInput(processData.m_Input2.m_Resource, resourcePrefabs)
+                ? processData.m_Input2.m_Resource
+                : Resource.NoResource;
+
+            prefabInfo = new PrefabVirtualInputInfo(input1, input2, slotCapacity);
+            m_VirtualInputPrefabCache[prefab] = prefabInfo;
+            return prefabInfo.HasEligibleVirtualInput;
+        }
+
+        private bool IsVirtualOfficeInput(Resource resource, ResourcePrefabs resourcePrefabs)
+        {
+            return resource != Resource.NoResource && !ResourceHasWeight(resource, resourcePrefabs);
+        }
+
         private bool ResourceHasWeight(Resource resource, ResourcePrefabs resourcePrefabs)
         {
             if (resource == Resource.NoResource)
@@ -346,9 +371,16 @@ namespace NoOfficeDemandFix.Systems
                 return false;
             }
 
+            if (m_ResourceWeightCache.TryGetValue(resource, out bool hasWeight))
+            {
+                return hasWeight;
+            }
+
             Entity resourcePrefab = resourcePrefabs[resource];
-            return EntityManager.HasComponent<ResourceData>(resourcePrefab) &&
-                   EntityManager.GetComponentData<ResourceData>(resourcePrefab).m_Weight > 0f;
+            hasWeight = EntityManager.HasComponent<ResourceData>(resourcePrefab) &&
+                        EntityManager.GetComponentData<ResourceData>(resourcePrefab).m_Weight > 0f;
+            m_ResourceWeightCache[resource] = hasWeight;
+            return hasWeight;
         }
 
         private void AccumulateProbe(Entity company, BuyerOverride buyerOverride)
@@ -535,12 +567,45 @@ namespace NoOfficeDemandFix.Systems
             return entity.Index.ToString(CultureInfo.InvariantCulture) + ":" + entity.Version.ToString(CultureInfo.InvariantCulture);
         }
 
+        protected override void OnGamePreload(Purpose purpose, GameMode mode)
+        {
+            base.OnGamePreload(purpose, mode);
+            ResetCachedPrefabState();
+        }
+
+        protected override void OnGameLoaded(Context serializationContext)
+        {
+            base.OnGameLoaded(serializationContext);
+            ResetCachedPrefabState();
+        }
+
+        private void ResetCachedPrefabState()
+        {
+            m_ResourceWeightCache.Clear();
+            m_VirtualInputPrefabCache.Clear();
+        }
+
         private sealed class ResourceOverrideAggregate
         {
             public int Count;
             public long TotalOverrideAmount;
             public int MaxOverrideAmount;
             public int MaxShortfall;
+        }
+
+        private readonly struct PrefabVirtualInputInfo
+        {
+            public PrefabVirtualInputInfo(Resource input1, Resource input2, int slotCapacity)
+            {
+                Input1 = input1;
+                Input2 = input2;
+                SlotCapacity = slotCapacity;
+            }
+
+            public Resource Input1 { get; }
+            public Resource Input2 { get; }
+            public int SlotCapacity { get; }
+            public bool HasEligibleVirtualInput => Input1 != Resource.NoResource || Input2 != Resource.NoResource;
         }
 
         private readonly struct BuyerOverrideSample

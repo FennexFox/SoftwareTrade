@@ -33,6 +33,11 @@ namespace NoOfficeDemandFix.Systems
                     ComponentType.ReadOnly<Signature>(),
                     ComponentType.ReadOnly<PrefabRef>()
                 },
+                Any = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<PropertyOnMarket>(),
+                    ComponentType.ReadOnly<PropertyToBeOnMarket>()
+                },
                 None = new ComponentType[]
                 {
                     ComponentType.ReadOnly<Abandoned>(),
@@ -76,10 +81,6 @@ namespace NoOfficeDemandFix.Systems
 
                 bool hasOnMarket = EntityManager.HasComponent<PropertyOnMarket>(property);
                 bool hasToBeOnMarket = EntityManager.HasComponent<PropertyToBeOnMarket>(property);
-                if (!hasOnMarket && !hasToBeOnMarket)
-                {
-                    continue;
-                }
 
                 if (!HasActiveCompanyRenter(property))
                 {
