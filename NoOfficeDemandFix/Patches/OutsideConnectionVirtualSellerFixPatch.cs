@@ -34,12 +34,8 @@ namespace NoOfficeDemandFix.Patches
         private const float kTargetPenaltyScale = 100f;
         private const int kBuildingUpkeepPenaltyRandomRange = 300;
 
-        private static readonly AccessTools.FieldRef<PathfindSetupSystem, ResourcePathfindSetup> s_ResourcePathfindSetupRef =
-            AccessTools.FieldRefAccess<PathfindSetupSystem, ResourcePathfindSetup>("m_ResourcePathfindSetup");
-        private static readonly AccessTools.StructFieldRef<ResourcePathfindSetup, EntityQuery> s_ResourceSellerQueryRef =
-            AccessTools.StructFieldRefAccess<ResourcePathfindSetup, EntityQuery>("m_ResourceSellerQuery");
-
         private static bool s_ActivationLogged;
+        private static bool s_OutsideConnectionSellerQueryInitialized;
         private static bool s_RuntimeFailureLogged;
         private static int s_ResourceSellerCallCount;
         private static int s_CallsWithOfficeImportSeekers;
@@ -50,6 +46,8 @@ namespace NoOfficeDemandFix.Patches
         private static int s_TotalInactiveOutsideConnections;
         private static int s_ProbeSampleLogsEmitted;
         private static readonly HashSet<Resource> s_ObservedOfficeImportResources = new HashSet<Resource>();
+        private static EntityQuery s_OutsideConnectionSellerQuery;
+        private static World s_OutsideConnectionSellerQueryWorld;
 
         private readonly struct ProbeSnapshot
         {
@@ -196,15 +194,18 @@ namespace NoOfficeDemandFix.Patches
                 return inputDeps;
             }
 
-            ref ResourcePathfindSetup resourcePathfindSetup = ref s_ResourcePathfindSetupRef(system);
-            EntityQuery query = s_ResourceSellerQueryRef(ref resourcePathfindSetup);
+            EntityQuery query = GetOutsideConnectionSellerQuery(system);
+            if (query.IsEmptyIgnoreFilter)
+            {
+                return inputDeps;
+            }
+
             JobHandle jobHandle = new AppendOutsideConnectionOfficeImportTargetsJob
             {
                 m_EntityType = system.GetEntityTypeHandle(),
                 m_PrefabType = system.GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
                 m_ResourceType = system.GetBufferTypeHandle<Game.Economy.Resources>(isReadOnly: true),
                 m_SeekerOwnedVehicles = system.GetBufferLookup<OwnedVehicle>(isReadOnly: true),
-                m_OutsideConnections = system.GetComponentLookup<OutsideConnectionComponent>(isReadOnly: true),
                 m_StorageCompanyDatas = system.GetComponentLookup<StorageCompanyData>(isReadOnly: true),
                 m_TradeCosts = system.GetBufferLookup<TradeCost>(isReadOnly: true),
                 m_Buildings = system.GetComponentLookup<BuildingComponent>(isReadOnly: true),
@@ -256,8 +257,7 @@ namespace NoOfficeDemandFix.Patches
             in PathfindSetupSystem.SetupData setupData,
             int officeImportSeekers)
         {
-            ref ResourcePathfindSetup resourcePathfindSetup = ref s_ResourcePathfindSetupRef(system);
-            EntityQuery query = s_ResourceSellerQueryRef(ref resourcePathfindSetup);
+            EntityQuery query = GetOutsideConnectionSellerQuery(system);
             EntityManager entityManager = system.EntityManager;
 
             HashSet<Resource> requestedResources = new HashSet<Resource>();
@@ -290,11 +290,6 @@ namespace NoOfficeDemandFix.Patches
             for (int entityIndex = 0; entityIndex < sellerEntities.Length; entityIndex++)
             {
                 Entity sellerEntity = sellerEntities[entityIndex];
-                if (!entityManager.HasComponent<OutsideConnectionComponent>(sellerEntity))
-                {
-                    continue;
-                }
-
                 outsideConnectionSellers++;
 
                 if (entityManager.HasComponent<BuildingComponent>(sellerEntity) &&
@@ -326,6 +321,31 @@ namespace NoOfficeDemandFix.Patches
                 missingStoredResourcePairs,
                 inactiveOutsideConnections,
                 FormatResourceSet(requestedResources));
+        }
+
+        private static EntityQuery GetOutsideConnectionSellerQuery(PathfindSetupSystem system)
+        {
+            if (!s_OutsideConnectionSellerQueryInitialized || s_OutsideConnectionSellerQueryWorld != system.World)
+            {
+                s_OutsideConnectionSellerQuery = system.EntityManager.CreateEntityQuery(new EntityQueryDesc
+                {
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<OutsideConnectionComponent>(),
+                        ComponentType.ReadOnly<PrefabRef>(),
+                        ComponentType.ReadOnly<Game.Economy.Resources>()
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>()
+                    }
+                });
+                s_OutsideConnectionSellerQueryWorld = system.World;
+                s_OutsideConnectionSellerQueryInitialized = true;
+            }
+
+            return s_OutsideConnectionSellerQuery;
         }
 
         private static string FormatResourceSet(IEnumerable<Resource> resources)
@@ -360,9 +380,6 @@ namespace NoOfficeDemandFix.Patches
 
             [ReadOnly]
             public BufferLookup<OwnedVehicle> m_SeekerOwnedVehicles;
-
-            [ReadOnly]
-            public ComponentLookup<OutsideConnectionComponent> m_OutsideConnections;
 
             [ReadOnly]
             public ComponentLookup<StorageCompanyData> m_StorageCompanyDatas;
@@ -422,11 +439,6 @@ namespace NoOfficeDemandFix.Patches
 
                         Entity prefab = prefabs[entityIndex].m_Prefab;
                         bool isBuildingUpkeep = (targetFlags & SetupTargetFlags.BuildingUpkeep) != 0;
-
-                        if (!m_OutsideConnections.HasComponent(sellerEntity))
-                        {
-                            continue;
-                        }
 
                         if (m_Buildings.HasComponent(sellerEntity) && BuildingUtils.CheckOption(m_Buildings[sellerEntity], BuildingOption.Inactive))
                         {
