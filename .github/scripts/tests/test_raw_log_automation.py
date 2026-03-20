@@ -722,6 +722,27 @@ class RawLogAutomationTests(unittest.TestCase):
             )
         )
 
+    def test_has_unsupported_evidence_summary_interpretation_rejects_latest_counter_mismatch(self) -> None:
+        parsed_log = automation.parse_log(SAME_DAY_CONSUMER_HISTORY_LOG)
+        self.assertTrue(
+            automation.has_unsupported_evidence_summary_interpretation(
+                "On the latest day-22 sample, softwareConsumerBuyerState.noBuyerDespiteNeed and "
+                "tradeCostOnly were both at 24, with buyerActive at 0. All softwareConsumerOffices "
+                "had softwareInputZero=22.",
+                parsed_log,
+            )
+        )
+
+    def test_has_unsupported_evidence_summary_interpretation_allows_historical_counter_snapshot(self) -> None:
+        parsed_log = automation.parse_log(SAME_DAY_CONSUMER_HISTORY_LOG)
+        self.assertFalse(
+            automation.has_unsupported_evidence_summary_interpretation(
+                "At day 22 sample 182, softwareConsumerBuyerState.noBuyerDespiteNeed=24 and "
+                "softwareConsumerOffices.softwareInputZero=22 before the later same-day recovery.",
+                parsed_log,
+            )
+        )
+
     def test_managed_comment_round_trip_preserves_override_block(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}
@@ -1779,6 +1800,52 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("unsupported_notes_interpretation", result["validation_errors"])
         self.assertEqual(result["draft"]["evidence_summary"], deterministic["evidence_summary"])
         self.assertEqual(result["draft"]["notes"], deterministic["notes"])
+
+    def test_generate_validated_llm_draft_replaces_latest_counter_mismatch_summary(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        parsed_log = automation.parse_log(SAME_DAY_CONSUMER_HISTORY_LOG)
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            parsed_log,
+            {"mode": "inline", "url": "", "attachment_urls": [], "text": SAME_DAY_CONSUMER_HISTORY_LOG},
+            [],
+        )
+        context = automation.build_llm_context(issue_fields, parsed_log, deterministic, [])
+        draft = {
+            "title": deterministic["title"],
+            "symptom_classification": deterministic["symptom_classification"],
+            "custom_symptom_classification": "",
+            "evidence_summary": (
+                "On the latest day-22 sample, softwareConsumerBuyerState.noBuyerDespiteNeed and "
+                "tradeCostOnly were both at 24, with buyerActive at 0. All softwareConsumerOffices "
+                "had softwareInputZero=22."
+            ),
+            "comparison_baseline": "",
+            "confidence": "medium",
+            "confounders": deterministic["confounders"],
+            "analysis_basis": "",
+            "log_excerpt": deterministic["log_excerpt"],
+            "notes": deterministic["notes"],
+            "missing_user_input": [],
+            "reasoning_summary": "reason",
+        }
+        with mock.patch.object(automation, "generate_llm_suggestions", return_value=draft):
+            with mock.patch.object(
+                automation,
+                "refine_evidence_summary",
+                return_value=(deterministic["evidence_summary"], ""),
+            ):
+                result = automation.generate_validated_llm_draft(
+                    context,
+                    issue_fields,
+                    parsed_log,
+                    deterministic,
+                    "gh-token",
+                )
+        self.assertEqual(result["status"], "enabled")
+        self.assertIn("unsupported_evidence_summary_interpretation", result["validation_errors"])
+        self.assertEqual(result["draft"]["evidence_summary"], deterministic["evidence_summary"])
 
     def test_generate_validated_llm_draft_drops_unsupported_missing_user_input(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)

@@ -2851,6 +2851,149 @@ def has_unsupported_buyer_shortage_claim(text: str, parsed_log: dict[str, Any]) 
     return False
 
 
+def split_summary_sentences(text: str) -> list[str]:
+    normalized = text.replace("\r\n", "\n").strip()
+    if not normalized:
+        return []
+    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", normalized) if part.strip()]
+    return parts or [normalized]
+
+
+def build_latest_counter_lookup(parsed_log: dict[str, Any]) -> dict[str, Any]:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    counter_groups = latest_observation.get("diagnostic_counters", {})
+    qualified_values: dict[str, int] = {}
+    bare_groups: dict[str, set[str]] = {}
+
+    for group_name, values in counter_groups.items():
+        if not isinstance(values, dict):
+            continue
+        for field_name, value in values.items():
+            qualified_name = f"{group_name}.{field_name}"
+            qualified_values[qualified_name] = safe_int(value)
+            bare_groups.setdefault(field_name, set()).add(group_name)
+
+    bare_to_qualified = {
+        field_name: f"{next(iter(group_names))}.{field_name}"
+        for field_name, group_names in bare_groups.items()
+        if len(group_names) == 1
+    }
+    return {
+        "qualified_values": qualified_values,
+        "bare_to_qualified": bare_to_qualified,
+        "field_groups": bare_groups,
+    }
+
+
+def sentence_targets_latest_observation(
+    sentence: str,
+    latest_day: int,
+    latest_sample_index: int,
+) -> bool:
+    lowered = sentence.lower()
+    day_refs = [int(match.group(1)) for match in re.finditer(r"\bday[- ]?(\d+)\b", lowered)]
+    if day_refs and latest_day > 0 and latest_day not in day_refs:
+        return False
+
+    sample_refs = [
+        int(match.group(1))
+        for match in re.finditer(r"\bsample(?:[_ -]?index)?[ =:-]?(\d+)\b", lowered)
+    ]
+    if sample_refs and latest_sample_index > 0 and latest_sample_index not in sample_refs:
+        return False
+
+    if re.search(r"\b(?:latest|final|current)\b", lowered):
+        return True
+    if latest_day > 0 and re.search(rf"\b(?:at|on|by|during)\s+day[- ]?{latest_day}\b", lowered):
+        return True
+    if latest_day > 0 and re.search(rf"\bday[- ]?{latest_day}\b", lowered) and any(
+        marker in lowered for marker in ("sample", "observation", "anchor")
+    ):
+        return True
+    if latest_sample_index > 0 and re.search(
+        rf"\bsample(?:[_ -]?index)?[ =:-]?{latest_sample_index}\b",
+        lowered,
+    ):
+        return True
+    return False
+
+
+def resolve_summary_counter_field(
+    token: str,
+    sentence: str,
+    counter_lookup: dict[str, Any],
+) -> str:
+    qualified_values = counter_lookup.get("qualified_values", {})
+    bare_to_qualified = counter_lookup.get("bare_to_qualified", {})
+    field_groups = counter_lookup.get("field_groups", {})
+
+    if token in qualified_values:
+        return token
+    if token in bare_to_qualified:
+        return str(bare_to_qualified[token])
+
+    candidate_groups = sorted(field_groups.get(token, set()))
+    if not candidate_groups:
+        return ""
+
+    matching_groups = [
+        group_name
+        for group_name in candidate_groups
+        if re.search(rf"\b{re.escape(group_name)}\b", sentence)
+    ]
+    if len(matching_groups) == 1:
+        return f"{matching_groups[0]}.{token}"
+    return ""
+
+
+def extract_summary_counter_claims(
+    sentence: str,
+    counter_lookup: dict[str, Any],
+) -> dict[str, int]:
+    claims: dict[str, int] = {}
+
+    for match in re.finditer(
+        r"\b(?P<field>(?:[A-Za-z][A-Za-z0-9]*\.)?[A-Za-z][A-Za-z0-9]*)\s*=\s*(?P<value>-?\d+)\b",
+        sentence,
+    ):
+        qualified_field = resolve_summary_counter_field(match.group("field"), sentence, counter_lookup)
+        if qualified_field:
+            claims[qualified_field] = int(match.group("value"))
+
+    for match in re.finditer(
+        r"\b(?P<field>(?:[A-Za-z][A-Za-z0-9]*\.)?[A-Za-z][A-Za-z0-9]*)(?:[^.!?\n]{0,40}?)\bat\s+(?P<value>-?\d+)\b",
+        sentence,
+    ):
+        qualified_field = resolve_summary_counter_field(match.group("field"), sentence, counter_lookup)
+        if qualified_field and qualified_field not in claims:
+            claims[qualified_field] = int(match.group("value"))
+
+    return claims
+
+
+def has_unsupported_latest_counter_summary_claim(text: str, parsed_log: dict[str, Any]) -> bool:
+    latest_observation = parsed_log.get("latest_observation") or {}
+    if not latest_observation:
+        return False
+
+    counter_lookup = build_latest_counter_lookup(parsed_log)
+    qualified_values = counter_lookup.get("qualified_values", {})
+    if not qualified_values:
+        return False
+
+    latest_day = observation_day(latest_observation)
+    latest_sample_index = observation_sample_index(latest_observation)
+
+    for sentence in split_summary_sentences(text):
+        if not sentence_targets_latest_observation(sentence, latest_day, latest_sample_index):
+            continue
+        for qualified_field, claimed_value in extract_summary_counter_claims(sentence, counter_lookup).items():
+            actual_value = qualified_values.get(qualified_field)
+            if actual_value is not None and actual_value != claimed_value:
+                return True
+    return False
+
+
 def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[str, Any]) -> bool:
     if any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in UNSUPPORTED_SUMMARY_PATTERNS):
         return True
@@ -2859,6 +3002,8 @@ def has_unsupported_evidence_summary_interpretation(text: str, parsed_log: dict[
     if has_unsupported_phantom_zero_claim(text, parsed_log):
         return True
     if has_unsupported_buyer_shortage_claim(text, parsed_log):
+        return True
+    if has_unsupported_latest_counter_summary_claim(text, parsed_log):
         return True
     return False
 

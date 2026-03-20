@@ -8,6 +8,7 @@ include = [
   ".github/scripts/run_promote_evidence_comment.py",
   ".github/scripts/run_retriage_comment.py",
   ".github/scripts/run_raw_log_triage.py",
+  ".github/scripts/tests/test_run_raw_log_triage.py",
   ".github/scripts/tests/test_raw_log_automation.py",
 ]
 extraPaths = [".github/scripts"]
