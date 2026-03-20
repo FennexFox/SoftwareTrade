@@ -661,7 +661,7 @@ namespace NoOfficeDemandFix.Systems
 
         private void CountFreeOfficeProperties(ref DiagnosticSnapshot snapshot)
         {
-            StringBuilder details = new StringBuilder();
+            StringBuilder details = null;
             int detailCount = 0;
             using NativeArray<Entity> properties = m_FreeOfficePropertyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < properties.Length; i++)
@@ -683,7 +683,10 @@ namespace NoOfficeDemandFix.Systems
                 if (softwareCapable)
                 {
                     snapshot.FreeSoftwareOfficeProperties++;
-                    AppendDetail(details, ref detailCount, DescribeProperty(property));
+                    if (detailCount < kMaxDetailEntries)
+                    {
+                        AppendDetail(ref details, ref detailCount, DescribeProperty(property));
+                    }
                 }
 
                 if (EntityManager.HasComponent<Attached>(property))
@@ -700,12 +703,12 @@ namespace NoOfficeDemandFix.Systems
                 }
             }
 
-            snapshot.FreeSoftwareOfficePropertyDetails = details.ToString();
+            snapshot.FreeSoftwareOfficePropertyDetails = details == null ? string.Empty : details.ToString();
         }
 
         private void CountOnMarketProperties(ref DiagnosticSnapshot snapshot)
         {
-            StringBuilder details = new StringBuilder();
+            StringBuilder details = null;
             int detailCount = 0;
             using NativeArray<Entity> properties = m_OnMarketPropertyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < properties.Length; i++)
@@ -747,7 +750,10 @@ namespace NoOfficeDemandFix.Systems
                         }
                     }
 
-                    AppendDetail(details, ref detailCount, DescribeProperty(property));
+                    if (detailCount < kMaxDetailEntries)
+                    {
+                        AppendDetail(ref details, ref detailCount, DescribeProperty(property));
+                    }
                 }
 
                 if (isIndustrialProperty && activeCompanyRenters > 0)
@@ -763,7 +769,7 @@ namespace NoOfficeDemandFix.Systems
                 }
             }
 
-            snapshot.OnMarketOfficePropertyDetails = details.ToString();
+            snapshot.OnMarketOfficePropertyDetails = details == null ? string.Empty : details.ToString();
         }
 
         private void CountToBeOnMarketProperties(ref DiagnosticSnapshot snapshot)
@@ -786,13 +792,13 @@ namespace NoOfficeDemandFix.Systems
 
         private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot, bool verboseLogging)
         {
-            StringBuilder details = new StringBuilder();
+            StringBuilder details = null;
             int detailCount = 0;
-            StringBuilder lifecycleDetails = new StringBuilder();
+            StringBuilder lifecycleDetails = null;
             int lifecycleDetailCount = 0;
-            StringBuilder virtualResolutionProbeDetails = new StringBuilder();
+            StringBuilder virtualResolutionProbeDetails = null;
             int virtualResolutionProbeDetailCount = 0;
-            StringBuilder buyerTimingProbeDetails = new StringBuilder();
+            StringBuilder buyerTimingProbeDetails = null;
             int buyerTimingProbeDetailCount = 0;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
@@ -993,15 +999,19 @@ namespace NoOfficeDemandFix.Systems
                     snapshot.SoftwareConsumerOfficeSoftwareInputZero++;
                 }
 
-                if (efficiencyZero || lackResourcesZero || softwareInputZero || (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState)))
+                if (detailCount < kMaxDetailEntries &&
+                    (efficiencyZero || lackResourcesZero || softwareInputZero || (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState))))
                 {
-                    AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
+                    AppendDetail(ref details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
                 }
 
-                if (verboseLogging && isConsumer && ShouldCaptureConsumerTradeLifecycle(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
+                if (verboseLogging &&
+                    lifecycleDetailCount < kMaxDetailEntries &&
+                    isConsumer &&
+                    ShouldCaptureConsumerTradeLifecycle(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
                 {
                     AppendDetail(
-                        lifecycleDetails,
+                        ref lifecycleDetails,
                         ref lifecycleDetailCount,
                         DescribeConsumerTradeLifecycle(
                             company,
@@ -1014,10 +1024,13 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
-                if (verboseLogging && isConsumer && ShouldCaptureVirtualResolutionProbe(softwareConsumerState))
+                if (verboseLogging &&
+                    virtualResolutionProbeDetailCount < kMaxDetailEntries &&
+                    isConsumer &&
+                    ShouldCaptureVirtualResolutionProbe(softwareConsumerState))
                 {
                     AppendDetail(
-                        virtualResolutionProbeDetails,
+                        ref virtualResolutionProbeDetails,
                         ref virtualResolutionProbeDetailCount,
                         DescribeSoftwareVirtualResolutionProbe(
                             company,
@@ -1026,10 +1039,13 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
-                if (verboseLogging && isConsumer && ShouldCaptureBuyerTimingProbe(softwareConsumerState))
+                if (verboseLogging &&
+                    buyerTimingProbeDetailCount < kMaxDetailEntries &&
+                    isConsumer &&
+                    ShouldCaptureBuyerTimingProbe(softwareConsumerState))
                 {
                     AppendDetail(
-                        buyerTimingProbeDetails,
+                        ref buyerTimingProbeDetails,
                         ref buyerTimingProbeDetailCount,
                         DescribeSoftwareBuyerTimingProbe(
                             company,
@@ -1042,10 +1058,13 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
-                if (verboseLogging && isProducer && (efficiencyZero || lackResourcesZero))
+                if (verboseLogging &&
+                    lifecycleDetailCount < kMaxDetailEntries &&
+                    isProducer &&
+                    (efficiencyZero || lackResourcesZero))
                 {
                     AppendDetail(
-                        lifecycleDetails,
+                        ref lifecycleDetails,
                         ref lifecycleDetailCount,
                         DescribeProducerTradeLifecycle(
                             company,
@@ -1058,10 +1077,10 @@ namespace NoOfficeDemandFix.Systems
                 }
             }
 
-            snapshot.SoftwareOfficeDetails = details.ToString();
-            snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails.ToString();
-            snapshot.SoftwareVirtualResolutionProbeDetails = virtualResolutionProbeDetails.ToString();
-            snapshot.SoftwareBuyerTimingProbeDetails = buyerTimingProbeDetails.ToString();
+            snapshot.SoftwareOfficeDetails = details == null ? string.Empty : details.ToString();
+            snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails == null ? string.Empty : lifecycleDetails.ToString();
+            snapshot.SoftwareVirtualResolutionProbeDetails = virtualResolutionProbeDetails == null ? string.Empty : virtualResolutionProbeDetails.ToString();
+            snapshot.SoftwareBuyerTimingProbeDetails = buyerTimingProbeDetails == null ? string.Empty : buyerTimingProbeDetails.ToString();
         }
 
         private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources, SoftwareConsumerDiagnosticState softwareConsumerState)
@@ -2637,11 +2656,16 @@ namespace NoOfficeDemandFix.Systems
             return Math.Max(kMinDiagnosticsSamplesPerDay, Math.Min(kMaxDiagnosticsSamplesPerDay, Mod.Settings.DiagnosticsSamplesPerDay));
         }
 
-        private void AppendDetail(StringBuilder builder, ref int count, string detail)
+        private void AppendDetail(ref StringBuilder builder, ref int count, string detail)
         {
             if (count >= kMaxDetailEntries || string.IsNullOrEmpty(detail))
             {
                 return;
+            }
+
+            if (builder == null)
+            {
+                builder = new StringBuilder();
             }
 
             if (count > 0)

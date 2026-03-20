@@ -54,8 +54,10 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.ReadOnly<PrefabRef>(),
                 ComponentType.ReadOnly<PropertyRenter>(),
                 ComponentType.ReadOnly<Resources>(),
-                ComponentType.ReadWrite<CitizenTripNeeded>(),
+                ComponentType.ReadOnly<CitizenTripNeeded>(),
                 ComponentType.Exclude<ResourceBuyer>(),
+                ComponentType.Exclude<PathInformation>(),
+                ComponentType.Exclude<CurrentTrading>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
             m_CorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
@@ -114,12 +116,6 @@ namespace NoOfficeDemandFix.Systems
         {
             buyerOverride = default;
 
-            if (!EntityManager.HasComponent<PrefabRef>(company) ||
-                !EntityManager.HasComponent<PropertyRenter>(company))
-            {
-                return false;
-            }
-
             PrefabRef prefabRef = EntityManager.GetComponentData<PrefabRef>(company);
             PropertyRenter propertyRenter = EntityManager.GetComponentData<PropertyRenter>(company);
             if (propertyRenter.m_Property == Entity.Null ||
@@ -131,12 +127,6 @@ namespace NoOfficeDemandFix.Systems
 
             IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefabRef.m_Prefab);
             if (!TryGetSelectedVirtualOfficeInput(company, prefabRef.m_Prefab, processData, resourcePrefabs, out Resource resource, out int stock, out int buyingLoad, out int tripNeededAmount, out int effectiveStock, out int threshold))
-            {
-                return false;
-            }
-
-            if (EntityManager.HasComponent<PathInformation>(company) ||
-                EntityManager.HasBuffer<CurrentTrading>(company))
             {
                 return false;
             }
