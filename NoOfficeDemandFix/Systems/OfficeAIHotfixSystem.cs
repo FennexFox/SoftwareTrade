@@ -203,9 +203,9 @@ namespace NoOfficeDemandFix.Systems
             NativeReference<int> officeConsumedAmount = m_OfficeAISystem.GetIndustrialConsumptionAmount(out JobHandle writeDeps);
             JobHandle officeJob = JobHandle.CombineDependencies(writeDeps, Dependency);
 
-            m_OfficeCompanyGroup.SetSharedComponentFilter(new UpdateFrame { m_Index = updateFrame });
             try
             {
+                m_OfficeCompanyGroup.SetSharedComponentFilter(new UpdateFrame { m_Index = updateFrame });
                 officeJob = JobChunkExtensions.ScheduleParallel(
                     new OfficeAIHotfixJob
                     {

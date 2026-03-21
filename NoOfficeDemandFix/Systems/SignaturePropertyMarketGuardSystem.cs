@@ -197,7 +197,6 @@ namespace NoOfficeDemandFix.Systems
 
             jobHandle.Complete();
             commandBuffer.Playback(EntityManager);
-            Dependency = default;
 
             while (correctedProperties.TryDequeue(out _))
             {
