@@ -110,6 +110,11 @@ namespace NoOfficeDemandFix.Systems
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
             {
+                if (((uint)unfilteredChunkIndex & kUpdateBucketMask) != UpdateBucket)
+                {
+                    return;
+                }
+
                 NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
                 NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref PrefabType);
                 NativeArray<PropertyRenter> properties = chunk.GetNativeArray(ref PropertyType);
@@ -119,11 +124,6 @@ namespace NoOfficeDemandFix.Systems
                 for (int i = 0; i < chunk.Count; i++)
                 {
                     Entity company = entities[i];
-                    if (((uint)company.Index & kUpdateBucketMask) != UpdateBucket)
-                    {
-                        continue;
-                    }
-
                     Entity prefab = prefabs[i].m_Prefab;
                     Entity property = properties[i].m_Property;
                     if (property == Entity.Null || !Transforms.HasComponent(property))
