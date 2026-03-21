@@ -32,7 +32,7 @@ Runtime investigation logs use the `softwareEvidenceDiagnostics` vocabulary.
 
 Settings:
 
-- default capture: keep `EnableDemandDiagnostics=true`; keep `CaptureStableEvidence=false` and `VerboseLogging=false`
+- default capture: turn on `EnableDemandDiagnostics` before collecting logs; keep `CaptureStableEvidence=false` and `VerboseLogging=false`
 - outside-connection virtual seller comparison capture: toggle `EnableOutsideConnectionVirtualSellerFix` only when you are explicitly comparing the outside-connection virtual seller path; record the exact state from `environment(settings=...)`
 - buyer-cadence comparison capture: toggle `EnableVirtualOfficeResourceBuyerFix` only when you are explicitly comparing the corrective post-vanilla buyer pass; record the exact state from `environment(settings=...)`
 - office-demand baseline comparison capture: toggle `EnableOfficeDemandDirectPatch` only when you are explicitly comparing the restored pre-hotfix `2x` baseline against the newer vanilla `3x` baseline; record the exact state from `environment(settings=...)`
