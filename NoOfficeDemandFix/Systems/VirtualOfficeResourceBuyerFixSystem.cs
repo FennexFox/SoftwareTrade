@@ -30,8 +30,10 @@ namespace NoOfficeDemandFix.Systems
         private const int kResourceMinimumRequestAmount = 2000;
         private const int kMaxProbeSampleLogs = 3;
         private const float kLowStockThresholdRatio = 0.25f;
+        private const uint kUpdateBucketMask = 15u;
 
         private ResourceSystem m_ResourceSystem;
+        private SimulationSystem m_SimulationSystem;
         private EntityQuery m_OfficeCompanyQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
 
@@ -104,6 +106,7 @@ namespace NoOfficeDemandFix.Systems
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
             public bool CaptureProbeResults;
+            public uint UpdateBucket;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
             {
@@ -116,6 +119,11 @@ namespace NoOfficeDemandFix.Systems
                 for (int i = 0; i < chunk.Count; i++)
                 {
                     Entity company = entities[i];
+                    if (((uint)company.Index & kUpdateBucketMask) != UpdateBucket)
+                    {
+                        continue;
+                    }
+
                     Entity prefab = prefabs[i].m_Prefab;
                     Entity property = properties[i].m_Property;
                     if (property == Entity.Null || !Transforms.HasComponent(property))
@@ -389,6 +397,7 @@ namespace NoOfficeDemandFix.Systems
         {
             base.OnCreate();
             m_ResourceSystem = World.GetOrCreateSystemManaged<ResourceSystem>();
+            m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_OfficeCompanyQuery = GetEntityQuery(
                 ComponentType.ReadOnly<OfficeCompany>(),
                 ComponentType.ReadOnly<BuyingCompany>(),
@@ -427,6 +436,7 @@ namespace NoOfficeDemandFix.Systems
 
             ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
             bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
+            uint updateBucket = m_SimulationSystem.frameIndex & kUpdateBucketMask;
             using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
             using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
 
@@ -448,7 +458,8 @@ namespace NoOfficeDemandFix.Systems
                     ResourcePrefabs = resourcePrefabs,
                     CommandBuffer = commandBuffer.AsParallelWriter(),
                     ProbeResults = probeResults.AsParallelWriter(),
-                    CaptureProbeResults = captureProbeResults
+                    CaptureProbeResults = captureProbeResults,
+                    UpdateBucket = updateBucket
                 },
                 m_OfficeCompanyQuery,
                 Dependency);
