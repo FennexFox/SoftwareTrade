@@ -38,14 +38,14 @@ namespace NoOfficeDemandFix.Patches
         private static bool s_OutsideConnectionSellerQueryInitialized;
         private static bool s_RuntimeFailureLogged;
         private static int s_ResourceSellerCallCount;
-        private static int s_CallsWithOfficeImportSeekers;
-        private static int s_TotalOfficeImportSeekers;
+        private static int s_CallsWithOfficeImportCandidatesPrefilter;
+        private static int s_TotalOfficeImportCandidatesPrefilter;
         private static int s_SellerStateSamplesCaptured;
         private static int s_TotalOutsideConnectionSellers;
         private static int s_TotalMissingStoredResourcePairs;
         private static int s_TotalInactiveOutsideConnections;
         private static int s_ProbeSampleLogsEmitted;
-        private static readonly HashSet<Resource> s_ObservedOfficeImportResources = new HashSet<Resource>();
+        private static readonly HashSet<Resource> s_ObservedRequestedResourcesPrefilter = new HashSet<Resource>();
         private static EntityQuery s_OutsideConnectionSellerQuery;
         private static World s_OutsideConnectionSellerQueryWorld;
 
@@ -67,24 +67,24 @@ namespace NoOfficeDemandFix.Patches
         private readonly struct ProbeSnapshot
         {
             public ProbeSnapshot(
-                int officeImportSeekers,
+                int officeImportCandidatesPrefilter,
                 int outsideConnectionSellers,
                 int missingStoredResourcePairs,
                 int inactiveOutsideConnections,
-                string requestedResources)
+                string requestedResourcesPrefilter)
             {
-                OfficeImportSeekers = officeImportSeekers;
+                OfficeImportCandidatesPrefilter = officeImportCandidatesPrefilter;
                 OutsideConnectionSellers = outsideConnectionSellers;
                 MissingStoredResourcePairs = missingStoredResourcePairs;
                 InactiveOutsideConnections = inactiveOutsideConnections;
-                RequestedResources = requestedResources;
+                RequestedResourcesPrefilter = requestedResourcesPrefilter;
             }
 
-            public int OfficeImportSeekers { get; }
+            public int OfficeImportCandidatesPrefilter { get; }
             public int OutsideConnectionSellers { get; }
             public int MissingStoredResourcePairs { get; }
             public int InactiveOutsideConnections { get; }
-            public string RequestedResources { get; }
+            public string RequestedResourcesPrefilter { get; }
         }
 
         public static MethodBase TargetMethod()
@@ -118,16 +118,16 @@ namespace NoOfficeDemandFix.Patches
                     s_ActivationLogged = true;
                 }
 
-                int officeImportSeekers = CountOfficeImportSeekers(setupData);
-                if (officeImportSeekers == 0)
+                int officeImportCandidatesPrefilter = CountOfficeImportCandidatesPrefilter(setupData);
+                if (officeImportCandidatesPrefilter == 0)
                 {
                     return;
                 }
 
-                s_CallsWithOfficeImportSeekers++;
-                s_TotalOfficeImportSeekers += officeImportSeekers;
+                s_CallsWithOfficeImportCandidatesPrefilter++;
+                s_TotalOfficeImportCandidatesPrefilter += officeImportCandidatesPrefilter;
 
-                MaybeCaptureProbeSnapshot(__instance, setupData, officeImportSeekers);
+                MaybeCaptureProbeSnapshot(__instance, setupData, officeImportCandidatesPrefilter);
                 __result = ScheduleAdditionalOutsideConnectionTargets(__instance, setupData, __result);
             }
             catch (Exception ex)
@@ -150,9 +150,9 @@ namespace NoOfficeDemandFix.Patches
             StringBuilder summary = new StringBuilder();
             summary.Append("patch_variant=").Append(PatchVariant);
             summary.Append(", resource_seller_calls=").Append(s_ResourceSellerCallCount);
-            summary.Append(", calls_with_office_import_seekers=").Append(s_CallsWithOfficeImportSeekers);
-            summary.Append(", office_import_seekers=").Append(s_TotalOfficeImportSeekers);
-            summary.Append(", requested_resources=[").Append(FormatResourceSet(s_ObservedOfficeImportResources)).Append(']');
+            summary.Append(", calls_with_office_import_candidates=").Append(s_CallsWithOfficeImportCandidatesPrefilter);
+            summary.Append(", office_import_candidates_prefilter=").Append(s_TotalOfficeImportCandidatesPrefilter);
+            summary.Append(", requested_resources_prefilter=[").Append(FormatResourceSet(s_ObservedRequestedResourcesPrefilter)).Append(']');
             summary.Append(", seller_state_captured=").Append(s_SellerStateSamplesCaptured > 0);
             if (s_SellerStateSamplesCaptured > 0)
             {
@@ -168,19 +168,22 @@ namespace NoOfficeDemandFix.Patches
             s_ActivationLogged = false;
             s_RuntimeFailureLogged = false;
             s_ResourceSellerCallCount = 0;
-            s_CallsWithOfficeImportSeekers = 0;
-            s_TotalOfficeImportSeekers = 0;
+            s_CallsWithOfficeImportCandidatesPrefilter = 0;
+            s_TotalOfficeImportCandidatesPrefilter = 0;
             s_SellerStateSamplesCaptured = 0;
             s_TotalOutsideConnectionSellers = 0;
             s_TotalMissingStoredResourcePairs = 0;
             s_TotalInactiveOutsideConnections = 0;
             s_ProbeSampleLogsEmitted = 0;
-            s_ObservedOfficeImportResources.Clear();
+            s_ObservedRequestedResourcesPrefilter.Clear();
         }
 
-        private static int CountOfficeImportSeekers(in PathfindSetupSystem.SetupData setupData)
+        private static int CountOfficeImportCandidatesPrefilter(in PathfindSetupSystem.SetupData setupData)
         {
-            int officeImportSeekers = 0;
+            // Keep this snapshot intentionally pre-filtered so diagnostics stay cheap:
+            // it records office import candidates before TryCreateOfficeImportRequests()
+            // applies the transport gate.
+            int officeImportCandidatesPrefilter = 0;
 
             for (int setupIndex = 0; setupIndex < setupData.Length; setupIndex++)
             {
@@ -192,11 +195,11 @@ namespace NoOfficeDemandFix.Patches
                     continue;
                 }
 
-                officeImportSeekers++;
-                s_ObservedOfficeImportResources.Add(resource);
+                officeImportCandidatesPrefilter++;
+                s_ObservedRequestedResourcesPrefilter.Add(resource);
             }
 
-            return officeImportSeekers;
+            return officeImportCandidatesPrefilter;
         }
 
         private static JobHandle ScheduleAdditionalOutsideConnectionTargets(
@@ -344,14 +347,14 @@ namespace NoOfficeDemandFix.Patches
         private static void MaybeCaptureProbeSnapshot(
             PathfindSetupSystem system,
             in PathfindSetupSystem.SetupData setupData,
-            int officeImportSeekers)
+            int officeImportCandidatesPrefilter)
         {
             if (Mod.Settings == null || !Mod.Settings.EnableDemandDiagnostics || !Mod.Settings.VerboseLogging)
             {
                 return;
             }
 
-            ProbeSnapshot snapshot = CaptureProbeSnapshot(system, setupData, officeImportSeekers);
+            ProbeSnapshot snapshot = CaptureProbeSnapshot(system, setupData, officeImportCandidatesPrefilter);
             s_SellerStateSamplesCaptured++;
             s_TotalOutsideConnectionSellers += snapshot.OutsideConnectionSellers;
             s_TotalMissingStoredResourcePairs += snapshot.MissingStoredResourcePairs;
@@ -370,18 +373,18 @@ namespace NoOfficeDemandFix.Patches
             s_ProbeSampleLogsEmitted++;
             Mod.log.Info(MachineParsedLogContract.FormatTradePatchProbe(
                 "sample",
-                $"patch_variant={PatchVariant}, call_index={s_ResourceSellerCallCount}, office_import_seekers={snapshot.OfficeImportSeekers}, outside_connection_sellers={snapshot.OutsideConnectionSellers}, missing_stored_resource_pairs={snapshot.MissingStoredResourcePairs}, inactive_outside_connections={snapshot.InactiveOutsideConnections}, requested_resources=[{snapshot.RequestedResources}]"));
+                $"patch_variant={PatchVariant}, call_index={s_ResourceSellerCallCount}, office_import_candidates_prefilter={snapshot.OfficeImportCandidatesPrefilter}, outside_connection_sellers={snapshot.OutsideConnectionSellers}, missing_stored_resource_pairs={snapshot.MissingStoredResourcePairs}, inactive_outside_connections={snapshot.InactiveOutsideConnections}, requested_resources_prefilter=[{snapshot.RequestedResourcesPrefilter}]"));
         }
 
         private static ProbeSnapshot CaptureProbeSnapshot(
             PathfindSetupSystem system,
             in PathfindSetupSystem.SetupData setupData,
-            int officeImportSeekers)
+            int officeImportCandidatesPrefilter)
         {
             EntityQuery query = GetOutsideConnectionSellerQuery(system);
             EntityManager entityManager = system.EntityManager;
 
-            HashSet<Resource> requestedResources = new HashSet<Resource>();
+            HashSet<Resource> requestedResourcesPrefilter = new HashSet<Resource>();
 
             for (int setupIndex = 0; setupIndex < setupData.Length; setupIndex++)
             {
@@ -393,10 +396,10 @@ namespace NoOfficeDemandFix.Patches
                     continue;
                 }
 
-                requestedResources.Add(resource);
+                requestedResourcesPrefilter.Add(resource);
             }
 
-            if (officeImportSeekers == 0)
+            if (officeImportCandidatesPrefilter == 0)
             {
                 return default;
             }
@@ -427,7 +430,7 @@ namespace NoOfficeDemandFix.Patches
                 }
 
                 StorageCompanyData storageCompanyData = entityManager.GetComponentData<StorageCompanyData>(prefab);
-                foreach (Resource resource in requestedResources)
+                foreach (Resource resource in requestedResourcesPrefilter)
                 {
                     if ((storageCompanyData.m_StoredResources & resource) == Resource.NoResource)
                     {
@@ -437,11 +440,11 @@ namespace NoOfficeDemandFix.Patches
             }
 
             return new ProbeSnapshot(
-                officeImportSeekers,
+                officeImportCandidatesPrefilter,
                 outsideConnectionSellers,
                 missingStoredResourcePairs,
                 inactiveOutsideConnections,
-                FormatResourceSet(requestedResources));
+                FormatResourceSet(requestedResourcesPrefilter));
         }
 
         private static EntityQuery GetOutsideConnectionSellerQuery(PathfindSetupSystem system)
