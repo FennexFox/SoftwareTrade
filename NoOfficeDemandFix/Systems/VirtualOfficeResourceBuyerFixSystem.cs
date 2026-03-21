@@ -30,11 +30,12 @@ namespace NoOfficeDemandFix.Systems
         private const int kResourceMinimumRequestAmount = 2000;
         private const int kMaxProbeSampleLogs = 3;
         private const float kLowStockThresholdRatio = 0.25f;
-        private const uint kUpdateBucketMask = 15u;
+        private const uint kFallbackSweepIntervalMask = 127u;
 
         private ResourceSystem m_ResourceSystem;
         private SimulationSystem m_SimulationSystem;
         private EntityQuery m_OfficeCompanyQuery;
+        private EntityQuery m_OfficeCompanyChangedQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
@@ -106,15 +107,9 @@ namespace NoOfficeDemandFix.Systems
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
             public bool CaptureProbeResults;
-            public uint UpdateBucket;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
             {
-                if (((uint)unfilteredChunkIndex & kUpdateBucketMask) != UpdateBucket)
-                {
-                    return;
-                }
-
                 NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
                 NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref PrefabType);
                 NativeArray<PropertyRenter> properties = chunk.GetNativeArray(ref PropertyType);
@@ -398,18 +393,35 @@ namespace NoOfficeDemandFix.Systems
             base.OnCreate();
             m_ResourceSystem = World.GetOrCreateSystemManaged<ResourceSystem>();
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
-            m_OfficeCompanyQuery = GetEntityQuery(
-                ComponentType.ReadOnly<OfficeCompany>(),
-                ComponentType.ReadOnly<BuyingCompany>(),
+            EntityQueryDesc officeCompanyQueryDesc = new EntityQueryDesc
+            {
+                All = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<OfficeCompany>(),
+                    ComponentType.ReadOnly<BuyingCompany>(),
+                    ComponentType.ReadOnly<PrefabRef>(),
+                    ComponentType.ReadOnly<PropertyRenter>(),
+                    ComponentType.ReadOnly<Resources>(),
+                    ComponentType.ReadOnly<CitizenTripNeeded>()
+                },
+                None = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<ResourceBuyer>(),
+                    ComponentType.ReadOnly<PathInformation>(),
+                    ComponentType.ReadOnly<CurrentTrading>(),
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            };
+            m_OfficeCompanyQuery = GetEntityQuery(officeCompanyQueryDesc);
+            m_OfficeCompanyChangedQuery = EntityManager.CreateEntityQuery(officeCompanyQueryDesc);
+            m_OfficeCompanyChangedQuery.SetChangedVersionFilter(new[]
+            {
                 ComponentType.ReadOnly<PrefabRef>(),
                 ComponentType.ReadOnly<PropertyRenter>(),
                 ComponentType.ReadOnly<Resources>(),
-                ComponentType.ReadOnly<CitizenTripNeeded>(),
-                ComponentType.Exclude<ResourceBuyer>(),
-                ComponentType.Exclude<PathInformation>(),
-                ComponentType.Exclude<CurrentTrading>(),
-                ComponentType.Exclude<Deleted>(),
-                ComponentType.Exclude<Temp>());
+                ComponentType.ReadOnly<CitizenTripNeeded>()
+            });
             m_CorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
                 ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
                 ComponentType.Exclude<ResourceBuyer>(),
@@ -434,9 +446,16 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
+            EntityQuery officeCompanyQuery = ShouldRunFallbackSweep()
+                ? m_OfficeCompanyQuery
+                : m_OfficeCompanyChangedQuery;
+            if (officeCompanyQuery.IsEmpty)
+            {
+                return;
+            }
+
             ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
             bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
-            uint updateBucket = m_SimulationSystem.frameIndex & kUpdateBucketMask;
             using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
             using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
 
@@ -458,10 +477,9 @@ namespace NoOfficeDemandFix.Systems
                     ResourcePrefabs = resourcePrefabs,
                     CommandBuffer = commandBuffer.AsParallelWriter(),
                     ProbeResults = probeResults.AsParallelWriter(),
-                    CaptureProbeResults = captureProbeResults,
-                    UpdateBucket = updateBucket
+                    CaptureProbeResults = captureProbeResults
                 },
-                m_OfficeCompanyQuery,
+                officeCompanyQuery,
                 Dependency);
 
             jobHandle.Complete();
@@ -477,6 +495,11 @@ namespace NoOfficeDemandFix.Systems
             {
                 AccumulateProbe(probeRecord);
             }
+        }
+
+        private bool ShouldRunFallbackSweep()
+        {
+            return (m_SimulationSystem.frameIndex & kFallbackSweepIntervalMask) == 0;
         }
 
         private void CleanupCorrectiveBuyerMarkers()
