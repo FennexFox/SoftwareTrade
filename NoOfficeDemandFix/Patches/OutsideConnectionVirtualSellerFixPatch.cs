@@ -58,6 +58,12 @@ namespace NoOfficeDemandFix.Patches
             public int ResourceIndex;
         }
 
+        private struct ResourceRequestRange
+        {
+            public int StartIndex;
+            public int Count;
+        }
+
         private readonly struct ProbeSnapshot
         {
             public ProbeSnapshot(
@@ -209,7 +215,12 @@ namespace NoOfficeDemandFix.Patches
                 return inputDeps;
             }
 
-            if (!TryCreateOfficeImportRequests(system, setupData, out NativeArray<OfficeImportRequest> officeImportRequests, out NativeArray<Resource> requestedResources))
+            if (!TryCreateOfficeImportRequests(
+                    system,
+                    setupData,
+                    out NativeArray<OfficeImportRequest> officeImportRequests,
+                    out NativeArray<Resource> requestedResources,
+                    out NativeArray<ResourceRequestRange> resourceRequestRanges))
             {
                 return inputDeps;
             }
@@ -227,11 +238,14 @@ namespace NoOfficeDemandFix.Patches
                 m_LayoutElementBufs = system.GetBufferLookup<LayoutElement>(isReadOnly: true),
                 m_RandomSeed = RandomSeed.Next(),
                 m_OfficeImportRequests = officeImportRequests,
-                m_RequestedResources = requestedResources
+                m_RequestedResources = requestedResources,
+                m_ResourceRequestRanges = resourceRequestRanges
             }.ScheduleParallel(query, inputDeps);
 
+            // Keep reader registration behind both the scheduled work and TempJob cleanup.
             jobHandle = officeImportRequests.Dispose(jobHandle);
             jobHandle = requestedResources.Dispose(jobHandle);
+            jobHandle = resourceRequestRanges.Dispose(jobHandle);
             system.World.GetOrCreateSystemManaged<ResourceSystem>().AddPrefabsReader(jobHandle);
             return jobHandle;
         }
@@ -240,10 +254,12 @@ namespace NoOfficeDemandFix.Patches
             PathfindSetupSystem system,
             in PathfindSetupSystem.SetupData setupData,
             out NativeArray<OfficeImportRequest> officeImportRequests,
-            out NativeArray<Resource> requestedResources)
+            out NativeArray<Resource> requestedResources,
+            out NativeArray<ResourceRequestRange> resourceRequestRanges)
         {
             officeImportRequests = default;
             requestedResources = default;
+            resourceRequestRanges = default;
 
             if (setupData.Length == 0)
             {
@@ -291,6 +307,8 @@ namespace NoOfficeDemandFix.Patches
                 return false;
             }
 
+            requests.Sort((left, right) => left.ResourceIndex.CompareTo(right.ResourceIndex));
+
             officeImportRequests = new NativeArray<OfficeImportRequest>(requests.Count, Allocator.TempJob);
             for (int i = 0; i < requests.Count; i++)
             {
@@ -301,6 +319,23 @@ namespace NoOfficeDemandFix.Patches
             for (int i = 0; i < resources.Count; i++)
             {
                 requestedResources[i] = resources[i];
+            }
+
+            resourceRequestRanges = new NativeArray<ResourceRequestRange>(resources.Count, Allocator.TempJob);
+            int requestStartIndex = 0;
+            for (int resourceIndex = 0; resourceIndex < resources.Count; resourceIndex++)
+            {
+                int startIndex = requestStartIndex;
+                while (requestStartIndex < requests.Count && requests[requestStartIndex].ResourceIndex == resourceIndex)
+                {
+                    requestStartIndex++;
+                }
+
+                resourceRequestRanges[resourceIndex] = new ResourceRequestRange
+                {
+                    StartIndex = startIndex,
+                    Count = requestStartIndex - startIndex
+                };
             }
 
             return true;
@@ -491,6 +526,9 @@ namespace NoOfficeDemandFix.Patches
             [ReadOnly]
             public NativeArray<Resource> m_RequestedResources;
 
+            [ReadOnly]
+            public NativeArray<ResourceRequestRange> m_ResourceRequestRanges;
+
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
                 NativeArray<Entity> entities = chunk.GetNativeArray(m_EntityType);
@@ -517,6 +555,12 @@ namespace NoOfficeDemandFix.Patches
                     for (int resourceIndex = 0; resourceIndex < m_RequestedResources.Length; resourceIndex++)
                     {
                         Resource resource = m_RequestedResources[resourceIndex];
+                        ResourceRequestRange requestRange = m_ResourceRequestRanges[resourceIndex];
+                        if (requestRange.Count == 0)
+                        {
+                            continue;
+                        }
+
                         if ((storageCompanyData.m_StoredResources & resource) != Resource.NoResource)
                         {
                             continue;
@@ -536,10 +580,10 @@ namespace NoOfficeDemandFix.Patches
                             buyCost = EconomyUtils.GetTradeCost(resource, costs).m_BuyCost;
                         }
 
-                        for (int requestIndex = 0; requestIndex < m_OfficeImportRequests.Length; requestIndex++)
+                        for (int requestOffset = 0; requestOffset < requestRange.Count; requestOffset++)
                         {
-                            OfficeImportRequest request = m_OfficeImportRequests[requestIndex];
-                            if (request.ResourceIndex != resourceIndex || sellerEntity.Equals(request.SeekerEntity))
+                            OfficeImportRequest request = m_OfficeImportRequests[requestRange.StartIndex + requestOffset];
+                            if (sellerEntity.Equals(request.SeekerEntity))
                             {
                                 continue;
                             }
