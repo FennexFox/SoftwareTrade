@@ -90,7 +90,7 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableOfficeDemandDirectPatch)), "The 1.5.6f1 hotfix raises office demand by increasing the office resource-demand baseline inside IndustrialDemandSystem. Turn this on before launch when you need the pre-hotfix baseline for like-for-like comparisons, and consistent behavior across runs." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Enable office demand diagnostics" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Logs office-demand factors, free office properties, phantom-vacancy counters, and software producer/consumer office state when the simulation looks suspicious. Leave it on for troubleshooting, or turn it off if you want quieter logs." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableDemandDiagnostics)), "Logs office-demand factors, free office properties, phantom-vacancy counters, and software producer/consumer office state when the simulation looks suspicious. Turn it on if you want diagnostic logs investigate further." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.DiagnosticsSamplesPerDay)), "Diagnostics samples per day" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.DiagnosticsSamplesPerDay)), "Controls how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values create denser logs. Default is 2." },
