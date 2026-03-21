@@ -13,8 +13,8 @@ No Office Demand Fix currently ships confirmed office-demand fixes plus a narrow
 - Signature Phantom Vacancy fix: removes stale PropertyOnMarket and PropertyToBeOnMarket state from occupied Signature office and industrial properties so false free-space counts stop suppressing demand.
 - Office AI chunk-iteration hotfix: one low-stock office no longer stops later offices in the same chunk from consuming stock and queuing virtual exports.
 - Office-demand baseline direct patch: restores the older `2x` office resource-demand baseline instead of the newer vanilla `3x` multiplier so evidence remains comparable to earlier runs.
-- Software import seller correction: a narrow fallback that lets office virtual-resource imports consider outside connections when vanilla seller selection is too restrictive.
-- Software import buyer timing correction: a narrow fallback buyer for zero-weight office inputs that remain below threshold without a buyer, path, trip, or current trading state.
+- Software import seller correction: a narrow fallback that appends additional outside connections for office virtual-resource imports when vanilla seller selection is too restrictive.
+- Software import buyer correction: a narrow corrective pass for zero-weight office inputs that remain below threshold without a buyer, path, trip, or current trading state.
 - Diagnostics: optional logs for office demand, phantom vacancy, and software office state; disabled by default until you turn them on for troubleshooting.
 
 Current release status:
@@ -22,7 +22,7 @@ Current release status:
 - fixes the reproduced Signature phantom vacancy case
 - fixes the vanilla office AI chunk-iteration abort on low stock
 - restores the pre-hotfix office-demand baseline for comparability via a direct Harmony patch
-- includes experimental software import seller and buyer corrections by default, with diagnostics available but disabled by default
+- includes refined experimental software import seller and buyer corrections by default, with diagnostics available but disabled by default
 - keeps broader software-related office stalls under investigation
 - keeps non-signature phantom vacancy under observation
 	</LongDescription>
@@ -33,16 +33,17 @@ Current release status:
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="https://forum.paradoxplaza.com/forum/threads/no-office-demand-fix-discussion-thread.1906822/" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.2.0" />
+	<ModVersion Value="0.2.1" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
-	<ChangeLog>
-- Added the office AI chunk-iteration hotfix so one low-stock office no longer aborts later offices in the same chunk.
-- Restored the older `2x` office-demand baseline with a direct Harmony patch for comparability against earlier evidence.
-- Kept the experimental software import seller and buyer corrections enabled by default while making diagnostics opt-in until you need bounded evidence capture.
-- Kept the broader software path positioned as investigational rather than a claimed full fix.
-	</ChangeLog>
+<ChangeLog>
+- Office demand diagnostics are now opt-in instead of enabled by default.
+- Refined the experimental software import seller correction and its outside-connection probe reporting.
+- Refined the experimental virtual office buyer correction to reduce redundant work while keeping a periodic fallback sweep for stalled cases.
+- Improved occupied Signature property market cleanup.
+- Improved diagnostics and troubleshooting reporting for the current software investigation track.
+</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
 	<ExternalLink Type="discord" Url="https://discord.gg/HTav7ARPs2" />
