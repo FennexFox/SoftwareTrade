@@ -33,7 +33,7 @@ namespace NoOfficeDemandFix
         public bool EnableOfficeDemandDirectPatch { get; set; } = true;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
-        public bool EnableDemandDiagnostics { get; set; } = true;
+        public bool EnableDemandDiagnostics { get; set; } = false;
 
         [SettingsUISection(kSection, kDiagnosticsGroup)]
         [SettingsUISlider(min = 1, max = 8, step = 1, scalarMultiplier = 1, unit = Unit.kInteger)]
@@ -51,7 +51,7 @@ namespace NoOfficeDemandFix
             EnableOutsideConnectionVirtualSellerFix = true;
             EnableVirtualOfficeResourceBuyerFix = true;
             EnableOfficeDemandDirectPatch = true;
-            EnableDemandDiagnostics = true;
+            EnableDemandDiagnostics = false;
             DiagnosticsSamplesPerDay = 2;
             CaptureStableEvidence = false;
             VerboseLogging = false;
