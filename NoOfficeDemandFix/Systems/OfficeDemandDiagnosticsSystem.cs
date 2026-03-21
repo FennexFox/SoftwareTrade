@@ -17,7 +17,9 @@ using Game.Simulation;
 using Game.Tools;
 using Game.Vehicles;
 using Game.Zones;
+using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using UnityEngine.Scripting;
@@ -334,6 +336,324 @@ namespace NoOfficeDemandFix.Systems
             public SoftwareVirtualResolutionProbeState Probe;
         }
 
+        private struct FreeOfficePropertySummary
+        {
+            public int Total;
+            public int SoftwareCapable;
+            public int InOccupiedBuildings;
+            public int SoftwareInOccupiedBuildings;
+        }
+
+        private struct OnMarketPropertySummary
+        {
+            public int OnMarketOffice;
+            public int ActivelyVacantOffice;
+            public int OccupiedOnMarketOffice;
+            public int StaleRenterOnMarketOffice;
+            public int SignatureOccupiedOnMarketOffice;
+            public int SignatureOccupiedOnMarketIndustrial;
+            public int NonSignatureOccupiedOnMarketOffice;
+            public int NonSignatureOccupiedOnMarketIndustrial;
+        }
+
+        private struct ToBeOnMarketPropertySummary
+        {
+            public int SignatureOccupiedOnMarket;
+        }
+
+        private struct SoftwareOfficePrefabMetadata
+        {
+            public IndustrialProcessData ProcessData;
+            public int StorageLimit;
+            public bool IsRelevant;
+            public bool IsProducer;
+            public bool IsConsumer;
+            public bool OutputHasWeight;
+        }
+
+        [BurstCompile]
+        private struct CountFreeOfficePropertySummaryJob : IJobChunk
+        {
+            [ReadOnly]
+            public EntityTypeHandle EntityType;
+
+            [ReadOnly]
+            public ComponentTypeHandle<PrefabRef> PrefabType;
+
+            [ReadOnly]
+            public ComponentLookup<BuildingPropertyData> BuildingPropertyDatas;
+
+            [ReadOnly]
+            public ComponentLookup<Attached> Attacheds;
+
+            [ReadOnly]
+            public BufferLookup<Renter> Renters;
+
+            [ReadOnly]
+            public ComponentLookup<CompanyData> CompanyDatas;
+
+            [ReadOnly]
+            public ComponentLookup<PropertyRenter> PropertyRenters;
+
+            [NativeDisableParallelForRestriction]
+            public NativeArray<FreeOfficePropertySummary> ChunkSummaries;
+
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
+            {
+                NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
+                NativeArray<PrefabRef> prefabs = chunk.GetNativeArray(ref PrefabType);
+                FreeOfficePropertySummary summary = default;
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    summary.Total++;
+                    bool softwareCapable = false;
+                    Entity prefab = prefabs[i].m_Prefab;
+                    if (BuildingPropertyDatas.HasComponent(prefab))
+                    {
+                        softwareCapable = (BuildingPropertyDatas[prefab].m_AllowedManufactured & Resource.Software) != Resource.NoResource;
+                    }
+
+                    if (softwareCapable)
+                    {
+                        summary.SoftwareCapable++;
+                    }
+
+                    Entity property = entities[i];
+                    if (!Attacheds.HasComponent(property) || !HasActiveCompanyRenter(Attacheds[property].m_Parent))
+                    {
+                        continue;
+                    }
+
+                    summary.InOccupiedBuildings++;
+                    if (softwareCapable)
+                    {
+                        summary.SoftwareInOccupiedBuildings++;
+                    }
+                }
+
+                ChunkSummaries[unfilteredChunkIndex] = summary;
+            }
+
+            private bool HasActiveCompanyRenter(Entity property)
+            {
+                if (!Renters.HasBuffer(property))
+                {
+                    return false;
+                }
+
+                DynamicBuffer<Renter> renters = Renters[property];
+                for (int i = 0; i < renters.Length; i++)
+                {
+                    Entity renter = renters[i].m_Renter;
+                    if (!CompanyDatas.HasComponent(renter) || !PropertyRenters.HasComponent(renter))
+                    {
+                        continue;
+                    }
+
+                    if (PropertyRenters[renter].m_Property == property)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        [BurstCompile]
+        private struct CountOnMarketPropertySummaryJob : IJobChunk
+        {
+            [ReadOnly]
+            public EntityTypeHandle EntityType;
+
+            [ReadOnly]
+            public ComponentLookup<OfficeProperty> OfficeProperties;
+
+            [ReadOnly]
+            public ComponentLookup<IndustrialProperty> IndustrialProperties;
+
+            [ReadOnly]
+            public ComponentLookup<Signature> Signatures;
+
+            [ReadOnly]
+            public BufferLookup<Renter> Renters;
+
+            [ReadOnly]
+            public ComponentLookup<CompanyData> CompanyDatas;
+
+            [ReadOnly]
+            public ComponentLookup<PropertyRenter> PropertyRenters;
+
+            [NativeDisableParallelForRestriction]
+            public NativeArray<OnMarketPropertySummary> ChunkSummaries;
+
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
+            {
+                NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
+                OnMarketPropertySummary summary = default;
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    Entity property = entities[i];
+                    bool isOfficeProperty = OfficeProperties.HasComponent(property);
+                    bool isIndustrialProperty = IndustrialProperties.HasComponent(property);
+                    if (!isOfficeProperty && !isIndustrialProperty)
+                    {
+                        continue;
+                    }
+
+                    bool hasActiveCompanyRenter = HasActiveCompanyRenter(property);
+                    bool hasCompanyRenter = hasActiveCompanyRenter || HasCompanyRenter(property);
+                    bool isSignature = Signatures.HasComponent(property);
+                    if (isOfficeProperty)
+                    {
+                        summary.OnMarketOffice++;
+                        if (hasActiveCompanyRenter)
+                        {
+                            summary.OccupiedOnMarketOffice++;
+                            if (isSignature)
+                            {
+                                summary.SignatureOccupiedOnMarketOffice++;
+                            }
+                            else
+                            {
+                                summary.NonSignatureOccupiedOnMarketOffice++;
+                            }
+                        }
+                        else
+                        {
+                            summary.ActivelyVacantOffice++;
+                            if (hasCompanyRenter)
+                            {
+                                summary.StaleRenterOnMarketOffice++;
+                            }
+                        }
+                    }
+
+                    if (!isIndustrialProperty || !hasActiveCompanyRenter)
+                    {
+                        continue;
+                    }
+
+                    if (isSignature)
+                    {
+                        summary.SignatureOccupiedOnMarketIndustrial++;
+                    }
+                    else
+                    {
+                        summary.NonSignatureOccupiedOnMarketIndustrial++;
+                    }
+                }
+
+                ChunkSummaries[unfilteredChunkIndex] = summary;
+            }
+
+            private bool HasCompanyRenter(Entity property)
+            {
+                if (!Renters.HasBuffer(property))
+                {
+                    return false;
+                }
+
+                DynamicBuffer<Renter> renters = Renters[property];
+                for (int i = 0; i < renters.Length; i++)
+                {
+                    if (CompanyDatas.HasComponent(renters[i].m_Renter))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            private bool HasActiveCompanyRenter(Entity property)
+            {
+                if (!Renters.HasBuffer(property))
+                {
+                    return false;
+                }
+
+                DynamicBuffer<Renter> renters = Renters[property];
+                for (int i = 0; i < renters.Length; i++)
+                {
+                    Entity renter = renters[i].m_Renter;
+                    if (!CompanyDatas.HasComponent(renter) || !PropertyRenters.HasComponent(renter))
+                    {
+                        continue;
+                    }
+
+                    if (PropertyRenters[renter].m_Property == property)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        [BurstCompile]
+        private struct CountToBeOnMarketPropertySummaryJob : IJobChunk
+        {
+            [ReadOnly]
+            public EntityTypeHandle EntityType;
+
+            [ReadOnly]
+            public BufferLookup<Renter> Renters;
+
+            [ReadOnly]
+            public ComponentLookup<CompanyData> CompanyDatas;
+
+            [ReadOnly]
+            public ComponentLookup<PropertyRenter> PropertyRenters;
+
+            [NativeDisableParallelForRestriction]
+            public NativeArray<ToBeOnMarketPropertySummary> ChunkSummaries;
+
+            public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
+            {
+                NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
+                ToBeOnMarketPropertySummary summary = default;
+
+                for (int i = 0; i < chunk.Count; i++)
+                {
+                    if (HasActiveCompanyRenter(entities[i]))
+                    {
+                        summary.SignatureOccupiedOnMarket++;
+                    }
+                }
+
+                ChunkSummaries[unfilteredChunkIndex] = summary;
+            }
+
+            private bool HasActiveCompanyRenter(Entity property)
+            {
+                if (!Renters.HasBuffer(property))
+                {
+                    return false;
+                }
+
+                DynamicBuffer<Renter> renters = Renters[property];
+                for (int i = 0; i < renters.Length; i++)
+                {
+                    Entity renter = renters[i].m_Renter;
+                    if (!CompanyDatas.HasComponent(renter) || !PropertyRenters.HasComponent(renter))
+                    {
+                        continue;
+                    }
+
+                    if (PropertyRenters[renter].m_Property == property)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
         private SimulationSystem m_SimulationSystem;
         private TimeSystem m_TimeSystem;
         private IndustrialDemandSystem m_IndustrialDemandSystem;
@@ -361,6 +681,8 @@ namespace NoOfficeDemandFix.Systems
         private string m_LastSettingsSnapshot = string.Empty;
         private string m_LastPatchState = string.Empty;
         private readonly Dictionary<Entity, SoftwareConsumerTraceState> m_SoftwareConsumerTrace = new Dictionary<Entity, SoftwareConsumerTraceState>();
+        private readonly Dictionary<Entity, SoftwareOfficePrefabMetadata> m_SoftwareOfficePrefabCache = new Dictionary<Entity, SoftwareOfficePrefabMetadata>();
+        private readonly Dictionary<Resource, float> m_ResourceWeightCache = new Dictionary<Resource, float>();
 
         [Preserve]
         protected override void OnCreate()
@@ -384,22 +706,49 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>(),
                 ComponentType.Exclude<Condemned>());
-            m_OnMarketPropertyQuery = GetEntityQuery(
-                ComponentType.ReadOnly<PropertyOnMarket>(),
-                ComponentType.ReadOnly<PrefabRef>(),
-                ComponentType.Exclude<Abandoned>(),
-                ComponentType.Exclude<Destroyed>(),
-                ComponentType.Exclude<Deleted>(),
-                ComponentType.Exclude<Temp>(),
-                ComponentType.Exclude<Condemned>());
-            m_ToBeOnMarketPropertyQuery = GetEntityQuery(
-                ComponentType.ReadOnly<PropertyToBeOnMarket>(),
-                ComponentType.ReadOnly<PrefabRef>(),
-                ComponentType.Exclude<Abandoned>(),
-                ComponentType.Exclude<Destroyed>(),
-                ComponentType.Exclude<Deleted>(),
-                ComponentType.Exclude<Temp>(),
-                ComponentType.Exclude<Condemned>());
+            m_OnMarketPropertyQuery = GetEntityQuery(new EntityQueryDesc
+            {
+                All = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<PropertyOnMarket>(),
+                    ComponentType.ReadOnly<PrefabRef>()
+                },
+                Any = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<OfficeProperty>(),
+                    ComponentType.ReadOnly<IndustrialProperty>()
+                },
+                None = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<Abandoned>(),
+                    ComponentType.ReadOnly<Destroyed>(),
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>(),
+                    ComponentType.ReadOnly<Condemned>()
+                }
+            });
+            m_ToBeOnMarketPropertyQuery = GetEntityQuery(new EntityQueryDesc
+            {
+                All = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<PropertyToBeOnMarket>(),
+                    ComponentType.ReadOnly<PrefabRef>(),
+                    ComponentType.ReadOnly<Signature>()
+                },
+                Any = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<OfficeProperty>(),
+                    ComponentType.ReadOnly<IndustrialProperty>()
+                },
+                None = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<Abandoned>(),
+                    ComponentType.ReadOnly<Destroyed>(),
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>(),
+                    ComponentType.ReadOnly<Condemned>()
+                }
+            });
             m_OfficeCompanyQuery = GetEntityQuery(
                 ComponentType.ReadOnly<OfficeCompany>(),
                 ComponentType.ReadOnly<PrefabRef>(),
@@ -661,163 +1010,141 @@ namespace NoOfficeDemandFix.Systems
 
         private void CountFreeOfficeProperties(ref DiagnosticSnapshot snapshot)
         {
-            StringBuilder details = new StringBuilder();
-            int detailCount = 0;
-            using NativeArray<Entity> properties = m_FreeOfficePropertyQuery.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < properties.Length; i++)
+            if (m_FreeOfficePropertyQuery.IsEmptyIgnoreFilter)
             {
-                Entity property = properties[i];
-                snapshot.FreeOfficeProperties++;
-
-                bool softwareCapable = false;
-                if (EntityManager.HasComponent<PrefabRef>(property))
-                {
-                    PrefabRef prefabRef = EntityManager.GetComponentData<PrefabRef>(property);
-                    if (EntityManager.HasComponent<BuildingPropertyData>(prefabRef.m_Prefab))
-                    {
-                        BuildingPropertyData propertyData = EntityManager.GetComponentData<BuildingPropertyData>(prefabRef.m_Prefab);
-                        softwareCapable = (propertyData.m_AllowedManufactured & Resource.Software) != Resource.NoResource;
-                    }
-                }
-
-                if (softwareCapable)
-                {
-                    snapshot.FreeSoftwareOfficeProperties++;
-                    AppendDetail(details, ref detailCount, DescribeProperty(property));
-                }
-
-                if (EntityManager.HasComponent<Attached>(property))
-                {
-                    Attached attached = EntityManager.GetComponentData<Attached>(property);
-                    if (GetActiveCompanyRenterCount(attached.m_Parent) > 0)
-                    {
-                        snapshot.FreeOfficePropertiesInOccupiedBuildings++;
-                        if (softwareCapable)
-                        {
-                            snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings++;
-                        }
-                    }
-                }
+                snapshot.FreeSoftwareOfficePropertyDetails = string.Empty;
+                return;
             }
 
-            snapshot.FreeSoftwareOfficePropertyDetails = details.ToString();
+            int chunkCount = m_FreeOfficePropertyQuery.CalculateChunkCount();
+            using NativeArray<FreeOfficePropertySummary> chunkSummaries = new NativeArray<FreeOfficePropertySummary>(chunkCount, Allocator.TempJob);
+            JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                new CountFreeOfficePropertySummaryJob
+                {
+                    EntityType = GetEntityTypeHandle(),
+                    PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
+                    BuildingPropertyDatas = GetComponentLookup<BuildingPropertyData>(isReadOnly: true),
+                    Attacheds = GetComponentLookup<Attached>(isReadOnly: true),
+                    Renters = GetBufferLookup<Renter>(isReadOnly: true),
+                    CompanyDatas = GetComponentLookup<CompanyData>(isReadOnly: true),
+                    PropertyRenters = GetComponentLookup<PropertyRenter>(isReadOnly: true),
+                    ChunkSummaries = chunkSummaries
+                },
+                m_FreeOfficePropertyQuery,
+                Dependency);
+
+            jobHandle.Complete();
+            Dependency = default;
+
+            for (int i = 0; i < chunkSummaries.Length; i++)
+            {
+                FreeOfficePropertySummary summary = chunkSummaries[i];
+                snapshot.FreeOfficeProperties += summary.Total;
+                snapshot.FreeSoftwareOfficeProperties += summary.SoftwareCapable;
+                snapshot.FreeOfficePropertiesInOccupiedBuildings += summary.InOccupiedBuildings;
+                snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings += summary.SoftwareInOccupiedBuildings;
+            }
+
+            snapshot.FreeSoftwareOfficePropertyDetails = CollectFreeSoftwareOfficePropertyDetails();
         }
 
         private void CountOnMarketProperties(ref DiagnosticSnapshot snapshot)
         {
-            StringBuilder details = new StringBuilder();
-            int detailCount = 0;
-            using NativeArray<Entity> properties = m_OnMarketPropertyQuery.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < properties.Length; i++)
+            if (m_OnMarketPropertyQuery.IsEmptyIgnoreFilter)
             {
-                Entity property = properties[i];
-                if (!TryGetTrackedPropertyType(property, out bool isOfficeProperty, out bool isIndustrialProperty))
-                {
-                    continue;
-                }
-
-                int activeCompanyRenters = GetActiveCompanyRenterCount(property);
-                int companyRenters = GetCompanyRenterCount(property);
-                bool isSignature = EntityManager.HasComponent<Signature>(property);
-                if (isOfficeProperty)
-                {
-                    snapshot.OnMarketOfficeProperties++;
-                    if (activeCompanyRenters > 0)
-                    {
-                        snapshot.OccupiedOnMarketOfficeProperties++;
-                    }
-                    else
-                    {
-                        snapshot.ActivelyVacantOfficeProperties++;
-                        if (companyRenters > 0)
-                        {
-                            snapshot.StaleRenterOnMarketOfficeProperties++;
-                        }
-                    }
-
-                    if (activeCompanyRenters > 0)
-                    {
-                        if (isSignature)
-                        {
-                            snapshot.SignatureOccupiedOnMarketOffice++;
-                        }
-                        else
-                        {
-                            snapshot.NonSignatureOccupiedOnMarketOffice++;
-                        }
-                    }
-
-                    AppendDetail(details, ref detailCount, DescribeProperty(property));
-                }
-
-                if (isIndustrialProperty && activeCompanyRenters > 0)
-                {
-                    if (isSignature)
-                    {
-                        snapshot.SignatureOccupiedOnMarketIndustrial++;
-                    }
-                    else
-                    {
-                        snapshot.NonSignatureOccupiedOnMarketIndustrial++;
-                    }
-                }
+                snapshot.OnMarketOfficePropertyDetails = string.Empty;
+                return;
             }
 
-            snapshot.OnMarketOfficePropertyDetails = details.ToString();
+            int chunkCount = m_OnMarketPropertyQuery.CalculateChunkCount();
+            using NativeArray<OnMarketPropertySummary> chunkSummaries = new NativeArray<OnMarketPropertySummary>(chunkCount, Allocator.TempJob);
+            JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                new CountOnMarketPropertySummaryJob
+                {
+                    EntityType = GetEntityTypeHandle(),
+                    OfficeProperties = GetComponentLookup<OfficeProperty>(isReadOnly: true),
+                    IndustrialProperties = GetComponentLookup<IndustrialProperty>(isReadOnly: true),
+                    Signatures = GetComponentLookup<Signature>(isReadOnly: true),
+                    Renters = GetBufferLookup<Renter>(isReadOnly: true),
+                    CompanyDatas = GetComponentLookup<CompanyData>(isReadOnly: true),
+                    PropertyRenters = GetComponentLookup<PropertyRenter>(isReadOnly: true),
+                    ChunkSummaries = chunkSummaries
+                },
+                m_OnMarketPropertyQuery,
+                Dependency);
+
+            jobHandle.Complete();
+            Dependency = default;
+
+            for (int i = 0; i < chunkSummaries.Length; i++)
+            {
+                OnMarketPropertySummary summary = chunkSummaries[i];
+                snapshot.OnMarketOfficeProperties += summary.OnMarketOffice;
+                snapshot.ActivelyVacantOfficeProperties += summary.ActivelyVacantOffice;
+                snapshot.OccupiedOnMarketOfficeProperties += summary.OccupiedOnMarketOffice;
+                snapshot.StaleRenterOnMarketOfficeProperties += summary.StaleRenterOnMarketOffice;
+                snapshot.SignatureOccupiedOnMarketOffice += summary.SignatureOccupiedOnMarketOffice;
+                snapshot.SignatureOccupiedOnMarketIndustrial += summary.SignatureOccupiedOnMarketIndustrial;
+                snapshot.NonSignatureOccupiedOnMarketOffice += summary.NonSignatureOccupiedOnMarketOffice;
+                snapshot.NonSignatureOccupiedOnMarketIndustrial += summary.NonSignatureOccupiedOnMarketIndustrial;
+            }
+
+            snapshot.OnMarketOfficePropertyDetails = CollectOnMarketOfficePropertyDetails();
         }
 
         private void CountToBeOnMarketProperties(ref DiagnosticSnapshot snapshot)
         {
-            using NativeArray<Entity> properties = m_ToBeOnMarketPropertyQuery.ToEntityArray(Allocator.Temp);
-            for (int i = 0; i < properties.Length; i++)
+            if (m_ToBeOnMarketPropertyQuery.IsEmptyIgnoreFilter)
             {
-                Entity property = properties[i];
-                if (!EntityManager.HasComponent<Signature>(property) || !TryGetTrackedPropertyType(property, out _, out _))
-                {
-                    continue;
-                }
+                return;
+            }
 
-                if (GetActiveCompanyRenterCount(property) > 0)
+            int chunkCount = m_ToBeOnMarketPropertyQuery.CalculateChunkCount();
+            using NativeArray<ToBeOnMarketPropertySummary> chunkSummaries = new NativeArray<ToBeOnMarketPropertySummary>(chunkCount, Allocator.TempJob);
+            JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                new CountToBeOnMarketPropertySummaryJob
                 {
-                    snapshot.SignatureOccupiedToBeOnMarket++;
-                }
+                    EntityType = GetEntityTypeHandle(),
+                    Renters = GetBufferLookup<Renter>(isReadOnly: true),
+                    CompanyDatas = GetComponentLookup<CompanyData>(isReadOnly: true),
+                    PropertyRenters = GetComponentLookup<PropertyRenter>(isReadOnly: true),
+                    ChunkSummaries = chunkSummaries
+                },
+                m_ToBeOnMarketPropertyQuery,
+                Dependency);
+
+            jobHandle.Complete();
+            Dependency = default;
+
+            for (int i = 0; i < chunkSummaries.Length; i++)
+            {
+                snapshot.SignatureOccupiedToBeOnMarket += chunkSummaries[i].SignatureOccupiedOnMarket;
             }
         }
 
         private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot, bool verboseLogging)
         {
-            StringBuilder details = new StringBuilder();
+            StringBuilder details = null;
             int detailCount = 0;
-            StringBuilder lifecycleDetails = new StringBuilder();
+            StringBuilder lifecycleDetails = null;
             int lifecycleDetailCount = 0;
-            StringBuilder virtualResolutionProbeDetails = new StringBuilder();
+            StringBuilder virtualResolutionProbeDetails = null;
             int virtualResolutionProbeDetailCount = 0;
-            StringBuilder buyerTimingProbeDetails = new StringBuilder();
+            StringBuilder buyerTimingProbeDetails = null;
             int buyerTimingProbeDetailCount = 0;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
             {
                 Entity company = companies[i];
-                if (!EntityManager.HasComponent<PrefabRef>(company))
-                {
-                    continue;
-                }
-
                 PrefabRef prefabRef = EntityManager.GetComponentData<PrefabRef>(company);
-                if (!EntityManager.HasComponent<IndustrialProcessData>(prefabRef.m_Prefab))
+                if (!TryGetSoftwareOfficePrefabMetadata(prefabRef.m_Prefab, out SoftwareOfficePrefabMetadata prefabMetadata))
                 {
                     continue;
                 }
 
-                IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefabRef.m_Prefab);
-                bool isProducer = processData.m_Output.m_Resource == Resource.Software;
-                bool isConsumer = processData.m_Input1.m_Resource == Resource.Software ||
-                                  processData.m_Input2.m_Resource == Resource.Software;
-                if (!isProducer && !isConsumer)
-                {
-                    continue;
-                }
-
+                IndustrialProcessData processData = prefabMetadata.ProcessData;
+                bool isProducer = prefabMetadata.IsProducer;
+                bool isConsumer = prefabMetadata.IsConsumer;
                 if (isProducer)
                 {
                     snapshot.SoftwareProducerOfficeCompanies++;
@@ -863,7 +1190,7 @@ namespace NoOfficeDemandFix.Systems
                 SoftwareConsumerDiagnosticState softwareConsumerState = default;
                 if (isConsumer)
                 {
-                    softwareConsumerState = GetSoftwareConsumerDiagnosticState(company, prefabRef.m_Prefab, processData, snapshot.Day, snapshot.SampleIndex);
+                    softwareConsumerState = GetSoftwareConsumerDiagnosticState(company, prefabMetadata, snapshot.Day, snapshot.SampleIndex);
                     softwareInputStock = softwareConsumerState.Need.Stock;
                     if (softwareConsumerState.Need.Selected)
                     {
@@ -993,15 +1320,19 @@ namespace NoOfficeDemandFix.Systems
                     snapshot.SoftwareConsumerOfficeSoftwareInputZero++;
                 }
 
-                if (efficiencyZero || lackResourcesZero || softwareInputZero || (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState)))
+                if (detailCount < kMaxDetailEntries &&
+                    (efficiencyZero || lackResourcesZero || softwareInputZero || (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState))))
                 {
-                    AppendDetail(details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
+                    AppendDetail(ref details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
                 }
 
-                if (verboseLogging && isConsumer && ShouldCaptureConsumerTradeLifecycle(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
+                if (verboseLogging &&
+                    lifecycleDetailCount < kMaxDetailEntries &&
+                    isConsumer &&
+                    ShouldCaptureConsumerTradeLifecycle(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
                 {
                     AppendDetail(
-                        lifecycleDetails,
+                        ref lifecycleDetails,
                         ref lifecycleDetailCount,
                         DescribeConsumerTradeLifecycle(
                             company,
@@ -1014,10 +1345,13 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
-                if (verboseLogging && isConsumer && ShouldCaptureVirtualResolutionProbe(softwareConsumerState))
+                if (verboseLogging &&
+                    virtualResolutionProbeDetailCount < kMaxDetailEntries &&
+                    isConsumer &&
+                    ShouldCaptureVirtualResolutionProbe(softwareConsumerState))
                 {
                     AppendDetail(
-                        virtualResolutionProbeDetails,
+                        ref virtualResolutionProbeDetails,
                         ref virtualResolutionProbeDetailCount,
                         DescribeSoftwareVirtualResolutionProbe(
                             company,
@@ -1026,10 +1360,13 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
-                if (verboseLogging && isConsumer && ShouldCaptureBuyerTimingProbe(softwareConsumerState))
+                if (verboseLogging &&
+                    buyerTimingProbeDetailCount < kMaxDetailEntries &&
+                    isConsumer &&
+                    ShouldCaptureBuyerTimingProbe(softwareConsumerState))
                 {
                     AppendDetail(
-                        buyerTimingProbeDetails,
+                        ref buyerTimingProbeDetails,
                         ref buyerTimingProbeDetailCount,
                         DescribeSoftwareBuyerTimingProbe(
                             company,
@@ -1042,10 +1379,13 @@ namespace NoOfficeDemandFix.Systems
                             softwareConsumerState));
                 }
 
-                if (verboseLogging && isProducer && (efficiencyZero || lackResourcesZero))
+                if (verboseLogging &&
+                    lifecycleDetailCount < kMaxDetailEntries &&
+                    isProducer &&
+                    (efficiencyZero || lackResourcesZero))
                 {
                     AppendDetail(
-                        lifecycleDetails,
+                        ref lifecycleDetails,
                         ref lifecycleDetailCount,
                         DescribeProducerTradeLifecycle(
                             company,
@@ -1058,10 +1398,10 @@ namespace NoOfficeDemandFix.Systems
                 }
             }
 
-            snapshot.SoftwareOfficeDetails = details.ToString();
-            snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails.ToString();
-            snapshot.SoftwareVirtualResolutionProbeDetails = virtualResolutionProbeDetails.ToString();
-            snapshot.SoftwareBuyerTimingProbeDetails = buyerTimingProbeDetails.ToString();
+            snapshot.SoftwareOfficeDetails = details == null ? string.Empty : details.ToString();
+            snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails == null ? string.Empty : lifecycleDetails.ToString();
+            snapshot.SoftwareVirtualResolutionProbeDetails = virtualResolutionProbeDetails == null ? string.Empty : virtualResolutionProbeDetails.ToString();
+            snapshot.SoftwareBuyerTimingProbeDetails = buyerTimingProbeDetails == null ? string.Empty : buyerTimingProbeDetails.ToString();
         }
 
         private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources, SoftwareConsumerDiagnosticState softwareConsumerState)
@@ -1705,12 +2045,18 @@ namespace NoOfficeDemandFix.Systems
                 return 0f;
             }
 
-            return EconomyUtils.GetWeight(EntityManager, resource, m_ResourceSystem.GetPrefabs());
+            if (!m_ResourceWeightCache.TryGetValue(resource, out float weight))
+            {
+                weight = EconomyUtils.GetWeight(EntityManager, resource, m_ResourceSystem.GetPrefabs());
+                m_ResourceWeightCache[resource] = weight;
+            }
+
+            return weight;
         }
 
-        private SoftwareConsumerDiagnosticState GetSoftwareConsumerDiagnosticState(Entity company, Entity companyPrefab, IndustrialProcessData processData, int day, int sampleIndex)
+        private SoftwareConsumerDiagnosticState GetSoftwareConsumerDiagnosticState(Entity company, SoftwareOfficePrefabMetadata prefabMetadata, int day, int sampleIndex)
         {
-            SoftwareNeedState needState = GetSoftwareNeedState(company, companyPrefab, processData);
+            SoftwareNeedState needState = GetSoftwareNeedState(company, prefabMetadata);
             TryGetCompanyTradeCost(company, Resource.Software, out SoftwareTradeCostState tradeCostState);
             SoftwareAcquisitionState acquisitionState = GetSoftwareAcquisitionState(company);
             bool hasCurrentLastTradePartnerObservation = TryGetObservedLastTradePartner(company, out Entity currentLastTradePartner);
@@ -1796,23 +2142,18 @@ namespace NoOfficeDemandFix.Systems
             return state;
         }
 
-        private SoftwareNeedState GetSoftwareNeedState(Entity company, Entity companyPrefab, IndustrialProcessData processData)
+        private SoftwareNeedState GetSoftwareNeedState(Entity company, SoftwareOfficePrefabMetadata prefabMetadata)
         {
             SoftwareNeedState state = default;
-            int storageLimit = int.MaxValue;
-            if (EntityManager.HasComponent<StorageLimitData>(companyPrefab))
-            {
-                storageLimit = EntityManager.GetComponentData<StorageLimitData>(companyPrefab).m_Limit;
-            }
-
+            IndustrialProcessData processData = prefabMetadata.ProcessData;
             bool hasSecondInput = processData.m_Input2.m_Resource != Resource.NoResource;
             int slotCount = hasSecondInput ? 2 : 1;
-            if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource && ResourceHasWeight(processData.m_Output.m_Resource))
+            if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource && prefabMetadata.OutputHasWeight)
             {
                 slotCount++;
             }
 
-            int maxCapacityPerSlot = slotCount > 0 ? storageLimit / slotCount : storageLimit;
+            int maxCapacityPerSlot = slotCount > 0 ? prefabMetadata.StorageLimit / slotCount : prefabMetadata.StorageLimit;
             Resource needResource = Resource.NoResource;
             EvaluateNeedSelection(company, processData.m_Input1.m_Resource, maxCapacityPerSlot, ref needResource, ref state);
             if (hasSecondInput)
@@ -2196,7 +2537,7 @@ namespace NoOfficeDemandFix.Systems
 
         private bool ResourceHasWeight(Resource resource)
         {
-            return EconomyUtils.GetWeight(EntityManager, resource, m_ResourceSystem.GetPrefabs()) > 0f;
+            return GetResourceWeight(resource) > 0f;
         }
 
         private bool TryGetLastTradePartner(Entity company, out Entity lastTradePartner)
@@ -2311,6 +2652,97 @@ namespace NoOfficeDemandFix.Systems
             isOfficeProperty = EntityManager.HasComponent<OfficeProperty>(entity);
             isIndustrialProperty = EntityManager.HasComponent<IndustrialProperty>(entity);
             return isOfficeProperty || isIndustrialProperty;
+        }
+
+        private bool TryGetSoftwareOfficePrefabMetadata(Entity prefab, out SoftwareOfficePrefabMetadata prefabMetadata)
+        {
+            if (m_SoftwareOfficePrefabCache.TryGetValue(prefab, out prefabMetadata))
+            {
+                return prefabMetadata.IsRelevant;
+            }
+
+            prefabMetadata = new SoftwareOfficePrefabMetadata
+            {
+                StorageLimit = int.MaxValue
+            };
+
+            if (!EntityManager.HasComponent<IndustrialProcessData>(prefab))
+            {
+                m_SoftwareOfficePrefabCache[prefab] = prefabMetadata;
+                return false;
+            }
+
+            IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefab);
+            bool isProducer = processData.m_Output.m_Resource == Resource.Software;
+            bool isConsumer = processData.m_Input1.m_Resource == Resource.Software ||
+                              processData.m_Input2.m_Resource == Resource.Software;
+            prefabMetadata.ProcessData = processData;
+            prefabMetadata.IsProducer = isProducer;
+            prefabMetadata.IsConsumer = isConsumer;
+            prefabMetadata.IsRelevant = isProducer || isConsumer;
+            prefabMetadata.OutputHasWeight = processData.m_Output.m_Resource != Resource.NoResource &&
+                                             ResourceHasWeight(processData.m_Output.m_Resource);
+            if (EntityManager.HasComponent<StorageLimitData>(prefab))
+            {
+                prefabMetadata.StorageLimit = EntityManager.GetComponentData<StorageLimitData>(prefab).m_Limit;
+            }
+
+            m_SoftwareOfficePrefabCache[prefab] = prefabMetadata;
+            return prefabMetadata.IsRelevant;
+        }
+
+        private string CollectFreeSoftwareOfficePropertyDetails()
+        {
+            StringBuilder details = null;
+            int detailCount = 0;
+            using NativeArray<Entity> properties = m_FreeOfficePropertyQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < properties.Length && detailCount < kMaxDetailEntries; i++)
+            {
+                Entity property = properties[i];
+                if (!IsSoftwareCapableOfficeProperty(property))
+                {
+                    continue;
+                }
+
+                AppendDetail(ref details, ref detailCount, DescribeProperty(property));
+            }
+
+            return details == null ? string.Empty : details.ToString();
+        }
+
+        private string CollectOnMarketOfficePropertyDetails()
+        {
+            StringBuilder details = null;
+            int detailCount = 0;
+            using NativeArray<Entity> properties = m_OnMarketPropertyQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < properties.Length && detailCount < kMaxDetailEntries; i++)
+            {
+                Entity property = properties[i];
+                if (!EntityManager.HasComponent<OfficeProperty>(property))
+                {
+                    continue;
+                }
+
+                AppendDetail(ref details, ref detailCount, DescribeProperty(property));
+            }
+
+            return details == null ? string.Empty : details.ToString();
+        }
+
+        private bool IsSoftwareCapableOfficeProperty(Entity property)
+        {
+            if (!EntityManager.HasComponent<PrefabRef>(property))
+            {
+                return false;
+            }
+
+            Entity prefab = EntityManager.GetComponentData<PrefabRef>(property).m_Prefab;
+            if (!EntityManager.HasComponent<BuildingPropertyData>(prefab))
+            {
+                return false;
+            }
+
+            return (EntityManager.GetComponentData<BuildingPropertyData>(prefab).m_AllowedManufactured & Resource.Software) != Resource.NoResource;
         }
 
         private static string FormatTopFactors(NativeArray<int> factors)
@@ -2512,6 +2944,8 @@ namespace NoOfficeDemandFix.Systems
             m_LastSettingsSnapshot = string.Empty;
             m_LastPatchState = string.Empty;
             m_SoftwareConsumerTrace.Clear();
+            m_SoftwareOfficePrefabCache.Clear();
+            m_ResourceWeightCache.Clear();
             ResetVirtualOfficeBuyerProbeState();
         }
 
@@ -2637,11 +3071,16 @@ namespace NoOfficeDemandFix.Systems
             return Math.Max(kMinDiagnosticsSamplesPerDay, Math.Min(kMaxDiagnosticsSamplesPerDay, Mod.Settings.DiagnosticsSamplesPerDay));
         }
 
-        private void AppendDetail(StringBuilder builder, ref int count, string detail)
+        private void AppendDetail(ref StringBuilder builder, ref int count, string detail)
         {
             if (count >= kMaxDetailEntries || string.IsNullOrEmpty(detail))
             {
                 return;
+            }
+
+            if (builder == null)
+            {
+                builder = new StringBuilder();
             }
 
             if (count > 0)

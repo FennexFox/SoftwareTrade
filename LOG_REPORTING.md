@@ -6,10 +6,11 @@ This is for raw intake. It is not the same thing as opening a finalized `Softwar
 
 ## Before You Capture Logs
 
-- leave `EnableDemandDiagnostics` on
+- turn on `EnableDemandDiagnostics` before you capture logs
 - leave `EnableOutsideConnectionVirtualSellerFix` at its current default state unless you are intentionally running an outside-connection virtual seller comparison
 - leave `EnableVirtualOfficeResourceBuyerFix` at its current default state unless you are intentionally running a buyer-cadence comparison
 - leave `EnableOfficeDemandDirectPatch` at its current default state unless you are intentionally comparing against the newer vanilla `3x` office-demand baseline
+- restart the game before a comparison run if you changed `EnableOutsideConnectionVirtualSellerFix` or `EnableOfficeDemandDirectPatch`, because those Harmony patches apply on launch
 - leave `CaptureStableEvidence` off if you only want suspicious-state samples
 - turn on `CaptureStableEvidence` when you need a bounded baseline window
 - turn on `VerboseLogging` only when you also need the noisier correction traces and supplemental `softwareTradeLifecycle` detail lines
@@ -81,6 +82,7 @@ Raw-log intake issues are not the final comparable record. Maintainers may promo
 After you submit:
 
 - a managed triage comment will be added or updated on the raw-log issue
+- maintainers may rerun that managed triage comment later with `/retriage` after parser or wording updates land on `master`
 - maintainers may refine the draft and promote it into a `Software evidence` issue
 - the promoted evidence issue will link back to the raw-log intake issue
 - the raw-log intake issue is then typically closed

@@ -34,43 +34,57 @@ namespace NoOfficeDemandFix.Patches
         private const float kTargetPenaltyScale = 100f;
         private const int kBuildingUpkeepPenaltyRandomRange = 300;
 
-        private static readonly AccessTools.FieldRef<PathfindSetupSystem, ResourcePathfindSetup> s_ResourcePathfindSetupRef =
-            AccessTools.FieldRefAccess<PathfindSetupSystem, ResourcePathfindSetup>("m_ResourcePathfindSetup");
-        private static readonly AccessTools.StructFieldRef<ResourcePathfindSetup, EntityQuery> s_ResourceSellerQueryRef =
-            AccessTools.StructFieldRefAccess<ResourcePathfindSetup, EntityQuery>("m_ResourceSellerQuery");
-
         private static bool s_ActivationLogged;
+        private static bool s_OutsideConnectionSellerQueryInitialized;
         private static bool s_RuntimeFailureLogged;
         private static int s_ResourceSellerCallCount;
-        private static int s_CallsWithOfficeImportSeekers;
-        private static int s_TotalOfficeImportSeekers;
+        private static int s_CallsWithOfficeImportCandidatesPrefilter;
+        private static int s_TotalOfficeImportCandidatesPrefilter;
+        private static int s_SellerStateSamplesCaptured;
         private static int s_TotalOutsideConnectionSellers;
         private static int s_TotalMissingStoredResourcePairs;
         private static int s_TotalInactiveOutsideConnections;
         private static int s_ProbeSampleLogsEmitted;
-        private static readonly HashSet<Resource> s_ObservedOfficeImportResources = new HashSet<Resource>();
+        private static readonly HashSet<Resource> s_ObservedRequestedResourcesPrefilter = new HashSet<Resource>();
+        private static EntityQuery s_OutsideConnectionSellerQuery;
+        private static World s_OutsideConnectionSellerQueryWorld;
+
+        private struct OfficeImportRequest
+        {
+            public Entity SeekerEntity;
+            public PathfindTargetSeeker<PathfindSetupBuffer> TargetSeeker;
+            public int RequestedAmount;
+            public SetupTargetFlags TargetFlags;
+            public int ResourceIndex;
+        }
+
+        private struct ResourceRequestRange
+        {
+            public int StartIndex;
+            public int Count;
+        }
 
         private readonly struct ProbeSnapshot
         {
             public ProbeSnapshot(
-                int officeImportSeekers,
+                int officeImportCandidatesPrefilter,
                 int outsideConnectionSellers,
                 int missingStoredResourcePairs,
                 int inactiveOutsideConnections,
-                string requestedResources)
+                string requestedResourcesPrefilter)
             {
-                OfficeImportSeekers = officeImportSeekers;
+                OfficeImportCandidatesPrefilter = officeImportCandidatesPrefilter;
                 OutsideConnectionSellers = outsideConnectionSellers;
                 MissingStoredResourcePairs = missingStoredResourcePairs;
                 InactiveOutsideConnections = inactiveOutsideConnections;
-                RequestedResources = requestedResources;
+                RequestedResourcesPrefilter = requestedResourcesPrefilter;
             }
 
-            public int OfficeImportSeekers { get; }
+            public int OfficeImportCandidatesPrefilter { get; }
             public int OutsideConnectionSellers { get; }
             public int MissingStoredResourcePairs { get; }
             public int InactiveOutsideConnections { get; }
-            public string RequestedResources { get; }
+            public string RequestedResourcesPrefilter { get; }
         }
 
         public static MethodBase TargetMethod()
@@ -104,7 +118,16 @@ namespace NoOfficeDemandFix.Patches
                     s_ActivationLogged = true;
                 }
 
-                MaybeCaptureProbeSnapshot(__instance, setupData);
+                int officeImportCandidatesPrefilter = CountOfficeImportCandidatesPrefilter(setupData);
+                if (officeImportCandidatesPrefilter == 0)
+                {
+                    return;
+                }
+
+                s_CallsWithOfficeImportCandidatesPrefilter++;
+                s_TotalOfficeImportCandidatesPrefilter += officeImportCandidatesPrefilter;
+
+                MaybeCaptureProbeSnapshot(__instance, setupData, officeImportCandidatesPrefilter);
                 __result = ScheduleAdditionalOutsideConnectionTargets(__instance, setupData, __result);
             }
             catch (Exception ex)
@@ -124,20 +147,59 @@ namespace NoOfficeDemandFix.Patches
                 return;
             }
 
-            Mod.log.Info(MachineParsedLogContract.FormatTradePatchProbe(
-                "summary",
-                $"patch_variant={PatchVariant}, resource_seller_calls={s_ResourceSellerCallCount}, calls_with_office_import_seekers={s_CallsWithOfficeImportSeekers}, office_import_seekers={s_TotalOfficeImportSeekers}, outside_connection_sellers={s_TotalOutsideConnectionSellers}, missing_stored_resource_pairs={s_TotalMissingStoredResourcePairs}, inactive_outside_connections={s_TotalInactiveOutsideConnections}, requested_resources=[{FormatResourceSet(s_ObservedOfficeImportResources)}], sampled_calls={s_ProbeSampleLogsEmitted}"));
+            StringBuilder summary = new StringBuilder();
+            summary.Append("patch_variant=").Append(PatchVariant);
+            summary.Append(", resource_seller_calls=").Append(s_ResourceSellerCallCount);
+            summary.Append(", calls_with_office_import_candidates=").Append(s_CallsWithOfficeImportCandidatesPrefilter);
+            summary.Append(", office_import_candidates_prefilter=").Append(s_TotalOfficeImportCandidatesPrefilter);
+            summary.Append(", requested_resources_prefilter=[").Append(FormatResourceSet(s_ObservedRequestedResourcesPrefilter)).Append(']');
+            summary.Append(", seller_state_captured=").Append(s_SellerStateSamplesCaptured > 0);
+            if (s_SellerStateSamplesCaptured > 0)
+            {
+                summary.Append(", seller_state_samples=").Append(s_SellerStateSamplesCaptured);
+                summary.Append(", outside_connection_sellers=").Append(s_TotalOutsideConnectionSellers);
+                summary.Append(", missing_stored_resource_pairs=").Append(s_TotalMissingStoredResourcePairs);
+                summary.Append(", inactive_outside_connections=").Append(s_TotalInactiveOutsideConnections);
+            }
+
+            summary.Append(", sampled_calls=").Append(s_ProbeSampleLogsEmitted);
+            Mod.log.Info(MachineParsedLogContract.FormatTradePatchProbe("summary", summary.ToString()));
 
             s_ActivationLogged = false;
             s_RuntimeFailureLogged = false;
             s_ResourceSellerCallCount = 0;
-            s_CallsWithOfficeImportSeekers = 0;
-            s_TotalOfficeImportSeekers = 0;
+            s_CallsWithOfficeImportCandidatesPrefilter = 0;
+            s_TotalOfficeImportCandidatesPrefilter = 0;
+            s_SellerStateSamplesCaptured = 0;
             s_TotalOutsideConnectionSellers = 0;
             s_TotalMissingStoredResourcePairs = 0;
             s_TotalInactiveOutsideConnections = 0;
             s_ProbeSampleLogsEmitted = 0;
-            s_ObservedOfficeImportResources.Clear();
+            s_ObservedRequestedResourcesPrefilter.Clear();
+        }
+
+        private static int CountOfficeImportCandidatesPrefilter(in PathfindSetupSystem.SetupData setupData)
+        {
+            // Keep this snapshot intentionally pre-filtered so diagnostics stay cheap:
+            // it records office import candidates before TryCreateOfficeImportRequests()
+            // applies the transport gate.
+            int officeImportCandidatesPrefilter = 0;
+
+            for (int setupIndex = 0; setupIndex < setupData.Length; setupIndex++)
+            {
+                setupData.GetItem(setupIndex, out _, out PathfindTargetSeeker<PathfindSetupBuffer> targetSeeker);
+                Resource resource = targetSeeker.m_SetupQueueTarget.m_Resource;
+                SetupTargetFlags targetFlags = targetSeeker.m_SetupQueueTarget.m_Flags;
+                if (!EconomyUtils.IsOfficeResource(resource) || (targetFlags & SetupTargetFlags.Import) == SetupTargetFlags.None)
+                {
+                    continue;
+                }
+
+                officeImportCandidatesPrefilter++;
+                s_ObservedRequestedResourcesPrefilter.Add(resource);
+            }
+
+            return officeImportCandidatesPrefilter;
         }
 
         private static JobHandle ScheduleAdditionalOutsideConnectionTargets(
@@ -150,15 +212,27 @@ namespace NoOfficeDemandFix.Patches
                 return inputDeps;
             }
 
-            ref ResourcePathfindSetup resourcePathfindSetup = ref s_ResourcePathfindSetupRef(system);
-            EntityQuery query = s_ResourceSellerQueryRef(ref resourcePathfindSetup);
+            EntityQuery query = GetOutsideConnectionSellerQuery(system);
+            if (query.IsEmptyIgnoreFilter)
+            {
+                return inputDeps;
+            }
+
+            if (!TryCreateOfficeImportRequests(
+                    system,
+                    setupData,
+                    out NativeArray<OfficeImportRequest> officeImportRequests,
+                    out NativeArray<Resource> requestedResources,
+                    out NativeArray<ResourceRequestRange> resourceRequestRanges))
+            {
+                return inputDeps;
+            }
+
             JobHandle jobHandle = new AppendOutsideConnectionOfficeImportTargetsJob
             {
                 m_EntityType = system.GetEntityTypeHandle(),
                 m_PrefabType = system.GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
                 m_ResourceType = system.GetBufferTypeHandle<Game.Economy.Resources>(isReadOnly: true),
-                m_SeekerOwnedVehicles = system.GetBufferLookup<OwnedVehicle>(isReadOnly: true),
-                m_OutsideConnections = system.GetComponentLookup<OutsideConnectionComponent>(isReadOnly: true),
                 m_StorageCompanyDatas = system.GetComponentLookup<StorageCompanyData>(isReadOnly: true),
                 m_TradeCosts = system.GetBufferLookup<TradeCost>(isReadOnly: true),
                 m_Buildings = system.GetComponentLookup<BuildingComponent>(isReadOnly: true),
@@ -166,30 +240,122 @@ namespace NoOfficeDemandFix.Patches
                 m_GuestVehicleBufs = system.GetBufferLookup<GuestVehicle>(isReadOnly: true),
                 m_LayoutElementBufs = system.GetBufferLookup<LayoutElement>(isReadOnly: true),
                 m_RandomSeed = RandomSeed.Next(),
-                m_SetupData = setupData
+                m_OfficeImportRequests = officeImportRequests,
+                m_RequestedResources = requestedResources,
+                m_ResourceRequestRanges = resourceRequestRanges
             }.ScheduleParallel(query, inputDeps);
 
+            // Keep reader registration behind both the scheduled work and TempJob cleanup.
+            jobHandle = officeImportRequests.Dispose(jobHandle);
+            jobHandle = requestedResources.Dispose(jobHandle);
+            jobHandle = resourceRequestRanges.Dispose(jobHandle);
             system.World.GetOrCreateSystemManaged<ResourceSystem>().AddPrefabsReader(jobHandle);
             return jobHandle;
         }
 
+        private static bool TryCreateOfficeImportRequests(
+            PathfindSetupSystem system,
+            in PathfindSetupSystem.SetupData setupData,
+            out NativeArray<OfficeImportRequest> officeImportRequests,
+            out NativeArray<Resource> requestedResources,
+            out NativeArray<ResourceRequestRange> resourceRequestRanges)
+        {
+            officeImportRequests = default;
+            requestedResources = default;
+            resourceRequestRanges = default;
+
+            if (setupData.Length == 0)
+            {
+                return false;
+            }
+
+            EntityManager entityManager = system.EntityManager;
+            List<OfficeImportRequest> requests = new List<OfficeImportRequest>(setupData.Length);
+            List<Resource> resources = new List<Resource>(4);
+            for (int setupIndex = 0; setupIndex < setupData.Length; setupIndex++)
+            {
+                setupData.GetItem(setupIndex, out Entity seekerEntity, out PathfindTargetSeeker<PathfindSetupBuffer> targetSeeker);
+                Resource resource = targetSeeker.m_SetupQueueTarget.m_Resource;
+                SetupTargetFlags targetFlags = targetSeeker.m_SetupQueueTarget.m_Flags;
+                if (!EconomyUtils.IsOfficeResource(resource) || (targetFlags & SetupTargetFlags.Import) == SetupTargetFlags.None)
+                {
+                    continue;
+                }
+
+                if ((targetFlags & SetupTargetFlags.RequireTransport) != SetupTargetFlags.None &&
+                    (!entityManager.HasBuffer<OwnedVehicle>(seekerEntity) || entityManager.GetBuffer<OwnedVehicle>(seekerEntity, isReadOnly: true).Length == 0))
+                {
+                    continue;
+                }
+
+                int resourceIndex = resources.IndexOf(resource);
+                if (resourceIndex < 0)
+                {
+                    resourceIndex = resources.Count;
+                    resources.Add(resource);
+                }
+
+                requests.Add(new OfficeImportRequest
+                {
+                    SeekerEntity = seekerEntity,
+                    TargetSeeker = targetSeeker,
+                    RequestedAmount = targetSeeker.m_SetupQueueTarget.m_Value,
+                    TargetFlags = targetFlags,
+                    ResourceIndex = resourceIndex
+                });
+            }
+
+            if (requests.Count == 0)
+            {
+                return false;
+            }
+
+            requests.Sort((left, right) => left.ResourceIndex.CompareTo(right.ResourceIndex));
+
+            officeImportRequests = new NativeArray<OfficeImportRequest>(requests.Count, Allocator.TempJob);
+            for (int i = 0; i < requests.Count; i++)
+            {
+                officeImportRequests[i] = requests[i];
+            }
+
+            requestedResources = new NativeArray<Resource>(resources.Count, Allocator.TempJob);
+            for (int i = 0; i < resources.Count; i++)
+            {
+                requestedResources[i] = resources[i];
+            }
+
+            resourceRequestRanges = new NativeArray<ResourceRequestRange>(resources.Count, Allocator.TempJob);
+            int requestStartIndex = 0;
+            for (int resourceIndex = 0; resourceIndex < resources.Count; resourceIndex++)
+            {
+                int startIndex = requestStartIndex;
+                while (requestStartIndex < requests.Count && requests[requestStartIndex].ResourceIndex == resourceIndex)
+                {
+                    requestStartIndex++;
+                }
+
+                resourceRequestRanges[resourceIndex] = new ResourceRequestRange
+                {
+                    StartIndex = startIndex,
+                    Count = requestStartIndex - startIndex
+                };
+            }
+
+            return true;
+        }
+
         private static void MaybeCaptureProbeSnapshot(
             PathfindSetupSystem system,
-            in PathfindSetupSystem.SetupData setupData)
+            in PathfindSetupSystem.SetupData setupData,
+            int officeImportCandidatesPrefilter)
         {
-            if (Mod.Settings == null || !Mod.Settings.EnableDemandDiagnostics)
+            if (Mod.Settings == null || !Mod.Settings.EnableDemandDiagnostics || !Mod.Settings.VerboseLogging)
             {
                 return;
             }
 
-            ProbeSnapshot snapshot = CaptureProbeSnapshot(system, setupData);
-            if (snapshot.OfficeImportSeekers == 0)
-            {
-                return;
-            }
-
-            s_CallsWithOfficeImportSeekers++;
-            s_TotalOfficeImportSeekers += snapshot.OfficeImportSeekers;
+            ProbeSnapshot snapshot = CaptureProbeSnapshot(system, setupData, officeImportCandidatesPrefilter);
+            s_SellerStateSamplesCaptured++;
             s_TotalOutsideConnectionSellers += snapshot.OutsideConnectionSellers;
             s_TotalMissingStoredResourcePairs += snapshot.MissingStoredResourcePairs;
             s_TotalInactiveOutsideConnections += snapshot.InactiveOutsideConnections;
@@ -207,19 +373,18 @@ namespace NoOfficeDemandFix.Patches
             s_ProbeSampleLogsEmitted++;
             Mod.log.Info(MachineParsedLogContract.FormatTradePatchProbe(
                 "sample",
-                $"patch_variant={PatchVariant}, call_index={s_ResourceSellerCallCount}, office_import_seekers={snapshot.OfficeImportSeekers}, outside_connection_sellers={snapshot.OutsideConnectionSellers}, missing_stored_resource_pairs={snapshot.MissingStoredResourcePairs}, inactive_outside_connections={snapshot.InactiveOutsideConnections}, requested_resources=[{snapshot.RequestedResources}]"));
+                $"patch_variant={PatchVariant}, call_index={s_ResourceSellerCallCount}, office_import_candidates_prefilter={snapshot.OfficeImportCandidatesPrefilter}, outside_connection_sellers={snapshot.OutsideConnectionSellers}, missing_stored_resource_pairs={snapshot.MissingStoredResourcePairs}, inactive_outside_connections={snapshot.InactiveOutsideConnections}, requested_resources_prefilter=[{snapshot.RequestedResourcesPrefilter}]"));
         }
 
         private static ProbeSnapshot CaptureProbeSnapshot(
             PathfindSetupSystem system,
-            in PathfindSetupSystem.SetupData setupData)
+            in PathfindSetupSystem.SetupData setupData,
+            int officeImportCandidatesPrefilter)
         {
-            ref ResourcePathfindSetup resourcePathfindSetup = ref s_ResourcePathfindSetupRef(system);
-            EntityQuery query = s_ResourceSellerQueryRef(ref resourcePathfindSetup);
+            EntityQuery query = GetOutsideConnectionSellerQuery(system);
             EntityManager entityManager = system.EntityManager;
 
-            HashSet<Resource> requestedResources = new HashSet<Resource>();
-            int officeImportSeekers = 0;
+            HashSet<Resource> requestedResourcesPrefilter = new HashSet<Resource>();
 
             for (int setupIndex = 0; setupIndex < setupData.Length; setupIndex++)
             {
@@ -231,12 +396,10 @@ namespace NoOfficeDemandFix.Patches
                     continue;
                 }
 
-                officeImportSeekers++;
-                requestedResources.Add(resource);
-                s_ObservedOfficeImportResources.Add(resource);
+                requestedResourcesPrefilter.Add(resource);
             }
 
-            if (officeImportSeekers == 0)
+            if (officeImportCandidatesPrefilter == 0)
             {
                 return default;
             }
@@ -251,11 +414,6 @@ namespace NoOfficeDemandFix.Patches
             for (int entityIndex = 0; entityIndex < sellerEntities.Length; entityIndex++)
             {
                 Entity sellerEntity = sellerEntities[entityIndex];
-                if (!entityManager.HasComponent<OutsideConnectionComponent>(sellerEntity))
-                {
-                    continue;
-                }
-
                 outsideConnectionSellers++;
 
                 if (entityManager.HasComponent<BuildingComponent>(sellerEntity) &&
@@ -272,7 +430,7 @@ namespace NoOfficeDemandFix.Patches
                 }
 
                 StorageCompanyData storageCompanyData = entityManager.GetComponentData<StorageCompanyData>(prefab);
-                foreach (Resource resource in requestedResources)
+                foreach (Resource resource in requestedResourcesPrefilter)
                 {
                     if ((storageCompanyData.m_StoredResources & resource) == Resource.NoResource)
                     {
@@ -282,11 +440,36 @@ namespace NoOfficeDemandFix.Patches
             }
 
             return new ProbeSnapshot(
-                officeImportSeekers,
+                officeImportCandidatesPrefilter,
                 outsideConnectionSellers,
                 missingStoredResourcePairs,
                 inactiveOutsideConnections,
-                FormatResourceSet(requestedResources));
+                FormatResourceSet(requestedResourcesPrefilter));
+        }
+
+        private static EntityQuery GetOutsideConnectionSellerQuery(PathfindSetupSystem system)
+        {
+            if (!s_OutsideConnectionSellerQueryInitialized || s_OutsideConnectionSellerQueryWorld != system.World)
+            {
+                s_OutsideConnectionSellerQuery = system.EntityManager.CreateEntityQuery(new EntityQueryDesc
+                {
+                    All = new[]
+                    {
+                        ComponentType.ReadOnly<OutsideConnectionComponent>(),
+                        ComponentType.ReadOnly<PrefabRef>(),
+                        ComponentType.ReadOnly<Game.Economy.Resources>()
+                    },
+                    None = new[]
+                    {
+                        ComponentType.ReadOnly<Deleted>(),
+                        ComponentType.ReadOnly<Temp>()
+                    }
+                });
+                s_OutsideConnectionSellerQueryWorld = system.World;
+                s_OutsideConnectionSellerQueryInitialized = true;
+            }
+
+            return s_OutsideConnectionSellerQuery;
         }
 
         private static string FormatResourceSet(IEnumerable<Resource> resources)
@@ -320,12 +503,6 @@ namespace NoOfficeDemandFix.Patches
             public BufferTypeHandle<Game.Economy.Resources> m_ResourceType;
 
             [ReadOnly]
-            public BufferLookup<OwnedVehicle> m_SeekerOwnedVehicles;
-
-            [ReadOnly]
-            public ComponentLookup<OutsideConnectionComponent> m_OutsideConnections;
-
-            [ReadOnly]
             public ComponentLookup<StorageCompanyData> m_StorageCompanyDatas;
 
             [ReadOnly]
@@ -346,7 +523,14 @@ namespace NoOfficeDemandFix.Patches
             [ReadOnly]
             public RandomSeed m_RandomSeed;
 
-            public PathfindSetupSystem.SetupData m_SetupData;
+            [ReadOnly]
+            public NativeArray<OfficeImportRequest> m_OfficeImportRequests;
+
+            [ReadOnly]
+            public NativeArray<Resource> m_RequestedResources;
+
+            [ReadOnly]
+            public NativeArray<ResourceRequestRange> m_ResourceRequestRanges;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)
             {
@@ -355,51 +539,31 @@ namespace NoOfficeDemandFix.Patches
                 BufferAccessor<Game.Economy.Resources> resources = chunk.GetBufferAccessor(ref m_ResourceType);
                 Unity.Mathematics.Random random = m_RandomSeed.GetRandom(unfilteredChunkIndex);
 
-                for (int setupIndex = 0; setupIndex < m_SetupData.Length; setupIndex++)
+                for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
                 {
-                    m_SetupData.GetItem(setupIndex, out Entity seekerEntity, out PathfindTargetSeeker<PathfindSetupBuffer> targetSeeker);
-                    Resource resource = targetSeeker.m_SetupQueueTarget.m_Resource;
-                    int requestedAmount = targetSeeker.m_SetupQueueTarget.m_Value;
-                    SetupTargetFlags targetFlags = targetSeeker.m_SetupQueueTarget.m_Flags;
-
-                    if (!EconomyUtils.IsOfficeResource(resource) || (targetFlags & SetupTargetFlags.Import) == SetupTargetFlags.None)
+                    Entity sellerEntity = entities[entityIndex];
+                    Entity prefab = prefabs[entityIndex].m_Prefab;
+                    if (m_Buildings.HasComponent(sellerEntity) && BuildingUtils.CheckOption(m_Buildings[sellerEntity], BuildingOption.Inactive))
                     {
                         continue;
                     }
 
-                    if ((targetFlags & SetupTargetFlags.RequireTransport) != SetupTargetFlags.None &&
-                        (!m_SeekerOwnedVehicles.HasBuffer(seekerEntity) || m_SeekerOwnedVehicles[seekerEntity].Length == 0))
+                    if (!m_StorageCompanyDatas.HasComponent(prefab))
                     {
                         continue;
                     }
 
-                    for (int entityIndex = 0; entityIndex < entities.Length; entityIndex++)
+                    StorageCompanyData storageCompanyData = m_StorageCompanyDatas[prefab];
+
+                    for (int resourceIndex = 0; resourceIndex < m_RequestedResources.Length; resourceIndex++)
                     {
-                        Entity sellerEntity = entities[entityIndex];
-                        if (sellerEntity.Equals(seekerEntity))
+                        Resource resource = m_RequestedResources[resourceIndex];
+                        ResourceRequestRange requestRange = m_ResourceRequestRanges[resourceIndex];
+                        if (requestRange.Count == 0)
                         {
                             continue;
                         }
 
-                        Entity prefab = prefabs[entityIndex].m_Prefab;
-                        bool isBuildingUpkeep = (targetFlags & SetupTargetFlags.BuildingUpkeep) != 0;
-
-                        if (!m_OutsideConnections.HasComponent(sellerEntity))
-                        {
-                            continue;
-                        }
-
-                        if (m_Buildings.HasComponent(sellerEntity) && BuildingUtils.CheckOption(m_Buildings[sellerEntity], BuildingOption.Inactive))
-                        {
-                            continue;
-                        }
-
-                        if (!m_StorageCompanyDatas.HasComponent(prefab))
-                        {
-                            continue;
-                        }
-
-                        StorageCompanyData storageCompanyData = m_StorageCompanyDatas[prefab];
                         if ((storageCompanyData.m_StoredResources & resource) != Resource.NoResource)
                         {
                             continue;
@@ -412,22 +576,32 @@ namespace NoOfficeDemandFix.Patches
                             continue;
                         }
 
-                        float fillRatio = math.min(1f, availableAmount * 1f / math.max(1, requestedAmount));
-                        float penalty = kTargetPenaltyScale * (1f - fillRatio);
-                        // Keep the amount-based component aligned with the vanilla outside-connection scoring curve.
-                        penalty += ResourcePathfindSetup.kOutsideConnectionAmountBasedPenalty * requestedAmount;
-                        if (isBuildingUpkeep)
-                        {
-                            penalty += random.NextInt(kBuildingUpkeepPenaltyRandomRange);
-                        }
-
+                        float buyCost = 0f;
                         if (m_TradeCosts.HasBuffer(sellerEntity))
                         {
                             DynamicBuffer<TradeCost> costs = m_TradeCosts[sellerEntity];
-                            penalty += EconomyUtils.GetTradeCost(resource, costs).m_BuyCost * requestedAmount * 0.01f;
+                            buyCost = EconomyUtils.GetTradeCost(resource, costs).m_BuyCost;
                         }
 
-                        targetSeeker.FindTargets(sellerEntity, penalty * kTargetPenaltyScale);
+                        for (int requestOffset = 0; requestOffset < requestRange.Count; requestOffset++)
+                        {
+                            OfficeImportRequest request = m_OfficeImportRequests[requestRange.StartIndex + requestOffset];
+                            if (sellerEntity.Equals(request.SeekerEntity))
+                            {
+                                continue;
+                            }
+
+                            float fillRatio = math.min(1f, availableAmount * 1f / math.max(1, request.RequestedAmount));
+                            float penalty = kTargetPenaltyScale * (1f - fillRatio);
+                            penalty += ResourcePathfindSetup.kOutsideConnectionAmountBasedPenalty * request.RequestedAmount;
+                            if ((request.TargetFlags & SetupTargetFlags.BuildingUpkeep) != 0)
+                            {
+                                penalty += random.NextInt(kBuildingUpkeepPenaltyRandomRange);
+                            }
+
+                            penalty += buyCost * request.RequestedAmount * 0.01f;
+                            request.TargetSeeker.FindTargets(sellerEntity, penalty * kTargetPenaltyScale);
+                        }
                     }
                 }
             }
