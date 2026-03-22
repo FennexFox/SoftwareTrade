@@ -40,11 +40,12 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
 
             m_Setting = new Setting(this);
-            m_Setting.RegisterInOptionsUI();
-            GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
+            AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
             Settings = m_Setting;
 
-            AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
+            GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
+            m_Setting.RegisterInOptionsUI();
+
             BootstrapHarmonyPatchesIfNeeded();
         }
 
