@@ -42,6 +42,7 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OfficeCompanyChangedQuery;
         private EntityQuery m_CorrectiveBuyerBackfillQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
+        private EntityQuery m_CorrectiveBuyerProvenanceCleanupQuery;
         private bool m_LastCorrectiveBuyerTaggingEnabled;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
@@ -196,6 +197,12 @@ namespace NoOfficeDemandFix.Systems
                     };
 
                     CommandBuffer.AddComponent(unfilteredChunkIndex, company, resourceBuyer);
+                    CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerProvenance
+                    {
+                        Resource = selectedResource,
+                        IssuedAmount = overrideAmount,
+                        Flags = resourceBuyer.m_Flags
+                    });
                     if (AttachCorrectiveBuyerTag)
                     {
                         CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerTag
@@ -429,6 +436,11 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<ResourceBuyer>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
+            m_CorrectiveBuyerProvenanceCleanupQuery = GetEntityQuery(
+                ComponentType.ReadOnly<CorrectiveSoftwareBuyerProvenance>(),
+                ComponentType.Exclude<ResourceBuyer>(),
+                ComponentType.Exclude<Deleted>(),
+                ComponentType.Exclude<Temp>());
             RequireForUpdate(m_OfficeCompanyQuery);
         }
 
@@ -458,6 +470,7 @@ namespace NoOfficeDemandFix.Systems
             try
             {
                 CleanupCorrectiveBuyerMarkers();
+                CleanupCorrectiveBuyerProvenance();
 
                 if (correctiveBuyerTaggingEnabled)
                 {
@@ -592,6 +605,16 @@ namespace NoOfficeDemandFix.Systems
             EntityManager.RemoveComponent(m_CorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
         }
 
+        private void CleanupCorrectiveBuyerProvenance()
+        {
+            if (m_CorrectiveBuyerProvenanceCleanupQuery.IsEmptyIgnoreFilter)
+            {
+                return;
+            }
+
+            EntityManager.RemoveComponent(m_CorrectiveBuyerProvenanceCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerProvenance>());
+        }
+
         private void BackfillCorrectiveBuyerMarkers()
         {
             if (m_CorrectiveBuyerBackfillQuery.IsEmptyIgnoreFilter)
@@ -603,20 +626,17 @@ namespace NoOfficeDemandFix.Systems
             for (int i = 0; i < companies.Length; i++)
             {
                 Entity company = companies[i];
-                if (!TryBuildCorrectiveBuyer(company, out ResourceBuyer correctiveBuyer))
-                {
-                    continue;
-                }
-
                 ResourceBuyer currentBuyer = EntityManager.GetComponentData<ResourceBuyer>(company);
-                if (!MatchesCorrectiveBuyer(company, currentBuyer, correctiveBuyer))
+                CorrectiveSoftwareBuyerProvenance provenance = EntityManager.GetComponentData<CorrectiveSoftwareBuyerProvenance>(company);
+                if (!MatchesCorrectiveBuyerProvenance(company, currentBuyer, provenance))
                 {
+                    EntityManager.RemoveComponent<CorrectiveSoftwareBuyerProvenance>(company);
                     continue;
                 }
 
                 EntityManager.AddComponentData(company, new CorrectiveSoftwareBuyerTag
                 {
-                    LastIssuedAmount = currentBuyer.m_AmountNeeded
+                    LastIssuedAmount = provenance.IssuedAmount
                 });
             }
         }
@@ -870,13 +890,12 @@ namespace NoOfficeDemandFix.Systems
             return (int)math.max(kResourceLowStockAmount, maxCapacity * kLowStockThresholdRatio);
         }
 
-        private static bool MatchesCorrectiveBuyer(Entity company, ResourceBuyer currentBuyer, ResourceBuyer correctiveBuyer)
+        private static bool MatchesCorrectiveBuyerProvenance(Entity company, ResourceBuyer currentBuyer, CorrectiveSoftwareBuyerProvenance provenance)
         {
             return currentBuyer.m_Payer == company &&
-                   currentBuyer.m_Payer == correctiveBuyer.m_Payer &&
-                   currentBuyer.m_ResourceNeeded == correctiveBuyer.m_ResourceNeeded &&
-                   currentBuyer.m_AmountNeeded == correctiveBuyer.m_AmountNeeded &&
-                   currentBuyer.m_Flags == correctiveBuyer.m_Flags;
+                   currentBuyer.m_ResourceNeeded == provenance.Resource &&
+                   currentBuyer.m_AmountNeeded == provenance.IssuedAmount &&
+                   currentBuyer.m_Flags == provenance.Flags;
         }
 
         private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord)
@@ -1101,11 +1120,8 @@ namespace NoOfficeDemandFix.Systems
                 {
                     ComponentType.ReadOnly<OfficeCompany>(),
                     ComponentType.ReadOnly<BuyingCompany>(),
-                    ComponentType.ReadOnly<PrefabRef>(),
-                    ComponentType.ReadOnly<PropertyRenter>(),
-                    ComponentType.ReadOnly<Resources>(),
-                    ComponentType.ReadOnly<CitizenTripNeeded>(),
-                    ComponentType.ReadOnly<ResourceBuyer>()
+                    ComponentType.ReadOnly<ResourceBuyer>(),
+                    ComponentType.ReadOnly<CorrectiveSoftwareBuyerProvenance>()
                 },
                 None = new ComponentType[]
                 {
