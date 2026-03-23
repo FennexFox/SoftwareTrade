@@ -58,7 +58,6 @@ namespace NoOfficeDemandFix
 
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
             m_Setting.RegisterInOptionsUI();
-            GameManager.instance.onGameSaveLoad += HandleGameSaveLoad;
 
             BootstrapHarmonyPatchesIfNeeded();
         }
@@ -82,11 +81,6 @@ namespace NoOfficeDemandFix
         {
             log.Info(nameof(OnDispose));
             PerformanceTelemetryCollector.FlushActiveRun();
-            if (GameManager.instance != null)
-            {
-                GameManager.instance.onGameSaveLoad -= HandleGameSaveLoad;
-            }
-
             Settings = null;
 
             if (m_Harmony != null)
@@ -101,14 +95,6 @@ namespace NoOfficeDemandFix
             {
                 m_Setting.UnregisterInOptionsUI();
                 m_Setting = null;
-            }
-        }
-
-        private static void HandleGameSaveLoad(string saveName, string previewUri, bool start, bool success)
-        {
-            if (!string.IsNullOrWhiteSpace(saveName) && (start || success))
-            {
-                PerformanceTelemetryCollector.SetKnownSaveName(saveName);
             }
         }
 

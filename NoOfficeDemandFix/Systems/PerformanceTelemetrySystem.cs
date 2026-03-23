@@ -53,8 +53,9 @@ namespace NoOfficeDemandFix.Systems
             // Session-scoped telemetry should flush here instead of waiting for
             // IMod.OnDispose(), which only runs on full mod-manager shutdown.
             PerformanceTelemetryCollector.FlushActiveRun();
-            // New or unsaved sessions must not inherit the previous save label.
-            PerformanceTelemetryCollector.ResetKnownSaveName();
+            // Load targets are captured before preload begins; new sessions with
+            // no save asset still fall back to "unsaved".
+            PerformanceTelemetryCollector.PromotePendingLoadedSaveName();
             m_HasFrameTimestamp = false;
             m_LastTelemetryEnabled = false;
             m_LastSettingsState = default;

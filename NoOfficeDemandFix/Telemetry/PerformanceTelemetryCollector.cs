@@ -44,6 +44,7 @@ namespace NoOfficeDemandFix.Telemetry
         private static bool s_RunFlushed;
         private static double s_ElapsedSec;
         private static string s_KnownSaveName = kUnsavedName;
+        private static string s_PendingLoadedSaveName;
         private static int s_ConsecutiveAboveThreshold;
         private static int s_ConsecutiveBelowThreshold;
         private static int s_NextStallId;
@@ -69,17 +70,25 @@ namespace NoOfficeDemandFix.Telemetry
             return IsCollecting ? Stopwatch.GetTimestamp() : 0L;
         }
 
-        public static void SetKnownSaveName(string saveName)
+        public static void SetPendingLoadedSaveName(string saveName)
         {
             if (!string.IsNullOrWhiteSpace(saveName))
             {
-                s_KnownSaveName = saveName.Trim();
+                s_PendingLoadedSaveName = saveName.Trim();
             }
         }
 
-        public static void ResetKnownSaveName()
+        public static void ClearPendingLoadedSaveName()
         {
-            s_KnownSaveName = kUnsavedName;
+            s_PendingLoadedSaveName = null;
+        }
+
+        public static void PromotePendingLoadedSaveName()
+        {
+            s_KnownSaveName = string.IsNullOrWhiteSpace(s_PendingLoadedSaveName)
+                ? kUnsavedName
+                : s_PendingLoadedSaveName;
+            s_PendingLoadedSaveName = null;
         }
 
         public static void BeginRun(PerformanceRunMetadata metadata)
