@@ -77,6 +77,11 @@ namespace NoOfficeDemandFix.Telemetry
             }
         }
 
+        public static void ResetKnownSaveName()
+        {
+            s_KnownSaveName = kUnsavedName;
+        }
+
         public static void BeginRun(PerformanceRunMetadata metadata)
         {
             if (metadata == null)
@@ -537,34 +542,28 @@ namespace NoOfficeDemandFix.Telemetry
 
         private static void WriteMetadataBlock(TextWriter writer, string fileKind)
         {
-            writer.Write("# telemetry_schema_version=");
-            writer.WriteLine("1");
-            writer.Write("# telemetry_file_kind=");
-            writer.WriteLine(SanitizeMetadataValue(fileKind));
-            writer.Write("# run_id=");
-            writer.WriteLine(SanitizeMetadataValue(s_RunMetadata.RunId));
-            writer.Write("# run_start_utc=");
-            writer.WriteLine(s_RunMetadata.RunStartUtc.ToString("O", CultureInfo.InvariantCulture));
-            writer.Write("# game_build_version=");
-            writer.WriteLine(SanitizeMetadataValue(s_RunMetadata.GameBuildVersion));
-            writer.Write("# mod_version=");
-            writer.WriteLine(SanitizeMetadataValue(s_RunMetadata.ModVersion));
-            writer.Write("# save_name=");
-            writer.WriteLine(SanitizeMetadataValue(s_RunMetadata.SaveName));
-            writer.Write("# scenario_id=");
-            writer.WriteLine(SanitizeMetadataValue(s_RunMetadata.ScenarioId));
-            writer.Write("# sampling_interval_sec=");
-            writer.WriteLine(FormatDouble(s_RunMetadata.SamplingIntervalSec));
-            writer.Write("# stall_threshold_ms=");
-            writer.WriteLine(s_RunMetadata.StallThresholdMs.ToString(CultureInfo.InvariantCulture));
-            writer.Write("# enable_phantom_vacancy_fix=");
-            writer.WriteLine(s_RunMetadata.EnablePhantomVacancyFix ? "true" : "false");
-            writer.Write("# enable_outside_connection_virtual_seller_fix=");
-            writer.WriteLine(s_RunMetadata.EnableOutsideConnectionVirtualSellerFix ? "true" : "false");
-            writer.Write("# enable_virtual_office_resource_buyer_fix=");
-            writer.WriteLine(s_RunMetadata.EnableVirtualOfficeResourceBuyerFix ? "true" : "false");
-            writer.Write("# enable_office_demand_direct_patch=");
-            writer.WriteLine(s_RunMetadata.EnableOfficeDemandDirectPatch ? "true" : "false");
+            WriteMetadataLine(writer, "telemetry_schema_version", "1");
+            WriteMetadataLine(writer, "telemetry_file_kind", SanitizeMetadataValue(fileKind));
+            WriteMetadataLine(writer, "run_id", SanitizeMetadataValue(s_RunMetadata.RunId));
+            WriteMetadataLine(writer, "run_start_utc", s_RunMetadata.RunStartUtc.ToString("O", CultureInfo.InvariantCulture));
+            WriteMetadataLine(writer, "game_build_version", SanitizeMetadataValue(s_RunMetadata.GameBuildVersion));
+            WriteMetadataLine(writer, "mod_version", SanitizeMetadataValue(s_RunMetadata.ModVersion));
+            WriteMetadataLine(writer, "save_name", SanitizeMetadataValue(s_RunMetadata.SaveName));
+            WriteMetadataLine(writer, "scenario_id", SanitizeMetadataValue(s_RunMetadata.ScenarioId));
+            WriteMetadataLine(writer, "sampling_interval_sec", FormatDouble(s_RunMetadata.SamplingIntervalSec));
+            WriteMetadataLine(writer, "stall_threshold_ms", s_RunMetadata.StallThresholdMs.ToString(CultureInfo.InvariantCulture));
+            WriteMetadataLine(writer, "enable_phantom_vacancy_fix", s_RunMetadata.EnablePhantomVacancyFix ? "true" : "false");
+            WriteMetadataLine(writer, "enable_outside_connection_virtual_seller_fix", s_RunMetadata.EnableOutsideConnectionVirtualSellerFix ? "true" : "false");
+            WriteMetadataLine(writer, "enable_virtual_office_resource_buyer_fix", s_RunMetadata.EnableVirtualOfficeResourceBuyerFix ? "true" : "false");
+            WriteMetadataLine(writer, "enable_office_demand_direct_patch", s_RunMetadata.EnableOfficeDemandDirectPatch ? "true" : "false");
+        }
+
+        private static void WriteMetadataLine(TextWriter writer, string key, string value)
+        {
+            writer.Write("# ");
+            writer.Write(key);
+            writer.Write('=');
+            writer.WriteLine(value);
         }
 
         private static bool TryEnsurePathfindReflection()
