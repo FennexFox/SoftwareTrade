@@ -574,7 +574,7 @@ namespace NoOfficeDemandFix.Telemetry
             }
 
             s_PathfindReflectionInitialized = true;
-            BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
             Type pathfindQueueType = typeof(PathfindQueueSystem);
             // Queue depth is not exposed publicly on this build, so cache the
             // private action-list fields once and reuse them on each sample.
