@@ -89,11 +89,22 @@ Design intent:
 - keep observer effect low on already-stressed saves
 - store only coarse in-memory summaries during runtime
 - write CSV output on session end or final shutdown fallback rather than logging continuously
+- treat telemetry as a performance-comparison artifact, not a semantic evidence artifact
+
+Telemetry intake:
+
+- use the `Performance telemetry report` issue for steady-state and stall regression intake
+- prefer one `.zip` bundle per run containing `perf_summary.csv` and `perf_stalls.csv`
+- direct comparison requires matching save/scenario identity, enabled-fix set, sampling interval, and stall threshold
+- keep telemetry triage deterministic and observational; do not treat it as root-cause proof
+- if a telemetry regression needs semantic interpretation, collect the matching diagnostics raw log on the same save and settings
 
 ## Automation Notes
 
 - raw-log triage runs on raw-log intake issue open and edit events
 - maintainers can rerun raw-log triage with `/retriage` after parser or prompt changes land on `master`
+- performance-telemetry triage runs on performance telemetry intake issue open and edit events
+- maintainers can rerun performance-telemetry triage with `/retriage`
 - evidence promotion runs primarily from maintainer comments that include `/promote-evidence` and a non-empty `maintainer_reply` YAML block
 - optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow
 - deterministic automation is responsible for redaction, anchor extraction, excerpt-candidate bounds, validation, and conservative fallbacks
@@ -102,6 +113,7 @@ Design intent:
 ## References
 
 - raw-log onboarding: [LOG_REPORTING.md](./LOG_REPORTING.md)
+- performance telemetry onboarding: [PERF_REPORTING.md](./PERF_REPORTING.md)
 - evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
 - evidence entry form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
