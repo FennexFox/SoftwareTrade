@@ -463,7 +463,7 @@ namespace NoOfficeDemandFix.Telemetry
 
             using (StreamWriter writer = CreateWriter(summaryPath))
             {
-                WriteMetadataBlock(writer);
+                WriteMetadataBlock(writer, "summary");
                 writer.WriteLine("run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window");
                 for (int i = 0; i < s_SummaryRows.Count; i++)
                 {
@@ -501,7 +501,7 @@ namespace NoOfficeDemandFix.Telemetry
 
             using (StreamWriter writer = CreateWriter(stallPath))
             {
-                WriteMetadataBlock(writer);
+                WriteMetadataBlock(writer, "stalls");
                 writer.WriteLine("run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count");
                 for (int i = 0; i < s_StallRows.Count; i++)
                 {
@@ -535,8 +535,12 @@ namespace NoOfficeDemandFix.Telemetry
             return new StreamWriter(path, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 65536);
         }
 
-        private static void WriteMetadataBlock(TextWriter writer)
+        private static void WriteMetadataBlock(TextWriter writer, string fileKind)
         {
+            writer.Write("# telemetry_schema_version=");
+            writer.WriteLine("1");
+            writer.Write("# telemetry_file_kind=");
+            writer.WriteLine(SanitizeMetadataValue(fileKind));
             writer.Write("# run_id=");
             writer.WriteLine(SanitizeMetadataValue(s_RunMetadata.RunId));
             writer.Write("# run_start_utc=");
