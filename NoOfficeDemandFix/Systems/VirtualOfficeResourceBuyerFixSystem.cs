@@ -40,7 +40,7 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OfficeCompanyChangedQuery;
         private EntityQuery m_CorrectiveBuyerBackfillQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
-        private bool m_LastDemandDiagnosticsEnabled;
+        private bool m_LastCorrectiveBuyerTaggingEnabled;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
@@ -438,20 +438,22 @@ namespace NoOfficeDemandFix.Systems
             int telemetryEntitiesInspected = 0;
             int telemetryRepathRequested = 0;
             bool diagnosticsEnabled = Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
+            bool buyerFixEnabled = Mod.Settings != null && Mod.Settings.EnableVirtualOfficeResourceBuyerFix;
+            bool correctiveBuyerTaggingEnabled = diagnosticsEnabled && buyerFixEnabled;
 
             try
             {
                 CleanupCorrectiveBuyerMarkers();
 
-                if (diagnosticsEnabled)
+                if (correctiveBuyerTaggingEnabled)
                 {
-                    if (!m_LastDemandDiagnosticsEnabled)
+                    if (!m_LastCorrectiveBuyerTaggingEnabled)
                     {
                         BackfillCorrectiveBuyerMarkers();
                     }
                 }
 
-                if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
+                if (!buyerFixEnabled)
                 {
                     ResetProbeState();
                     return;
@@ -551,7 +553,7 @@ namespace NoOfficeDemandFix.Systems
             }
             finally
             {
-                m_LastDemandDiagnosticsEnabled = diagnosticsEnabled;
+                m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
 
                 if (captureTelemetry)
                 {
