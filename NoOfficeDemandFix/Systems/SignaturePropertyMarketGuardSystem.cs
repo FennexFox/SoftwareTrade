@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using Colossal.Serialization.Entities;
 using Game;
 using Game.Buildings;
@@ -13,6 +14,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using UnityEngine.Scripting;
+using NoOfficeDemandFix.Telemetry;
 
 namespace NoOfficeDemandFix.Systems
 {
@@ -160,47 +162,60 @@ namespace NoOfficeDemandFix.Systems
         [Preserve]
         protected override void OnUpdate()
         {
-            if (!IsFixEnabled())
-            {
-                return;
-            }
+            bool captureTelemetry = PerformanceTelemetryCollector.IsCollecting;
+            long telemetryStart = captureTelemetry ? Stopwatch.GetTimestamp() : 0L;
 
-            if (m_SignaturePropertyQuery.IsEmptyIgnoreFilter)
+            try
             {
-                return;
-            }
-
-            if (IsVerboseLoggingEnabled())
-            {
-                RunVerboseCorrectionLoop();
-                return;
-            }
-
-            using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
-            using NativeQueue<Entity> correctedProperties = new NativeQueue<Entity>(Allocator.TempJob);
-            JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
-                new GuardOccupiedSignatureMarketStateJob
+                if (!IsFixEnabled())
                 {
-                    EntityType = GetEntityTypeHandle(),
-                    Renters = GetBufferLookup<Renter>(isReadOnly: true),
-                    CompanyDatas = GetComponentLookup<CompanyData>(isReadOnly: true),
-                    PropertyRenters = GetComponentLookup<PropertyRenter>(isReadOnly: true),
-                    OfficeProperties = GetComponentLookup<OfficeProperty>(isReadOnly: true),
-                    IndustrialProperties = GetComponentLookup<IndustrialProperty>(isReadOnly: true),
-                    PropertyOnMarkets = GetComponentLookup<PropertyOnMarket>(isReadOnly: true),
-                    PropertyToBeOnMarkets = GetComponentLookup<PropertyToBeOnMarket>(isReadOnly: true),
-                    CommandBuffer = commandBuffer.AsParallelWriter(),
-                    CorrectedProperties = correctedProperties.AsParallelWriter()
-                },
-                m_SignaturePropertyQuery,
-                Dependency);
+                    return;
+                }
 
-            jobHandle.Complete();
-            commandBuffer.Playback(EntityManager);
+                if (m_SignaturePropertyQuery.IsEmptyIgnoreFilter)
+                {
+                    return;
+                }
 
-            while (correctedProperties.TryDequeue(out _))
+                if (IsVerboseLoggingEnabled())
+                {
+                    RunVerboseCorrectionLoop();
+                    return;
+                }
+
+                using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+                using NativeQueue<Entity> correctedProperties = new NativeQueue<Entity>(Allocator.TempJob);
+                JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                    new GuardOccupiedSignatureMarketStateJob
+                    {
+                        EntityType = GetEntityTypeHandle(),
+                        Renters = GetBufferLookup<Renter>(isReadOnly: true),
+                        CompanyDatas = GetComponentLookup<CompanyData>(isReadOnly: true),
+                        PropertyRenters = GetComponentLookup<PropertyRenter>(isReadOnly: true),
+                        OfficeProperties = GetComponentLookup<OfficeProperty>(isReadOnly: true),
+                        IndustrialProperties = GetComponentLookup<IndustrialProperty>(isReadOnly: true),
+                        PropertyOnMarkets = GetComponentLookup<PropertyOnMarket>(isReadOnly: true),
+                        PropertyToBeOnMarkets = GetComponentLookup<PropertyToBeOnMarket>(isReadOnly: true),
+                        CommandBuffer = commandBuffer.AsParallelWriter(),
+                        CorrectedProperties = correctedProperties.AsParallelWriter()
+                    },
+                    m_SignaturePropertyQuery,
+                    Dependency);
+
+                jobHandle.Complete();
+                commandBuffer.Playback(EntityManager);
+
+                while (correctedProperties.TryDequeue(out _))
+                {
+                    m_CorrectionsSinceLastSample++;
+                }
+            }
+            finally
             {
-                m_CorrectionsSinceLastSample++;
+                if (captureTelemetry)
+                {
+                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
+                }
             }
         }
 

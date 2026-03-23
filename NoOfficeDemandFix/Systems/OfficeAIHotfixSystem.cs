@@ -6,6 +6,7 @@ using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
 using Game;
+using System.Diagnostics;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
@@ -13,6 +14,7 @@ using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine.Scripting;
+using NoOfficeDemandFix.Telemetry;
 
 namespace NoOfficeDemandFix.Systems
 {
@@ -198,56 +200,69 @@ namespace NoOfficeDemandFix.Systems
         [Preserve]
         protected override void OnUpdate()
         {
-            uint updateFrame = SimulationUtils.GetUpdateFrame(m_SimulationSystem.frameIndex, kUpdatesPerDay, 16);
-            int officeEntityCount = m_OfficeCompanyGroup.CalculateEntityCount();
-            NativeReference<int> officeConsumedAmount = m_OfficeAISystem.GetIndustrialConsumptionAmount(out JobHandle writeDeps);
-            JobHandle officeJob = JobHandle.CombineDependencies(writeDeps, Dependency);
+            bool captureTelemetry = PerformanceTelemetryCollector.IsCollecting;
+            long telemetryStart = captureTelemetry ? Stopwatch.GetTimestamp() : 0L;
 
             try
             {
-                m_OfficeCompanyGroup.SetSharedComponentFilter(new UpdateFrame { m_Index = updateFrame });
-                officeJob = JobChunkExtensions.ScheduleParallel(
-                    new OfficeAIHotfixJob
-                    {
-                        OfficeConsumedAmount = officeConsumedAmount,
-                        EntityType = GetEntityTypeHandle(),
-                        UpdateFrameType = GetSharedComponentTypeHandle<UpdateFrame>(),
-                        PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
-                        PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
-                        ResourceType = GetBufferTypeHandle<Resources>(),
-                        IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
-                        ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
-                        Buildings = GetComponentLookup<Building>(isReadOnly: true),
-                        ResourcePrefabs = m_ResourceSystem.GetPrefabs(),
-                        ConsumptionQueue = m_OfficeResourceConsumptionQueue.AsParallelWriter(),
-                        CommandBuffer = m_EndFrameBarrier.CreateCommandBuffer().AsParallelWriter(),
-                        EconomyParameters = m_EconomyParameterQuery.GetSingleton<EconomyParameterData>(),
-                        OfficeEntityCount = officeEntityCount,
-                        UpdateFrameIndex = updateFrame
-                    },
-                    m_OfficeCompanyGroup,
-                    officeJob);
+                uint updateFrame = SimulationUtils.GetUpdateFrame(m_SimulationSystem.frameIndex, kUpdatesPerDay, 16);
+                int officeEntityCount = m_OfficeCompanyGroup.CalculateEntityCount();
+                NativeReference<int> officeConsumedAmount = m_OfficeAISystem.GetIndustrialConsumptionAmount(out JobHandle writeDeps);
+                JobHandle officeJob = JobHandle.CombineDependencies(writeDeps, Dependency);
+
+                try
+                {
+                    m_OfficeCompanyGroup.SetSharedComponentFilter(new UpdateFrame { m_Index = updateFrame });
+                    officeJob = JobChunkExtensions.ScheduleParallel(
+                        new OfficeAIHotfixJob
+                        {
+                            OfficeConsumedAmount = officeConsumedAmount,
+                            EntityType = GetEntityTypeHandle(),
+                            UpdateFrameType = GetSharedComponentTypeHandle<UpdateFrame>(),
+                            PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
+                            PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
+                            ResourceType = GetBufferTypeHandle<Resources>(),
+                            IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
+                            ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
+                            Buildings = GetComponentLookup<Building>(isReadOnly: true),
+                            ResourcePrefabs = m_ResourceSystem.GetPrefabs(),
+                            ConsumptionQueue = m_OfficeResourceConsumptionQueue.AsParallelWriter(),
+                            CommandBuffer = m_EndFrameBarrier.CreateCommandBuffer().AsParallelWriter(),
+                            EconomyParameters = m_EconomyParameterQuery.GetSingleton<EconomyParameterData>(),
+                            OfficeEntityCount = officeEntityCount,
+                            UpdateFrameIndex = updateFrame
+                        },
+                        m_OfficeCompanyGroup,
+                        officeJob);
+                }
+                finally
+                {
+                    m_OfficeCompanyGroup.ResetFilter();
+                }
+
+                NativeArray<int> resourceConsumeAccumulator = m_CityProductionStatisticSystem.GetCityResourceUsageAccumulator(
+                    CityProductionStatisticSystem.CityResourceUsage.Consumer.Industrial,
+                    out JobHandle accumulatorDeps);
+
+                ResetOfficeConsumptionJob resetJob = new ResetOfficeConsumptionJob
+                {
+                    OfficeConsumedAmount = officeConsumedAmount,
+                    ConsumptionQueue = m_OfficeResourceConsumptionQueue,
+                    ResourceConsumeAccumulator = resourceConsumeAccumulator
+                };
+
+                Dependency = IJobExtensions.Schedule(resetJob, JobHandle.CombineDependencies(officeJob, accumulatorDeps));
+                m_OfficeAISystem.AddWriteConsumptionDeps(Dependency);
+                m_EndFrameBarrier.AddJobHandleForProducer(Dependency);
+                m_ResourceSystem.AddPrefabsReader(Dependency);
             }
             finally
             {
-                m_OfficeCompanyGroup.ResetFilter();
+                if (captureTelemetry)
+                {
+                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
+                }
             }
-
-            NativeArray<int> resourceConsumeAccumulator = m_CityProductionStatisticSystem.GetCityResourceUsageAccumulator(
-                CityProductionStatisticSystem.CityResourceUsage.Consumer.Industrial,
-                out JobHandle accumulatorDeps);
-
-            ResetOfficeConsumptionJob resetJob = new ResetOfficeConsumptionJob
-            {
-                OfficeConsumedAmount = officeConsumedAmount,
-                ConsumptionQueue = m_OfficeResourceConsumptionQueue,
-                ResourceConsumeAccumulator = resourceConsumeAccumulator
-            };
-
-            Dependency = IJobExtensions.Schedule(resetJob, JobHandle.CombineDependencies(officeJob, accumulatorDeps));
-            m_OfficeAISystem.AddWriteConsumptionDeps(Dependency);
-            m_EndFrameBarrier.AddJobHandleForProducer(Dependency);
-            m_ResourceSystem.AddPrefabsReader(Dependency);
         }
     }
 }

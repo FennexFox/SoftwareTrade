@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using CitizenTripNeeded = Game.Citizens.TripNeeded;
@@ -15,10 +16,12 @@ using Game.Tools;
 using Game.Vehicles;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine.Scripting;
+using NoOfficeDemandFix.Telemetry;
 
 namespace NoOfficeDemandFix.Systems
 {
@@ -104,6 +107,13 @@ namespace NoOfficeDemandFix.Systems
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
             public bool CaptureProbeResults;
+            public bool CaptureTelemetry;
+
+            [NativeDisableParallelForRestriction]
+            public NativeArray<int> ChunkInspectedEntityCounts;
+
+            [NativeDisableParallelForRestriction]
+            public NativeArray<int> ChunkOverrideCounts;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
             {
@@ -112,6 +122,7 @@ namespace NoOfficeDemandFix.Systems
                 NativeArray<PropertyRenter> properties = chunk.GetNativeArray(ref PropertyType);
                 BufferAccessor<Resources> resources = chunk.GetBufferAccessor(ref ResourceType);
                 BufferAccessor<CitizenTripNeeded> tripNeeds = chunk.GetBufferAccessor(ref TripNeededType);
+                int overrideCount = 0;
 
                 for (int i = 0; i < chunk.Count; i++)
                 {
@@ -184,6 +195,7 @@ namespace NoOfficeDemandFix.Systems
                     {
                         LastIssuedAmount = overrideAmount
                     });
+                    overrideCount++;
 
                     if (!CaptureProbeResults)
                     {
@@ -201,6 +213,12 @@ namespace NoOfficeDemandFix.Systems
                         Threshold = threshold,
                         OverrideAmount = overrideAmount
                     });
+                }
+
+                if (CaptureTelemetry)
+                {
+                    ChunkInspectedEntityCounts[unfilteredChunkIndex] = chunk.Count;
+                    ChunkOverrideCounts[unfilteredChunkIndex] = overrideCount;
                 }
             }
 
@@ -408,66 +426,119 @@ namespace NoOfficeDemandFix.Systems
         [Preserve]
         protected override void OnUpdate()
         {
-            CleanupCorrectiveBuyerMarkers();
+            bool captureTelemetry = PerformanceTelemetryCollector.IsCollecting;
+            long telemetryStart = captureTelemetry ? Stopwatch.GetTimestamp() : 0L;
+            int telemetryEntitiesInspected = 0;
+            int telemetryRepathRequested = 0;
 
-            if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
+            try
             {
-                ResetProbeState();
-                return;
-            }
+                CleanupCorrectiveBuyerMarkers();
 
-            if (m_OfficeCompanyQuery.IsEmptyIgnoreFilter)
-            {
-                return;
-            }
-
-            EntityQuery officeCompanyQuery = ShouldRunFallbackSweep()
-                ? m_OfficeCompanyQuery
-                : m_OfficeCompanyChangedQuery;
-            if (officeCompanyQuery.IsEmpty)
-            {
-                return;
-            }
-
-            ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
-            bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
-            using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
-            using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
-
-            JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
-                new ApplyBuyerOverridesJob
+                if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
                 {
-                    EntityType = GetEntityTypeHandle(),
-                    PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
-                    PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
-                    ResourceType = GetBufferTypeHandle<Resources>(isReadOnly: true),
-                    TripNeededType = GetBufferTypeHandle<CitizenTripNeeded>(isReadOnly: true),
-                    Transforms = GetComponentLookup<Transform>(isReadOnly: true),
-                    IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
-                    StorageLimitDatas = GetComponentLookup<StorageLimitData>(isReadOnly: true),
-                    ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
-                    OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
-                    DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
-                    LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
-                    ResourcePrefabs = resourcePrefabs,
-                    CommandBuffer = commandBuffer.AsParallelWriter(),
-                    ProbeResults = probeResults.AsParallelWriter(),
-                    CaptureProbeResults = captureProbeResults
-                },
-                officeCompanyQuery,
-                Dependency);
+                    ResetProbeState();
+                    return;
+                }
 
-            jobHandle.Complete();
-            commandBuffer.Playback(EntityManager);
+                if (m_OfficeCompanyQuery.IsEmptyIgnoreFilter)
+                {
+                    return;
+                }
 
-            if (!captureProbeResults)
-            {
-                return;
+                EntityQuery officeCompanyQuery = ShouldRunFallbackSweep()
+                    ? m_OfficeCompanyQuery
+                    : m_OfficeCompanyChangedQuery;
+                if (officeCompanyQuery.IsEmpty)
+                {
+                    return;
+                }
+
+                ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
+                bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
+                int chunkCount = captureTelemetry ? officeCompanyQuery.CalculateChunkCount() : 0;
+                NativeArray<int> chunkInspectedEntityCounts = default;
+                NativeArray<int> chunkOverrideCounts = default;
+
+                try
+                {
+                    if (captureTelemetry && chunkCount > 0)
+                    {
+                        chunkInspectedEntityCounts = new NativeArray<int>(chunkCount, Allocator.TempJob);
+                        chunkOverrideCounts = new NativeArray<int>(chunkCount, Allocator.TempJob);
+                    }
+
+                    using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+                    using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
+
+                    JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                        new ApplyBuyerOverridesJob
+                        {
+                            EntityType = GetEntityTypeHandle(),
+                            PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
+                            PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
+                            ResourceType = GetBufferTypeHandle<Resources>(isReadOnly: true),
+                            TripNeededType = GetBufferTypeHandle<CitizenTripNeeded>(isReadOnly: true),
+                            Transforms = GetComponentLookup<Transform>(isReadOnly: true),
+                            IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
+                            StorageLimitDatas = GetComponentLookup<StorageLimitData>(isReadOnly: true),
+                            ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
+                            OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
+                            DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
+                            LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
+                            ResourcePrefabs = resourcePrefabs,
+                            CommandBuffer = commandBuffer.AsParallelWriter(),
+                            ProbeResults = probeResults.AsParallelWriter(),
+                            CaptureProbeResults = captureProbeResults,
+                            CaptureTelemetry = captureTelemetry && chunkCount > 0,
+                            ChunkInspectedEntityCounts = chunkInspectedEntityCounts,
+                            ChunkOverrideCounts = chunkOverrideCounts
+                        },
+                        officeCompanyQuery,
+                        Dependency);
+
+                    jobHandle.Complete();
+                    commandBuffer.Playback(EntityManager);
+
+                    if (captureTelemetry && chunkCount > 0)
+                    {
+                        for (int i = 0; i < chunkCount; i++)
+                        {
+                            telemetryEntitiesInspected += chunkInspectedEntityCounts[i];
+                            telemetryRepathRequested += chunkOverrideCounts[i];
+                        }
+                    }
+
+                    if (!captureProbeResults)
+                    {
+                        return;
+                    }
+
+                    while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
+                    {
+                        AccumulateProbe(probeRecord);
+                    }
+                }
+                finally
+                {
+                    if (chunkInspectedEntityCounts.IsCreated)
+                    {
+                        chunkInspectedEntityCounts.Dispose();
+                    }
+
+                    if (chunkOverrideCounts.IsCreated)
+                    {
+                        chunkOverrideCounts.Dispose();
+                    }
+                }
             }
-
-            while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
+            finally
             {
-                AccumulateProbe(probeRecord);
+                if (captureTelemetry)
+                {
+                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
+                    PerformanceTelemetryCollector.RecordModActivity(telemetryEntitiesInspected, telemetryRepathRequested);
+                }
             }
         }
 

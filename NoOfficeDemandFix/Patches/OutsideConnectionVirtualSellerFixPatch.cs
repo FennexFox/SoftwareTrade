@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using Game.Buildings;
@@ -14,6 +15,7 @@ using Game.Simulation;
 using Game.Tools;
 using Game.Vehicles;
 using HarmonyLib;
+using NoOfficeDemandFix.Telemetry;
 using Unity.Burst;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
@@ -101,6 +103,10 @@ namespace NoOfficeDemandFix.Patches
             in PathfindSetupSystem.SetupData setupData,
             ref JobHandle __result)
         {
+            bool captureTelemetry = PerformanceTelemetryCollector.IsCollecting;
+            long telemetryStart = captureTelemetry ? Stopwatch.GetTimestamp() : 0L;
+            int appendedRequestCount = 0;
+
             if (Mod.Settings == null
                 || !Mod.Settings.EnableOutsideConnectionVirtualSellerFix
                 || targetType != SetupTargetType.ResourceSeller)
@@ -128,7 +134,7 @@ namespace NoOfficeDemandFix.Patches
                 s_TotalOfficeImportCandidatesPrefilter += officeImportCandidatesPrefilter;
 
                 MaybeCaptureProbeSnapshot(__instance, setupData, officeImportCandidatesPrefilter);
-                __result = ScheduleAdditionalOutsideConnectionTargets(__instance, setupData, __result);
+                __result = ScheduleAdditionalOutsideConnectionTargets(__instance, setupData, __result, out appendedRequestCount);
             }
             catch (Exception ex)
             {
@@ -136,6 +142,14 @@ namespace NoOfficeDemandFix.Patches
                 {
                     Mod.log.Error($"Outside-connection virtual seller fix failed while appending additional outside-connection targets ({PatchVariant}). Keeping vanilla seller setup only. {ex}");
                     s_RuntimeFailureLogged = true;
+                }
+            }
+            finally
+            {
+                if (captureTelemetry)
+                {
+                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
+                    PerformanceTelemetryCollector.RecordModActivity(0, appendedRequestCount);
                 }
             }
         }
@@ -205,8 +219,10 @@ namespace NoOfficeDemandFix.Patches
         private static JobHandle ScheduleAdditionalOutsideConnectionTargets(
             PathfindSetupSystem system,
             in PathfindSetupSystem.SetupData setupData,
-            JobHandle inputDeps)
+            JobHandle inputDeps,
+            out int appendedRequestCount)
         {
+            appendedRequestCount = 0;
             if (setupData.Length == 0)
             {
                 return inputDeps;
@@ -227,6 +243,8 @@ namespace NoOfficeDemandFix.Patches
             {
                 return inputDeps;
             }
+
+            appendedRequestCount = officeImportRequests.Length;
 
             JobHandle jobHandle = new AppendOutsideConnectionOfficeImportTargetsJob
             {
