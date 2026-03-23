@@ -1033,6 +1033,9 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
     baseline_metadata = baseline.metadata
     comparison_metadata = comparison.metadata
 
+    save_names_known = is_known_save_name(baseline_metadata.save_name) and is_known_save_name(comparison_metadata.save_name)
+    scenario_ids_known = is_known_scenario_id(baseline_metadata.scenario_id) and is_known_scenario_id(comparison_metadata.scenario_id)
+
     same_save_verified = (
         is_known_save_name(baseline_metadata.save_name)
         and is_known_save_name(comparison_metadata.save_name)
@@ -1044,15 +1047,25 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
         and baseline_metadata.scenario_id == comparison_metadata.scenario_id
     )
 
-    if is_known_save_name(baseline_metadata.save_name) and is_known_save_name(comparison_metadata.save_name):
-        if baseline_metadata.save_name != comparison_metadata.save_name:
-            directly_comparable = False
+    if save_names_known and baseline_metadata.save_name != comparison_metadata.save_name:
+        if same_scenario_verified:
+            warnings.append(
+                "save_name mismatch: "
+                f"`{baseline_metadata.save_name}` vs `{comparison_metadata.save_name}`; "
+                "allowing direct comparison because scenario_id matches."
+            )
+        else:
             warnings.append(
                 f"save_name mismatch: `{baseline_metadata.save_name}` vs `{comparison_metadata.save_name}`."
             )
-    if is_known_scenario_id(baseline_metadata.scenario_id) and is_known_scenario_id(comparison_metadata.scenario_id):
-        if baseline_metadata.scenario_id != comparison_metadata.scenario_id:
-            directly_comparable = False
+    if scenario_ids_known and baseline_metadata.scenario_id != comparison_metadata.scenario_id:
+        if same_save_verified:
+            warnings.append(
+                "scenario_id mismatch: "
+                f"`{baseline_metadata.scenario_id}` vs `{comparison_metadata.scenario_id}`; "
+                "allowing direct comparison because save_name matches."
+            )
+        else:
             warnings.append(
                 f"scenario_id mismatch: `{baseline_metadata.scenario_id}` vs `{comparison_metadata.scenario_id}`."
             )

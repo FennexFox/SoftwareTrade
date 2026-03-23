@@ -83,9 +83,25 @@ COMPARISON_STALLS_CSV = textwrap.dedent(
     """
 ).strip()
 
-MISMATCH_SUMMARY_CSV = textwrap.dedent(
+SAVE_NAME_MISMATCH_SUMMARY_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='comparison-run', file_kind='summary', save_name='Other City')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    comparison-run,1,100,55,18,20,3.5,1.3,0.60,10,1,1,3,false
+    """
+).strip()
+
+SCENARIO_ID_MISMATCH_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', scenario_id='map_b')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    comparison-run,1,100,55,18,20,3.5,1.3,0.60,10,1,1,3,false
+    """
+).strip()
+
+BOTH_IDENTITY_MISMATCH_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', save_name='Other City', scenario_id='map_b')}
     run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
     comparison-run,1,100,55,18,20,3.5,1.3,0.60,10,1,1,3,false
     """
@@ -177,16 +193,45 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn("stall_frequency_elevated", triage.anomaly_flags)
         self.assertIn("queue_pressure_during_stalls", triage.anomaly_flags)
 
-    def test_build_triage_analysis_marks_mismatch_not_directly_comparable(self) -> None:
+    def test_build_triage_analysis_allows_same_scenario_when_save_names_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
-            "```csv\n" + MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+            "```csv\n" + SAVE_NAME_MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertTrue(triage.comparison_analysis.directly_comparable)
+        self.assertIn("save_name mismatch", " ".join(triage.comparison_analysis.warnings))
+        self.assertIn("scenario_id matches", " ".join(triage.comparison_analysis.warnings))
+
+    def test_build_triage_analysis_allows_same_save_when_scenario_ids_differ(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n" + SCENARIO_ID_MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertTrue(triage.comparison_analysis.directly_comparable)
+        self.assertIn("scenario_id mismatch", " ".join(triage.comparison_analysis.warnings))
+        self.assertIn("save_name matches", " ".join(triage.comparison_analysis.warnings))
+
+    def test_build_triage_analysis_rejects_runs_when_save_and_scenario_both_differ(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n" + BOTH_IDENTITY_MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
 
         self.assertFalse(triage.comparison_analysis.directly_comparable)
         self.assertIn("save_name mismatch", " ".join(triage.comparison_analysis.warnings))
+        self.assertIn("scenario_id mismatch", " ".join(triage.comparison_analysis.warnings))
+        self.assertIn(
+            "matching save or scenario identity could not be verified",
+            " ".join(triage.comparison_analysis.warnings),
+        )
 
     def test_missing_stall_file_is_nonfatal_warning(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
