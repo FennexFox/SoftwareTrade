@@ -12,7 +12,7 @@ namespace NoOfficeDemandFix.Telemetry
 {
     internal static class PerformanceTelemetryCollector
     {
-        private const int kStallDebounceFrames = 2;
+        private const int kStallDebounceFrames = 1;
         private const string kUnknownScenarioId = "unknown";
         private const string kUnsavedName = "unsaved";
 
@@ -56,7 +56,7 @@ namespace NoOfficeDemandFix.Telemetry
         private static int s_FrameObservedPathQueueLenMax;
 
         private static FieldInfo[] s_PathfindActionFields;
-        private static FieldInfo s_ActionListNextIndexField;
+        private static FieldInfo[] s_PathfindActionNextIndexFields;
         private static bool s_PathfindReflectionInitialized;
         private static bool s_PathfindReflectionUnavailableLogged;
 
@@ -224,7 +224,7 @@ namespace NoOfficeDemandFix.Telemetry
                         continue;
                     }
 
-                    total += (int)s_ActionListNextIndexField.GetValue(actionList);
+                    total += (int)s_PathfindActionNextIndexFields[i].GetValue(actionList);
                 }
 
                 return total;
@@ -339,13 +339,16 @@ namespace NoOfficeDemandFix.Telemetry
                     ModRepathRequested = modRepathRequested,
                     ModEntitiesInspected = modEntitiesInspected
                 };
-                return false;
             }
 
             if (s_ConsecutiveAboveThreshold >= kStallDebounceFrames)
             {
                 StartActiveStallFromPendingCandidate();
-                AddFrameToActiveStall(renderLatencyMs, pathQueueLength, modRepathRequested, modEntitiesInspected);
+                if (s_ConsecutiveAboveThreshold > 1)
+                {
+                    AddFrameToActiveStall(renderLatencyMs, pathQueueLength, modRepathRequested, modEntitiesInspected);
+                }
+
                 return true;
             }
 
@@ -570,7 +573,7 @@ namespace NoOfficeDemandFix.Telemetry
         {
             if (s_PathfindReflectionInitialized)
             {
-                return s_PathfindActionFields != null && s_ActionListNextIndexField != null;
+                return s_PathfindActionFields != null && s_PathfindActionNextIndexFields != null;
             }
 
             s_PathfindReflectionInitialized = true;
@@ -578,29 +581,21 @@ namespace NoOfficeDemandFix.Telemetry
             Type pathfindQueueType = typeof(PathfindQueueSystem);
             // Queue depth is not exposed publicly on this build, so cache the
             // private action-list fields once and reuse them on each sample.
-            Type actionListType = pathfindQueueType.Assembly.GetType("Game.Pathfind.PathfindQueueSystem+ActionList`1");
-            if (actionListType == null)
-            {
-                if (!s_PathfindReflectionUnavailableLogged)
-                {
-                    Mod.log.Error("Performance telemetry could not resolve PathfindQueueSystem action-list internals. Path queue metrics will stay at 0.");
-                    s_PathfindReflectionUnavailableLogged = true;
-                }
-
-                return false;
-            }
-
-            s_ActionListNextIndexField = actionListType.GetField("m_NextIndex", flags);
             s_PathfindActionFields = new FieldInfo[s_PathfindActionFieldNames.Length];
+            s_PathfindActionNextIndexFields = new FieldInfo[s_PathfindActionFieldNames.Length];
             for (int i = 0; i < s_PathfindActionFieldNames.Length; i++)
             {
                 s_PathfindActionFields[i] = pathfindQueueType.GetField(s_PathfindActionFieldNames[i], flags);
+                if (s_PathfindActionFields[i] != null)
+                {
+                    s_PathfindActionNextIndexFields[i] = s_PathfindActionFields[i].FieldType.GetField("m_NextIndex", flags);
+                }
             }
 
-            bool valid = s_ActionListNextIndexField != null;
+            bool valid = true;
             for (int i = 0; i < s_PathfindActionFields.Length; i++)
             {
-                valid &= s_PathfindActionFields[i] != null;
+                valid &= s_PathfindActionFields[i] != null && s_PathfindActionNextIndexFields[i] != null;
             }
 
             if (!valid && !s_PathfindReflectionUnavailableLogged)
