@@ -53,10 +53,12 @@ namespace NoOfficeDemandFix
         public bool EnablePerformanceTelemetry { get; set; } = false;
 
         [SettingsUISection(kSection, kPerformanceLogsGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(ArePerformanceTelemetryOptionsDisabled))]
         [SettingsUISlider(min = 0.25f, max = 5f, step = 0.25f, scalarMultiplier = 1, unit = Unit.kFloatTwoFractions)]
         public float PerformanceTelemetrySamplingIntervalSec { get; set; } = 1f;
 
         [SettingsUISection(kSection, kPerformanceLogsGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(ArePerformanceTelemetryOptionsDisabled))]
         [SettingsUISlider(min = 50, max = 2000, step = 25, scalarMultiplier = 1, unit = Unit.kInteger)]
         public int PerformanceTelemetryStallThresholdMs { get; set; } = 250;
 
@@ -76,6 +78,8 @@ namespace NoOfficeDemandFix
         }
 
         private bool AreDemandDiagnosticsOptionsDisabled() => !EnableDemandDiagnostics;
+
+        private bool ArePerformanceTelemetryOptionsDisabled() => !EnablePerformanceTelemetry;
     }
 
     public class LocaleEN : IDictionarySource
