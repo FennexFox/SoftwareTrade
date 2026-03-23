@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Colossal.Serialization.Entities;
 using CitizenTripNeeded = Game.Citizens.TripNeeded;
 using Game;
 using Game.Buildings;
@@ -11,6 +12,7 @@ using Game.Economy;
 using Game.Objects;
 using Game.Pathfind;
 using Game.Prefabs;
+using Game.SceneFlow;
 using Game.Simulation;
 using Game.Tools;
 using Game.Vehicles;
@@ -38,7 +40,10 @@ namespace NoOfficeDemandFix.Systems
         private SimulationSystem m_SimulationSystem;
         private EntityQuery m_OfficeCompanyQuery;
         private EntityQuery m_OfficeCompanyChangedQuery;
+        private EntityQuery m_CorrectiveBuyerBackfillQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
+        private EntityQuery m_CorrectiveBuyerProvenanceCleanupQuery;
+        private bool m_LastCorrectiveBuyerTaggingEnabled;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
@@ -106,6 +111,7 @@ namespace NoOfficeDemandFix.Systems
 
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
+            public bool AttachCorrectiveBuyerTag;
             public bool CaptureProbeResults;
             public bool CaptureTelemetry;
 
@@ -191,10 +197,19 @@ namespace NoOfficeDemandFix.Systems
                     };
 
                     CommandBuffer.AddComponent(unfilteredChunkIndex, company, resourceBuyer);
-                    CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerTag
+                    CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerProvenance
                     {
-                        LastIssuedAmount = overrideAmount
+                        Resource = selectedResource,
+                        IssuedAmount = overrideAmount,
+                        Flags = resourceBuyer.m_Flags
                     });
+                    if (AttachCorrectiveBuyerTag)
+                    {
+                        CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerTag
+                        {
+                            LastIssuedAmount = overrideAmount
+                        });
+                    }
                     overrideCount++;
 
                     if (!CaptureProbeResults)
@@ -410,6 +425,7 @@ namespace NoOfficeDemandFix.Systems
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_OfficeCompanyQuery = GetEntityQuery(CreateOfficeCompanyQueryDesc());
             m_OfficeCompanyChangedQuery = EntityManager.CreateEntityQuery(CreateOfficeCompanyQueryDesc());
+            m_CorrectiveBuyerBackfillQuery = GetEntityQuery(CreateCorrectiveBuyerBackfillQueryDesc());
             m_OfficeCompanyChangedQuery.SetChangedVersionFilter(new[]
             {
                 ComponentType.ReadOnly<Resources>(),
@@ -420,7 +436,24 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<ResourceBuyer>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
+            m_CorrectiveBuyerProvenanceCleanupQuery = GetEntityQuery(
+                ComponentType.ReadOnly<CorrectiveSoftwareBuyerProvenance>(),
+                ComponentType.Exclude<ResourceBuyer>(),
+                ComponentType.Exclude<Deleted>(),
+                ComponentType.Exclude<Temp>());
             RequireForUpdate(m_OfficeCompanyQuery);
+        }
+
+        protected override void OnGamePreload(Purpose purpose, GameMode mode)
+        {
+            base.OnGamePreload(purpose, mode);
+            ResetRuntimeState();
+        }
+
+        protected override void OnGameLoaded(Context serializationContext)
+        {
+            base.OnGameLoaded(serializationContext);
+            ResetRuntimeState();
         }
 
         [Preserve]
@@ -430,12 +463,24 @@ namespace NoOfficeDemandFix.Systems
             long telemetryStart = captureTelemetry ? Stopwatch.GetTimestamp() : 0L;
             int telemetryEntitiesInspected = 0;
             int telemetryRepathRequested = 0;
+            bool diagnosticsEnabled = Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
+            bool buyerFixEnabled = Mod.Settings != null && Mod.Settings.EnableVirtualOfficeResourceBuyerFix;
+            bool correctiveBuyerTaggingEnabled = diagnosticsEnabled && buyerFixEnabled;
 
             try
             {
                 CleanupCorrectiveBuyerMarkers();
+                CleanupCorrectiveBuyerProvenance();
 
-                if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
+                if (correctiveBuyerTaggingEnabled)
+                {
+                    if (!m_LastCorrectiveBuyerTaggingEnabled)
+                    {
+                        BackfillCorrectiveBuyerMarkers();
+                    }
+                }
+
+                if (!buyerFixEnabled)
                 {
                     ResetProbeState();
                     return;
@@ -455,7 +500,7 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
-                bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
+                bool captureProbeResults = diagnosticsEnabled;
                 int chunkCount = captureTelemetry ? officeCompanyQuery.CalculateChunkCount() : 0;
                 NativeArray<int> chunkInspectedEntityCounts = default;
                 NativeArray<int> chunkOverrideCounts = default;
@@ -489,6 +534,7 @@ namespace NoOfficeDemandFix.Systems
                             ResourcePrefabs = resourcePrefabs,
                             CommandBuffer = commandBuffer.AsParallelWriter(),
                             ProbeResults = probeResults.AsParallelWriter(),
+                            AttachCorrectiveBuyerTag = diagnosticsEnabled,
                             CaptureProbeResults = captureProbeResults,
                             CaptureTelemetry = captureTelemetry && chunkCount > 0,
                             ChunkInspectedEntityCounts = chunkInspectedEntityCounts,
@@ -534,6 +580,8 @@ namespace NoOfficeDemandFix.Systems
             }
             finally
             {
+                m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
+
                 if (captureTelemetry)
                 {
                     PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
@@ -555,6 +603,299 @@ namespace NoOfficeDemandFix.Systems
             }
 
             EntityManager.RemoveComponent(m_CorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
+        }
+
+        private void CleanupCorrectiveBuyerProvenance()
+        {
+            if (m_CorrectiveBuyerProvenanceCleanupQuery.IsEmptyIgnoreFilter)
+            {
+                return;
+            }
+
+            EntityManager.RemoveComponent(m_CorrectiveBuyerProvenanceCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerProvenance>());
+        }
+
+        private void BackfillCorrectiveBuyerMarkers()
+        {
+            if (m_CorrectiveBuyerBackfillQuery.IsEmptyIgnoreFilter)
+            {
+                return;
+            }
+
+            using NativeArray<Entity> companies = m_CorrectiveBuyerBackfillQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i < companies.Length; i++)
+            {
+                Entity company = companies[i];
+                ResourceBuyer currentBuyer = EntityManager.GetComponentData<ResourceBuyer>(company);
+                CorrectiveSoftwareBuyerProvenance provenance = EntityManager.GetComponentData<CorrectiveSoftwareBuyerProvenance>(company);
+                if (!MatchesCorrectiveBuyerProvenance(company, currentBuyer, provenance))
+                {
+                    EntityManager.RemoveComponent<CorrectiveSoftwareBuyerProvenance>(company);
+                    continue;
+                }
+
+                EntityManager.AddComponentData(company, new CorrectiveSoftwareBuyerTag
+                {
+                    LastIssuedAmount = provenance.IssuedAmount
+                });
+            }
+        }
+
+        private bool TryBuildCorrectiveBuyer(Entity company, out ResourceBuyer correctiveBuyer)
+        {
+            correctiveBuyer = default;
+
+            PropertyRenter propertyRenter = EntityManager.GetComponentData<PropertyRenter>(company);
+            Entity property = propertyRenter.m_Property;
+            if (property == Entity.Null || !EntityManager.HasComponent<Transform>(property))
+            {
+                return false;
+            }
+
+            Entity prefab = EntityManager.GetComponentData<PrefabRef>(company).m_Prefab;
+            PrefabVirtualInputInfo prefabInfo = GetPrefabVirtualInputInfo(prefab);
+            if (!prefabInfo.HasEligibleVirtualInput)
+            {
+                return false;
+            }
+
+            DynamicBuffer<Resources> companyResources = EntityManager.GetBuffer<Resources>(company, isReadOnly: true);
+            DynamicBuffer<CitizenTripNeeded> tripNeededBuffer = EntityManager.GetBuffer<CitizenTripNeeded>(company, isReadOnly: true);
+            if (!TrySelectVirtualOfficeInput(
+                    company,
+                    prefabInfo.Input1,
+                    prefabInfo.SlotCapacity,
+                    companyResources,
+                    tripNeededBuffer,
+                    out Resource selectedResource,
+                    out _,
+                    out _,
+                    out _,
+                    out int effectiveStock,
+                    out int threshold) &&
+                !TrySelectVirtualOfficeInput(
+                    company,
+                    prefabInfo.Input2,
+                    prefabInfo.SlotCapacity,
+                    companyResources,
+                    tripNeededBuffer,
+                    out selectedResource,
+                    out _,
+                    out _,
+                    out _,
+                    out effectiveStock,
+                    out threshold))
+            {
+                return false;
+            }
+
+            if (HasAnyTripForResource(tripNeededBuffer, selectedResource))
+            {
+                return false;
+            }
+
+            int overrideAmount = math.max(kResourceMinimumRequestAmount, threshold - effectiveStock);
+            if (overrideAmount <= 0)
+            {
+                return false;
+            }
+
+            correctiveBuyer = new ResourceBuyer
+            {
+                m_Payer = company,
+                m_AmountNeeded = overrideAmount,
+                m_Flags = SetupTargetFlags.Industrial | SetupTargetFlags.Import,
+                m_Location = EntityManager.GetComponentData<Transform>(property).m_Position,
+                m_ResourceNeeded = selectedResource
+            };
+            return true;
+        }
+
+        private PrefabVirtualInputInfo GetPrefabVirtualInputInfo(Entity prefab)
+        {
+            if (!EntityManager.HasComponent<IndustrialProcessData>(prefab) || !EntityManager.HasComponent<StorageLimitData>(prefab))
+            {
+                return default;
+            }
+
+            IndustrialProcessData processData = EntityManager.GetComponentData<IndustrialProcessData>(prefab);
+            int slotCapacity = EntityManager.GetComponentData<StorageLimitData>(prefab).m_Limit;
+            bool hasSecondInput = processData.m_Input2.m_Resource != Resource.NoResource;
+            int divisor = hasSecondInput ? 2 : 1;
+            if (processData.m_Output.m_Resource != processData.m_Input1.m_Resource &&
+                ResourceHasWeight(processData.m_Output.m_Resource))
+            {
+                divisor++;
+            }
+
+            if (divisor > 0 && slotCapacity != int.MaxValue)
+            {
+                slotCapacity /= divisor;
+            }
+
+            Resource input1 = IsVirtualOfficeInput(processData.m_Input1.m_Resource)
+                ? processData.m_Input1.m_Resource
+                : Resource.NoResource;
+            Resource input2 = hasSecondInput && IsVirtualOfficeInput(processData.m_Input2.m_Resource)
+                ? processData.m_Input2.m_Resource
+                : Resource.NoResource;
+            return new PrefabVirtualInputInfo(input1, input2, slotCapacity);
+        }
+
+        private bool TrySelectVirtualOfficeInput(
+            Entity company,
+            Resource resource,
+            int maxCapacity,
+            DynamicBuffer<Resources> companyResources,
+            DynamicBuffer<CitizenTripNeeded> tripNeededBuffer,
+            out Resource selectedResource,
+            out int stock,
+            out int buyingLoad,
+            out int tripNeededAmount,
+            out int effectiveStock,
+            out int threshold)
+        {
+            selectedResource = Resource.NoResource;
+            stock = 0;
+            buyingLoad = 0;
+            tripNeededAmount = 0;
+            effectiveStock = 0;
+            threshold = 0;
+
+            if (resource == Resource.NoResource)
+            {
+                return false;
+            }
+
+            stock = EconomyUtils.GetResources(resource, companyResources);
+            buyingLoad = GetCompanyBuyingLoad(company, resource);
+            tripNeededAmount = GetCompanyShoppingTripAmount(tripNeededBuffer, resource);
+            threshold = CalculateLowStockThreshold(maxCapacity);
+
+            long effectiveStockTotal = (long)stock + buyingLoad + tripNeededAmount;
+            if (effectiveStockTotal >= threshold)
+            {
+                return false;
+            }
+
+            effectiveStock = (int)effectiveStockTotal;
+            selectedResource = resource;
+            return true;
+        }
+
+        private int GetCompanyBuyingLoad(Entity company, Resource resource)
+        {
+            if (!EntityManager.HasBuffer<OwnedVehicle>(company))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DynamicBuffer<OwnedVehicle> vehicles = EntityManager.GetBuffer<OwnedVehicle>(company, isReadOnly: true);
+            for (int i = 0; i < vehicles.Length; i++)
+            {
+                Entity vehicle = vehicles[i].m_Vehicle;
+                if (!EntityManager.HasComponent<Game.Vehicles.DeliveryTruck>(vehicle))
+                {
+                    continue;
+                }
+
+                amount += GetBuyingTruckLoad(vehicle, resource);
+            }
+
+            return amount;
+        }
+
+        private int GetBuyingTruckLoad(Entity vehicle, Resource resource)
+        {
+            Game.Vehicles.DeliveryTruck truck = EntityManager.GetComponentData<Game.Vehicles.DeliveryTruck>(vehicle);
+            if (EntityManager.HasBuffer<LayoutElement>(vehicle))
+            {
+                DynamicBuffer<LayoutElement> layout = EntityManager.GetBuffer<LayoutElement>(vehicle, isReadOnly: true);
+                if (layout.Length > 0)
+                {
+                    int layoutAmount = 0;
+                    for (int i = 0; i < layout.Length; i++)
+                    {
+                        Entity layoutVehicle = layout[i].m_Vehicle;
+                        if (!EntityManager.HasComponent<Game.Vehicles.DeliveryTruck>(layoutVehicle))
+                        {
+                            continue;
+                        }
+
+                        Game.Vehicles.DeliveryTruck layoutTruck = EntityManager.GetComponentData<Game.Vehicles.DeliveryTruck>(layoutVehicle);
+                        if (layoutTruck.m_Resource == resource && (layoutTruck.m_State & DeliveryTruckFlags.Buying) != 0)
+                        {
+                            layoutAmount += layoutTruck.m_Amount;
+                        }
+                    }
+
+                    return layoutAmount;
+                }
+            }
+
+            return truck.m_Resource == resource && (truck.m_State & DeliveryTruckFlags.Buying) != 0
+                ? truck.m_Amount
+                : 0;
+        }
+
+        private static int GetCompanyShoppingTripAmount(DynamicBuffer<CitizenTripNeeded> trips, Resource resource)
+        {
+            int amount = 0;
+            for (int i = 0; i < trips.Length; i++)
+            {
+                CitizenTripNeeded trip = trips[i];
+                if ((trip.m_Purpose == Game.Citizens.Purpose.Shopping || trip.m_Purpose == Game.Citizens.Purpose.CompanyShopping) &&
+                    trip.m_Resource == resource)
+                {
+                    amount += trip.m_Data;
+                }
+            }
+
+            return amount;
+        }
+
+        private static bool HasAnyTripForResource(DynamicBuffer<CitizenTripNeeded> trips, Resource resource)
+        {
+            for (int i = 0; i < trips.Length; i++)
+            {
+                if (trips[i].m_Resource == resource)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsVirtualOfficeInput(Resource resource)
+        {
+            return resource != Resource.NoResource && !ResourceHasWeight(resource);
+        }
+
+        private bool ResourceHasWeight(Resource resource)
+        {
+            if (resource == Resource.NoResource)
+            {
+                return false;
+            }
+
+            Entity resourcePrefab = m_ResourceSystem.GetPrefabs()[resource];
+            return EntityManager.HasComponent<ResourceData>(resourcePrefab) &&
+                   EntityManager.GetComponentData<ResourceData>(resourcePrefab).m_Weight > 0f;
+        }
+
+        private static int CalculateLowStockThreshold(int maxCapacity)
+        {
+            return (int)math.max(kResourceLowStockAmount, maxCapacity * kLowStockThresholdRatio);
+        }
+
+        private static bool MatchesCorrectiveBuyerProvenance(Entity company, ResourceBuyer currentBuyer, CorrectiveSoftwareBuyerProvenance provenance)
+        {
+            return currentBuyer.m_Payer == company &&
+                   currentBuyer.m_ResourceNeeded == provenance.Resource &&
+                   currentBuyer.m_AmountNeeded == provenance.IssuedAmount &&
+                   currentBuyer.m_Flags == provenance.Flags;
         }
 
         private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord)
@@ -642,6 +983,12 @@ namespace NoOfficeDemandFix.Systems
                 }
             }
 
+            ResetProbeState();
+        }
+
+        private void ResetRuntimeState()
+        {
+            m_LastCorrectiveBuyerTaggingEnabled = false;
             ResetProbeState();
         }
 
@@ -759,6 +1106,26 @@ namespace NoOfficeDemandFix.Systems
                     ComponentType.ReadOnly<ResourceBuyer>(),
                     ComponentType.ReadOnly<PathInformation>(),
                     ComponentType.ReadOnly<CurrentTrading>(),
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            };
+        }
+
+        private static EntityQueryDesc CreateCorrectiveBuyerBackfillQueryDesc()
+        {
+            return new EntityQueryDesc
+            {
+                All = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<OfficeCompany>(),
+                    ComponentType.ReadOnly<BuyingCompany>(),
+                    ComponentType.ReadOnly<ResourceBuyer>(),
+                    ComponentType.ReadOnly<CorrectiveSoftwareBuyerProvenance>()
+                },
+                None = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
                     ComponentType.ReadOnly<Deleted>(),
                     ComponentType.ReadOnly<Temp>()
                 }

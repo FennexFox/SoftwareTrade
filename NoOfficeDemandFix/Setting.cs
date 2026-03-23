@@ -37,13 +37,16 @@ namespace NoOfficeDemandFix
         public bool EnableDemandDiagnostics { get; set; } = false;
 
         [SettingsUISection(kSection, kDiagnosticsLogsGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(AreDemandDiagnosticsOptionsDisabled))]
         [SettingsUISlider(min = 1, max = 8, step = 1, scalarMultiplier = 1, unit = Unit.kInteger)]
         public int DiagnosticsSamplesPerDay { get; set; } = 2;
 
         [SettingsUISection(kSection, kDiagnosticsLogsGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(AreDemandDiagnosticsOptionsDisabled))]
         public bool CaptureStableEvidence { get; set; }
 
         [SettingsUISection(kSection, kDiagnosticsLogsGroup)]
+        [SettingsUIDisableByCondition(typeof(Setting), nameof(AreDemandDiagnosticsOptionsDisabled))]
         public bool VerboseLogging { get; set; }
 
         [SettingsUISection(kSection, kPerformanceLogsGroup)]
@@ -71,6 +74,8 @@ namespace NoOfficeDemandFix
             PerformanceTelemetrySamplingIntervalSec = 1f;
             PerformanceTelemetryStallThresholdMs = 250;
         }
+
+        private bool AreDemandDiagnosticsOptionsDisabled() => !EnableDemandDiagnostics;
     }
 
     public class LocaleEN : IDictionarySource
