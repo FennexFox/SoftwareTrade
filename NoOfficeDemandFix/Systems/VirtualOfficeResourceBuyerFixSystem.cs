@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Colossal.Serialization.Entities;
 using CitizenTripNeeded = Game.Citizens.TripNeeded;
 using Game;
 using Game.Buildings;
@@ -11,6 +12,7 @@ using Game.Economy;
 using Game.Objects;
 using Game.Pathfind;
 using Game.Prefabs;
+using Game.SceneFlow;
 using Game.Simulation;
 using Game.Tools;
 using Game.Vehicles;
@@ -428,6 +430,18 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
             RequireForUpdate(m_OfficeCompanyQuery);
+        }
+
+        protected override void OnGamePreload(Purpose purpose, GameMode mode)
+        {
+            base.OnGamePreload(purpose, mode);
+            ResetRuntimeState();
+        }
+
+        protected override void OnGameLoaded(Context serializationContext)
+        {
+            base.OnGameLoaded(serializationContext);
+            ResetRuntimeState();
         }
 
         [Preserve]
@@ -950,6 +964,12 @@ namespace NoOfficeDemandFix.Systems
                 }
             }
 
+            ResetProbeState();
+        }
+
+        private void ResetRuntimeState()
+        {
+            m_LastCorrectiveBuyerTaggingEnabled = false;
             ResetProbeState();
         }
 
