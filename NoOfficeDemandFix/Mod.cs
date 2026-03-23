@@ -2,12 +2,14 @@ using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using Game;
 using Game.Modding;
+using Game.Pathfind;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
 using HarmonyLib;
 using NoOfficeDemandFix.Patches;
 using NoOfficeDemandFix.Systems;
+using NoOfficeDemandFix.Telemetry;
 
 namespace NoOfficeDemandFix
 {
@@ -15,6 +17,7 @@ namespace NoOfficeDemandFix
     {
         public static ILog log = LogManager.GetLogger($"{nameof(NoOfficeDemandFix)}.{nameof(Mod)}").SetShowsErrorsInUI(false);
         public static Setting Settings { get; private set; }
+        public static string ModVersion { get; private set; } = string.Empty;
 
         private Setting m_Setting;
         private Harmony m_Harmony;
@@ -22,10 +25,12 @@ namespace NoOfficeDemandFix
         public void OnLoad(UpdateSystem updateSystem)
         {
             log.Info(nameof(OnLoad));
+            ModVersion = GetAssemblyVersion();
 
             if (GameManager.instance.modManager.TryGetExecutableAsset(this, out var asset))
             {
                 log.Info($"Current mod asset at {asset.path}");
+                ModVersion = asset.version != null ? asset.version.ToString() : ModVersion;
             }
 
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, PropertyProcessingSystem>(SystemUpdatePhase.GameSimulation);
@@ -38,6 +43,11 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<PerformanceTelemetrySystem, SignaturePropertyMarketGuardSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<PerformanceTelemetrySystem, OfficeAIHotfixSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<PerformanceTelemetrySystem, VirtualOfficeResourceBuyerFixSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<PerformanceTelemetrySystem, PathfindSetupSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<PerformanceTelemetrySystem, PathfindQueueSystem>(SystemUpdatePhase.GameSimulation);
 
             m_Setting = new Setting(this);
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
@@ -45,6 +55,7 @@ namespace NoOfficeDemandFix
 
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
             m_Setting.RegisterInOptionsUI();
+            GameManager.instance.onGameSaveLoad += HandleGameSaveLoad;
 
             BootstrapHarmonyPatchesIfNeeded();
         }
@@ -67,6 +78,12 @@ namespace NoOfficeDemandFix
         public void OnDispose()
         {
             log.Info(nameof(OnDispose));
+            PerformanceTelemetryCollector.FlushActiveRun();
+            if (GameManager.instance != null)
+            {
+                GameManager.instance.onGameSaveLoad -= HandleGameSaveLoad;
+            }
+
             Settings = null;
 
             if (m_Harmony != null)
@@ -82,6 +99,19 @@ namespace NoOfficeDemandFix
                 m_Setting.UnregisterInOptionsUI();
                 m_Setting = null;
             }
+        }
+
+        private static void HandleGameSaveLoad(string saveName, string previewUri, bool start, bool success)
+        {
+            if (!string.IsNullOrWhiteSpace(saveName) && (start || success))
+            {
+                PerformanceTelemetryCollector.SetKnownSaveName(saveName);
+            }
+        }
+
+        private static string GetAssemblyVersion()
+        {
+            return typeof(Mod).Assembly.GetName().Version?.ToString() ?? string.Empty;
         }
     }
 }

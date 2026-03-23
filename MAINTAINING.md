@@ -64,6 +64,32 @@ Detailed capture rules, interpretation rules, and comparison checkpoints live in
 [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md),
 and [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md).
 
+## Performance Telemetry
+
+The coarse performance telemetry CSVs are for before/after comparisons of
+steady-state overhead and stall behavior.
+
+Measured:
+
+- coarse render-latency timing from wall-clock frame deltas
+- coarse `SimulationSystem`, pathfind setup/queue, and mod update wall time
+- buyer-fix inspection counts and mod-triggered path/repath request counts
+- pathfind pending-request snapshots and coarse queue-length maxima
+- merged stall-event duration, peak latency, p95 latency, and peak queue pressure
+
+Intentionally not measured:
+
+- GPU-only timing or render-pipeline breakdowns
+- per-entity top offenders or reason-code explosions
+- raw per-frame trace dumps
+- asynchronous job execution time that does not block a measured `OnUpdate`
+
+Design intent:
+
+- keep observer effect low on already-stressed saves
+- store only coarse in-memory summaries during runtime
+- write CSV output on session end or final shutdown fallback rather than logging continuously
+
 ## Automation Notes
 
 - raw-log triage runs on raw-log intake issue open and edit events
