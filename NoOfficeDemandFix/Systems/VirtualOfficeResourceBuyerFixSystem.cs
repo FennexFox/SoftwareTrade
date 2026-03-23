@@ -39,6 +39,8 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OfficeCompanyQuery;
         private EntityQuery m_OfficeCompanyChangedQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
+        private EntityQuery m_AllCorrectiveBuyerMarkerCleanupQuery;
+        private bool m_LastDemandDiagnosticsEnabled;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
@@ -106,6 +108,7 @@ namespace NoOfficeDemandFix.Systems
 
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
+            public bool AttachCorrectiveBuyerTag;
             public bool CaptureProbeResults;
             public bool CaptureTelemetry;
 
@@ -191,10 +194,13 @@ namespace NoOfficeDemandFix.Systems
                     };
 
                     CommandBuffer.AddComponent(unfilteredChunkIndex, company, resourceBuyer);
-                    CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerTag
+                    if (AttachCorrectiveBuyerTag)
                     {
-                        LastIssuedAmount = overrideAmount
-                    });
+                        CommandBuffer.AddComponent(unfilteredChunkIndex, company, new CorrectiveSoftwareBuyerTag
+                        {
+                            LastIssuedAmount = overrideAmount
+                        });
+                    }
                     overrideCount++;
 
                     if (!CaptureProbeResults)
@@ -420,6 +426,10 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<ResourceBuyer>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
+            m_AllCorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
+                ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
+                ComponentType.Exclude<Deleted>(),
+                ComponentType.Exclude<Temp>());
             RequireForUpdate(m_OfficeCompanyQuery);
         }
 
@@ -430,10 +440,18 @@ namespace NoOfficeDemandFix.Systems
             long telemetryStart = captureTelemetry ? Stopwatch.GetTimestamp() : 0L;
             int telemetryEntitiesInspected = 0;
             int telemetryRepathRequested = 0;
+            bool diagnosticsEnabled = Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
 
             try
             {
-                CleanupCorrectiveBuyerMarkers();
+                if (diagnosticsEnabled)
+                {
+                    CleanupCorrectiveBuyerMarkers();
+                }
+                else if (m_LastDemandDiagnosticsEnabled)
+                {
+                    CleanupAllCorrectiveBuyerMarkers();
+                }
 
                 if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
                 {
@@ -455,7 +473,7 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
-                bool captureProbeResults = Mod.Settings.EnableDemandDiagnostics;
+                bool captureProbeResults = diagnosticsEnabled;
                 int chunkCount = captureTelemetry ? officeCompanyQuery.CalculateChunkCount() : 0;
                 NativeArray<int> chunkInspectedEntityCounts = default;
                 NativeArray<int> chunkOverrideCounts = default;
@@ -489,6 +507,7 @@ namespace NoOfficeDemandFix.Systems
                             ResourcePrefabs = resourcePrefabs,
                             CommandBuffer = commandBuffer.AsParallelWriter(),
                             ProbeResults = probeResults.AsParallelWriter(),
+                            AttachCorrectiveBuyerTag = diagnosticsEnabled,
                             CaptureProbeResults = captureProbeResults,
                             CaptureTelemetry = captureTelemetry && chunkCount > 0,
                             ChunkInspectedEntityCounts = chunkInspectedEntityCounts,
@@ -534,6 +553,8 @@ namespace NoOfficeDemandFix.Systems
             }
             finally
             {
+                m_LastDemandDiagnosticsEnabled = diagnosticsEnabled;
+
                 if (captureTelemetry)
                 {
                     PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
@@ -555,6 +576,16 @@ namespace NoOfficeDemandFix.Systems
             }
 
             EntityManager.RemoveComponent(m_CorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
+        }
+
+        private void CleanupAllCorrectiveBuyerMarkers()
+        {
+            if (m_AllCorrectiveBuyerMarkerCleanupQuery.IsEmptyIgnoreFilter)
+            {
+                return;
+            }
+
+            EntityManager.RemoveComponent(m_AllCorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
         }
 
         private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord)
