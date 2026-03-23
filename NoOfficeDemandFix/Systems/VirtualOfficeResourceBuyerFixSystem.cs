@@ -40,7 +40,6 @@ namespace NoOfficeDemandFix.Systems
         private EntityQuery m_OfficeCompanyChangedQuery;
         private EntityQuery m_CorrectiveBuyerBackfillQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
-        private EntityQuery m_AllCorrectiveBuyerMarkerCleanupQuery;
         private bool m_LastDemandDiagnosticsEnabled;
 
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
@@ -428,10 +427,6 @@ namespace NoOfficeDemandFix.Systems
                 ComponentType.Exclude<ResourceBuyer>(),
                 ComponentType.Exclude<Deleted>(),
                 ComponentType.Exclude<Temp>());
-            m_AllCorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
-                ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
-                ComponentType.Exclude<Deleted>(),
-                ComponentType.Exclude<Temp>());
             RequireForUpdate(m_OfficeCompanyQuery);
         }
 
@@ -446,17 +441,14 @@ namespace NoOfficeDemandFix.Systems
 
             try
             {
+                CleanupCorrectiveBuyerMarkers();
+
                 if (diagnosticsEnabled)
                 {
-                    CleanupCorrectiveBuyerMarkers();
                     if (!m_LastDemandDiagnosticsEnabled)
                     {
                         BackfillCorrectiveBuyerMarkers();
                     }
-                }
-                else if (m_LastDemandDiagnosticsEnabled)
-                {
-                    CleanupAllCorrectiveBuyerMarkers();
                 }
 
                 if (Mod.Settings == null || !Mod.Settings.EnableVirtualOfficeResourceBuyerFix)
@@ -582,16 +574,6 @@ namespace NoOfficeDemandFix.Systems
             }
 
             EntityManager.RemoveComponent(m_CorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
-        }
-
-        private void CleanupAllCorrectiveBuyerMarkers()
-        {
-            if (m_AllCorrectiveBuyerMarkerCleanupQuery.IsEmptyIgnoreFilter)
-            {
-                return;
-            }
-
-            EntityManager.RemoveComponent(m_AllCorrectiveBuyerMarkerCleanupQuery, ComponentType.ReadWrite<CorrectiveSoftwareBuyerTag>());
         }
 
         private void BackfillCorrectiveBuyerMarkers()
