@@ -1,3 +1,4 @@
+using System.Reflection;
 using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using Game;
@@ -32,6 +33,8 @@ namespace NoOfficeDemandFix
                 log.Info($"Current mod asset at {asset.path}");
                 ModVersion = asset.version != null ? asset.version.ToString() : ModVersion;
             }
+
+            log.Info($"Resolved mod version {ModVersion}");
 
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, PropertyProcessingSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<SignaturePropertyMarketGuardSystem, RentAdjustSystem>(SystemUpdatePhase.GameSimulation);
@@ -111,6 +114,14 @@ namespace NoOfficeDemandFix
 
         private static string GetAssemblyVersion()
         {
+            AssemblyInformationalVersionAttribute informationalVersionAttribute =
+                typeof(Mod).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+            if (informationalVersionAttribute != null &&
+                !string.IsNullOrWhiteSpace(informationalVersionAttribute.InformationalVersion))
+            {
+                return informationalVersionAttribute.InformationalVersion.Trim();
+            }
+
             return typeof(Mod).Assembly.GetName().Version?.ToString() ?? string.Empty;
         }
     }
