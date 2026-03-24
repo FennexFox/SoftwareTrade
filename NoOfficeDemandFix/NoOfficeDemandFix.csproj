@@ -4,9 +4,12 @@
 		<Configurations>Debug;Release</Configurations>
 		<AssemblyName>NoOfficeDemandFix</AssemblyName>
 		<RootNamespace>NoOfficeDemandFix</RootNamespace>
-	
 		<!--The file where mod information which is required for publishing mod on PDX mods are stored-->
 		<PublishConfigurationPath>Properties\PublishConfiguration.xml</PublishConfigurationPath>
+		<PublishConfigurationFullPath>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\$(PublishConfigurationPath)'))</PublishConfigurationFullPath>
+		<PublishModVersion Condition="Exists('$(PublishConfigurationFullPath)')">$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(PublishConfigurationFullPath)')), '&lt;ModVersion\s+Value=&quot;([^&quot;]+)&quot;\s*/?&gt;').Groups[1].Value)</PublishModVersion>
+		<Version Condition="'$(PublishModVersion)' != ''">$(PublishModVersion)</Version>
+		<InformationalVersion Condition="'$(PublishModVersion)' != ''">$(PublishModVersion)</InformationalVersion>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
