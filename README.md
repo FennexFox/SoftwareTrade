@@ -1,20 +1,20 @@
 # No Office Demand Fix
 
 `No Office Demand Fix` is a Cities: Skylines II mod with shipped office fixes
-plus a separate software-stability toolset:
+plus a separate experimental software-troubleshooting toolset:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
 - `Office AI chunk iteration`: office stock consumption and virtual export should
   not stop at the first low-stock office in a chunk
-- office-resource / `software` instability: experimental import seller and buyer corrections plus optional diagnostics for remaining virtual-resource stalls
+- office-resource / `software` instability: experimental import seller and buyer fallbacks plus optional diagnostics for remaining virtual-resource stalls
 
 The current release ships the confirmed `Signature` phantom-vacancy fix and
 an always-on office AI hotfix, and also includes enabled-by-default
-experimental software import corrections. Diagnostics remain available for
+experimental software import seller and buyer fallbacks. Diagnostics remain available for
 troubleshooting but are disabled by default. Optional coarse performance
 telemetry is also available for before/after steady-state and stall
-comparisons and is disabled by default. It does not claim that the broader
-`software` track is fully solved.
+comparisons and is disabled by default. It keeps the broader `software`
+track under investigation.
 
 This release also restores the older `2x` office resource-demand baseline
 with a direct Harmony patch instead of keeping the newer vanilla `3x`
@@ -54,7 +54,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | `CaptureStableEvidence` | `false` | Keeps scheduled software diagnostics running even when the city looks stable. Use it only when you want baseline logs for troubleshooting. |
 | `VerboseLogging` | `false` | Adds noisier correction traces and supplemental office-trade detail lines, and forces diagnostics output at the configured cadence while it is on. Use it only when you want detailed troubleshooting logs. |
 | `EnablePerformanceTelemetry` | `false` | Captures coarse in-memory performance summaries and stall events, then writes `perf_summary.csv` and `perf_stalls.csv` when the current session ends. Keep it off unless you are intentionally measuring performance. |
-| `PerformanceTelemetrySamplingIntervalSec` | `1.0` | Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. |
+| `PerformanceTelemetrySamplingIntervalSec` | `1` | Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. |
 | `PerformanceTelemetryStallThresholdMs` | `250` | Defines the render-latency threshold used to start and end coarse stall-event tracking. |
 
 ## Implementation
@@ -74,7 +74,7 @@ The safest repository-facing summary of the current release is:
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
 - confirmed fix for the office AI chunk-iteration abort on low stock
 - shipped comparability rollback for the pre-hotfix office demand baseline via a direct Harmony patch
-- default experimental software import seller and buyer corrections; diagnostics remain available but disabled by default
+- default experimental software import seller and buyer fallbacks; diagnostics remain available but disabled by default
 - retired office-resource storage patch experiment
 - broader software-related office/resource stalls remain under investigation
 - office-demand/global-sales undercount remains a separate follow-up line rather than part of the current runtime corrections
