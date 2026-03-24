@@ -55,6 +55,8 @@ Also accepted:
 - both CSV texts pasted inline in separate fenced code blocks
 
 The baseline bundle is required. The comparison bundle is optional.
+If the optional comparison bundle is unreadable or malformed, the automation
+still keeps the baseline summary and reports the comparison input as ignored.
 
 ## Comparison Rules
 

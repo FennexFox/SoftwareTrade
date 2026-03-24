@@ -74,7 +74,7 @@ Measured:
 - coarse render-latency timing from wall-clock frame deltas
 - coarse `SimulationSystem`, pathfind setup/queue, and mod update wall time
 - buyer-fix inspection counts and mod-triggered path/repath request counts
-- pathfind pending-request snapshots and coarse queue-length maxima
+- pathfind pending-request snapshots, coarse queue-length maxima, and worker backlog maxima
 - merged stall-event duration, peak latency, p95 latency, and peak queue pressure
 
 Intentionally not measured:

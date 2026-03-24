@@ -11,8 +11,10 @@ plus a separate software-stability toolset:
 The current release ships the confirmed `Signature` phantom-vacancy fix and
 an always-on office AI hotfix, and also includes enabled-by-default
 experimental software import corrections. Diagnostics remain available for
-troubleshooting but are disabled by default. It does not claim that the
-broader `software` track is fully solved.
+troubleshooting but are disabled by default. Optional coarse performance
+telemetry is also available for before/after steady-state and stall
+comparisons and is disabled by default. It does not claim that the broader
+`software` track is fully solved.
 
 This release also restores the older `2x` office resource-demand baseline
 with a direct Harmony patch instead of keeping the newer vanilla `3x`
@@ -51,6 +53,9 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values produce denser logs. |
 | `CaptureStableEvidence` | `false` | Keeps scheduled software diagnostics running even when the city looks stable. Use it only when you want baseline logs for troubleshooting. |
 | `VerboseLogging` | `false` | Adds noisier correction traces and supplemental office-trade detail lines, and forces diagnostics output at the configured cadence while it is on. Use it only when you want detailed troubleshooting logs. |
+| `EnablePerformanceTelemetry` | `false` | Captures coarse in-memory performance summaries and stall events, then writes `perf_summary.csv` and `perf_stalls.csv` when the current session ends. Keep it off unless you are intentionally measuring performance. |
+| `PerformanceTelemetrySamplingIntervalSec` | `1.0` | Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. |
+| `PerformanceTelemetryStallThresholdMs` | `250` | Defines the render-latency threshold used to start and end coarse stall-event tracking. |
 
 ## Implementation
 
@@ -60,6 +65,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 - outside-connection virtual seller patch: [OutsideConnectionVirtualSellerFixPatch.cs](./NoOfficeDemandFix/Patches/OutsideConnectionVirtualSellerFixPatch.cs)
 - virtual office buyer cadence fix: [VirtualOfficeResourceBuyerFixSystem.cs](./NoOfficeDemandFix/Systems/VirtualOfficeResourceBuyerFixSystem.cs)
 - diagnostics: [OfficeDemandDiagnosticsSystem.cs](./NoOfficeDemandFix/Systems/OfficeDemandDiagnosticsSystem.cs)
+- performance telemetry: [PerformanceTelemetrySystem.cs](./NoOfficeDemandFix/Systems/PerformanceTelemetrySystem.cs), [PerformanceTelemetryCollector.cs](./NoOfficeDemandFix/Telemetry/PerformanceTelemetryCollector.cs)
 
 ## Current Status
 
@@ -86,7 +92,14 @@ reintroduce cargo or storage physicalization.
 - pushing zero-weight office resources through cargo/storage definitions as if they were physical goods
 - claiming the `software` track is solved without stronger evidence
 
-## Reporting Logs
+## Reporting And Telemetry
+
+For coarse performance comparisons, start with
+[PERF_REPORTING.md](./PERF_REPORTING.md). Turn on
+`EnablePerformanceTelemetry`, and keep
+`PerformanceTelemetrySamplingIntervalSec` and
+`PerformanceTelemetryStallThresholdMs` the same across a direct baseline /
+comparison pair.
 
 If you want to submit a raw diagnostics log for maintainer triage or later
 promotion into a normalized evidence issue, start with
@@ -98,6 +111,7 @@ default in the current release.
 
 - Contributor workflow: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Maintainer and release workflow: [MAINTAINING.md](./MAINTAINING.md)
+- Performance telemetry reporting: [PERF_REPORTING.md](./PERF_REPORTING.md)
 - Software evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - Software investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
 - Software evidence issue form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)
