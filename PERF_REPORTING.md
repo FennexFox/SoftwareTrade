@@ -37,7 +37,8 @@ Use `Raw log report` instead when:
 
 - turn on `EnablePerformanceTelemetry`
 - keep `PerformanceTelemetrySamplingIntervalSec` and `PerformanceTelemetryStallThresholdMs` the same across a comparison pair
-- keep the enabled fix set the same unless the fix toggle itself is the variable under test
+- keep the enabled fix set the same when you want direct before/after deltas
+- if a fix toggle itself is the variable under test, say that explicitly in `What changed`; direct deltas are still allowed when save/scenario, sampling interval, and stall threshold match and telemetry metadata shows exactly one known fix-toggle difference
 - prefer the same save lineage, same game version, and same mod version for direct comparison
 - if you need semantic interpretation later, also capture a matching diagnostics raw log on the same save and settings
 
@@ -64,11 +65,19 @@ Direct before/after deltas are only treated as comparable when telemetry
 confirms:
 
 - same save name or same scenario id
-- same enabled fix set
+- same enabled fix set, or exactly one known fix-toggle difference
 - same sampling interval
 - same stall threshold
 
 Game-version and mod-version mismatches are called out explicitly as warnings.
+
+If the enabled fix set differs only because one known fix toggle changed, the
+automation still computes direct deltas and labels the comparison as a single
+fix-toggle delta.
+
+If multiple fix toggles differ, or the fix-toggle state cannot be verified from
+telemetry metadata, the automation still summarizes each run but labels the
+pair as `not directly comparable`.
 
 If those invariants do not hold, the automation still summarizes each run, but
 it labels the pair as `not directly comparable` and skips direct delta claims.

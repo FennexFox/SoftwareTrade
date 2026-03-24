@@ -33,13 +33,19 @@ PERF_TELEMETRY_TITLE_PREFIX = "[Performance Telemetry]"
 PERF_TELEMETRY_MANAGED_COMMENT_MARKER = "<!-- perf-telemetry-triage:managed-comment -->"
 PERF_TELEMETRY_PAYLOAD_START_MARKER = "<!-- perf-telemetry-triage:machine-payload:start -->"
 PERF_TELEMETRY_PAYLOAD_END_MARKER = "<!-- perf-telemetry-triage:machine-payload:end -->"
-AUTOMATION_PARSER_VERSION = "2026-03-23-perf-telemetry-v1"
+AUTOMATION_PARSER_VERSION = "2026-03-25-perf-telemetry-v2"
 USER_AGENT = "NoOfficeDemandFixPerfTelemetryAutomation/1.0"
 SUMMARY_FILE_KIND = "summary"
 STALLS_FILE_KIND = "stalls"
 UNKNOWN_SCENARIO_ID = "unknown"
 UNSAVED_NAME = "unsaved"
 COMPARISON_LOAD_ERROR_LIMIT = 500
+FIX_TOGGLE_FIELDS = (
+    ("enable_phantom_vacancy_fix", "EnablePhantomVacancyFix"),
+    ("enable_outside_connection_virtual_seller_fix", "EnableOutsideConnectionVirtualSellerFix"),
+    ("enable_virtual_office_resource_buyer_fix", "EnableVirtualOfficeResourceBuyerFix"),
+    ("enable_office_demand_direct_patch", "EnableOfficeDemandDirectPatch"),
+)
 
 PERF_TELEMETRY_FORM_LABELS = {
     "game version": "game_version",
@@ -203,6 +209,8 @@ class RunAnalysis:
 @dataclass
 class ComparisonAnalysis:
     directly_comparable: bool
+    comparability_basis: str = ""
+    fix_toggle_differences: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     steady_state_fps_delta: float | None = None
     steady_state_render_latency_delta_ms: float | None = None
@@ -392,11 +400,23 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
             comparison_lines
         )
     elif triage.comparison_analysis and triage.comparison_analysis.directly_comparable:
+        comparison_status = "- Direct comparison status: comparable"
+        comparison_notes: list[str] = []
+        if triage.comparison_analysis.comparability_basis == "single_fix_toggle_delta":
+            comparison_status = "- Direct comparison status: comparable (single fix-toggle delta)"
+            comparison_notes.extend(
+                [
+                    "- Fix-toggle delta: "
+                    + ", ".join(f"`{name}`" for name in triage.comparison_analysis.fix_toggle_differences),
+                    "- Direct deltas reflect the full effect of the toggle under test, not like-for-like same-fix-set overhead.",
+                ]
+            )
         lines.extend(
             [
                 "",
                 "## Comparison",
-                "- Direct comparison status: comparable",
+                comparison_status,
+                *comparison_notes,
                 *render_comparison_metrics(triage.comparison_analysis),
             ]
         )
@@ -1100,6 +1120,7 @@ def rollup_stalls(stall_rows: list[StallRow]) -> StallRollup:
 def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAnalysis:
     warnings: list[str] = []
     directly_comparable = True
+    comparability_basis = ""
 
     baseline_metadata = baseline.metadata
     comparison_metadata = comparison.metadata
@@ -1145,9 +1166,27 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
         directly_comparable = False
         warnings.append("matching save or scenario identity could not be verified from telemetry metadata.")
 
-    if baseline_metadata.enabled_fix_state() != comparison_metadata.enabled_fix_state():
+    fix_toggle_differences, unknown_fix_toggles = compare_fix_toggle_state(baseline_metadata, comparison_metadata)
+    if unknown_fix_toggles:
         directly_comparable = False
-        warnings.append("enabled-fix set mismatch between baseline and comparison.")
+        warnings.append("enabled-fix state could not be fully verified from telemetry metadata.")
+        warnings.append(
+            "fix-toggle metadata missing or unknown for: "
+            + ", ".join(f"`{name}`" for name in unknown_fix_toggles)
+            + "."
+        )
+    elif len(fix_toggle_differences) > 1:
+        directly_comparable = False
+        warnings.append(
+            "enabled-fix set mismatch spans multiple fix toggles; direct comparison requires at most one fix-toggle delta."
+        )
+        warnings.append(
+            "fix-toggle differences: " + ", ".join(f"`{name}`" for name in fix_toggle_differences) + "."
+        )
+    elif len(fix_toggle_differences) == 1:
+        comparability_basis = "single_fix_toggle_delta"
+    else:
+        comparability_basis = "same_fix_set"
 
     if baseline_metadata.sampling_interval_sec != comparison_metadata.sampling_interval_sec:
         directly_comparable = False
@@ -1169,7 +1208,12 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
                 f"mod_version mismatch: `{baseline_metadata.mod_version}` vs `{comparison_metadata.mod_version}`."
             )
 
-    analysis = ComparisonAnalysis(directly_comparable=directly_comparable, warnings=dedupe_preserve_order(warnings))
+    analysis = ComparisonAnalysis(
+        directly_comparable=directly_comparable,
+        comparability_basis=comparability_basis if directly_comparable else "",
+        fix_toggle_differences=fix_toggle_differences,
+        warnings=dedupe_preserve_order(warnings),
+    )
     if not directly_comparable:
         return analysis
 
@@ -1200,6 +1244,25 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
 
     analysis.warnings = dedupe_preserve_order(analysis.warnings)
     return analysis
+
+
+def compare_fix_toggle_state(
+    baseline_metadata: TelemetryRunMetadata,
+    comparison_metadata: TelemetryRunMetadata,
+) -> tuple[list[str], list[str]]:
+    differing: list[str] = []
+    unknown: list[str] = []
+
+    for field_name, display_name in FIX_TOGGLE_FIELDS:
+        baseline_value = getattr(baseline_metadata, field_name)
+        comparison_value = getattr(comparison_metadata, field_name)
+        if baseline_value is None or comparison_value is None:
+            unknown.append(display_name)
+            continue
+        if baseline_value != comparison_value:
+            differing.append(display_name)
+
+    return differing, unknown
 
 
 def detect_anomaly_flags(

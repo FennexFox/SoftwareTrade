@@ -35,11 +35,11 @@ body:
     id: what_changed
     attributes:
       label: What changed
-      description: Briefly describe the optimization, config change, or baseline/comparison difference you are trying to measure.
+      description: Briefly describe the optimization, config change, or baseline/comparison difference you are trying to measure. If a fix toggle changed, say so explicitly; telemetry triage can still compute direct deltas when all other comparison settings match and exactly one known fix toggle differs.
       placeholder: |
-        Baseline is current release behavior.
+        Baseline is the reference run on the same save and telemetry settings.
         Comparison is a local branch with a buyer-fix cadence optimization.
-        Same save, same game version, same telemetry settings.
+        Save/scenario, sampling interval, stall threshold, and all other fix toggles match.
     validations:
       required: true
   - type: textarea

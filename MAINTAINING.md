@@ -156,7 +156,8 @@ Telemetry intake:
 
 - use the `Performance telemetry report` issue for steady-state and stall regression intake
 - prefer one `.zip` bundle per run containing `perf_summary.csv` and `perf_stalls.csv`
-- direct comparison requires matching save/scenario identity, enabled-fix set, sampling interval, and stall threshold
+- direct comparison requires matching save/scenario identity, sampling interval, and stall threshold, plus either a matching enabled-fix set or exactly one known fix-toggle difference under test
+- if the fix toggle itself is the variable under test, still capture the pair and record the exact fix-state difference; telemetry triage still rejects multi-toggle drift and runs whose fix-state metadata cannot be verified
 - keep telemetry triage deterministic and observational; do not treat it as root-cause proof
 - if a telemetry regression needs semantic interpretation, collect the matching diagnostics raw log on the same save and settings
 
