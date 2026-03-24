@@ -2,6 +2,7 @@ from pathlib import Path
 import io
 import sys
 import textwrap
+from typing import TypeVar
 import unittest
 import zipfile
 from unittest import mock
@@ -11,6 +12,15 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import perf_telemetry_automation as automation  # noqa: E402
+
+
+T = TypeVar("T")
+
+
+def require_not_none(value: T | None) -> T:
+    if value is None:
+        raise AssertionError("Expected value to be present")
+    return value
 
 
 def make_metadata(
@@ -125,6 +135,14 @@ MALFORMED_STALLS_CSV = textwrap.dedent(
     """
 ).strip()
 
+MALFORMED_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary')}
+    run_id,elapsed_sec,simulation_tick
+    comparison-run,1,100
+    """
+).strip()
+
 MISMATCHED_STALLS_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='wrong-run', file_kind='stalls', save_name='Wrong City', scenario_id='map_z')}
@@ -193,20 +211,25 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         issue_fields["comparison_bundle"] = ""
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        baseline_stalls = require_not_none(triage.baseline.stalls)
 
         self.assertIsNone(triage.comparison)
+        self.assertFalse(triage.comparison_bundle_provided)
+        self.assertIsNone(triage.comparison_load_error)
         self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
         self.assertIsNotNone(triage.baseline.steady_state)
-        self.assertEqual(triage.baseline.stalls.count, 1)
+        self.assertEqual(baseline_stalls.count, 1)
 
     def test_build_triage_analysis_computes_comparison_and_flags(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
+        mod_update_delta_ms = require_not_none(comparison_analysis.steady_state_mod_update_delta_ms)
 
         self.assertIsNotNone(triage.comparison)
-        self.assertTrue(triage.comparison_analysis.directly_comparable)
-        self.assertGreater(triage.comparison_analysis.steady_state_mod_update_delta_ms, 0.25)
+        self.assertTrue(comparison_analysis.directly_comparable)
+        self.assertGreater(mod_update_delta_ms, 0.25)
         self.assertIn("steady_state_mod_overhead_elevated", triage.anomaly_flags)
         self.assertIn("stall_frequency_elevated", triage.anomaly_flags)
         self.assertIn("queue_pressure_during_stalls", triage.anomaly_flags)
@@ -218,10 +241,11 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
 
-        self.assertTrue(triage.comparison_analysis.directly_comparable)
-        self.assertIn("save_name mismatch", " ".join(triage.comparison_analysis.warnings))
-        self.assertIn("scenario_id matches", " ".join(triage.comparison_analysis.warnings))
+        self.assertTrue(comparison_analysis.directly_comparable)
+        self.assertIn("save_name mismatch", " ".join(comparison_analysis.warnings))
+        self.assertIn("scenario_id matches", " ".join(comparison_analysis.warnings))
 
     def test_build_triage_analysis_allows_same_save_when_scenario_ids_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
@@ -230,10 +254,11 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
 
-        self.assertTrue(triage.comparison_analysis.directly_comparable)
-        self.assertIn("scenario_id mismatch", " ".join(triage.comparison_analysis.warnings))
-        self.assertIn("save_name matches", " ".join(triage.comparison_analysis.warnings))
+        self.assertTrue(comparison_analysis.directly_comparable)
+        self.assertIn("scenario_id mismatch", " ".join(comparison_analysis.warnings))
+        self.assertIn("save_name matches", " ".join(comparison_analysis.warnings))
 
     def test_build_triage_analysis_rejects_runs_when_save_and_scenario_both_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
@@ -242,13 +267,14 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
 
-        self.assertFalse(triage.comparison_analysis.directly_comparable)
-        self.assertIn("save_name mismatch", " ".join(triage.comparison_analysis.warnings))
-        self.assertIn("scenario_id mismatch", " ".join(triage.comparison_analysis.warnings))
+        self.assertFalse(comparison_analysis.directly_comparable)
+        self.assertIn("save_name mismatch", " ".join(comparison_analysis.warnings))
+        self.assertIn("scenario_id mismatch", " ".join(comparison_analysis.warnings))
         self.assertIn(
             "matching save or scenario identity could not be verified",
-            " ".join(triage.comparison_analysis.warnings),
+            " ".join(comparison_analysis.warnings),
         )
 
     def test_missing_stall_file_is_nonfatal_warning(self) -> None:
@@ -281,10 +307,11 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         issue_fields["comparison_bundle"] = ""
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        steady_state = require_not_none(triage.baseline.steady_state)
 
         self.assertEqual(triage.baseline.summary_row_count, 2)
-        self.assertEqual(triage.baseline.steady_state.window_count, 2)
-        self.assertLess(triage.baseline.steady_state.fps_mean, 100.0)
+        self.assertEqual(steady_state.window_count, 2)
+        self.assertLess(steady_state.fps_mean, 100.0)
         self.assertIn("ignored 1 likely terminal flush artifact row", " ".join(triage.baseline.warnings))
 
     def test_mismatched_stall_file_is_ignored_for_run_summary(self) -> None:
@@ -294,24 +321,98 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        comparison = require_not_none(triage.comparison)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
 
-        self.assertTrue(triage.comparison_analysis.directly_comparable)
-        self.assertIsNone(triage.comparison.stalls)
-        self.assertIsNone(triage.comparison_analysis.stall_count_delta)
-        self.assertIn("do not share the same `run_id`", " ".join(triage.comparison.warnings))
-        self.assertIn("was ignored because its telemetry metadata does not match", " ".join(triage.comparison.warnings))
+        self.assertTrue(comparison_analysis.directly_comparable)
+        self.assertIsNone(comparison.stalls)
+        self.assertIsNone(comparison_analysis.stall_count_delta)
+        self.assertIn("do not share the same `run_id`", " ".join(comparison.warnings))
+        self.assertIn("was ignored because its telemetry metadata does not match", " ".join(comparison.warnings))
 
     def test_missing_comparison_stall_file_suppresses_stall_deltas(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```"
 
         triage = automation.build_triage_analysis(21, issue_fields)
+        comparison = require_not_none(triage.comparison)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
 
-        self.assertTrue(triage.comparison_analysis.directly_comparable)
-        self.assertIsNone(triage.comparison.stalls)
-        self.assertIsNone(triage.comparison_analysis.stall_count_delta)
-        self.assertIn("stall deltas are unavailable", " ".join(triage.comparison_analysis.warnings))
+        self.assertTrue(comparison_analysis.directly_comparable)
+        self.assertIsNone(comparison.stalls)
+        self.assertIsNone(comparison_analysis.stall_count_delta)
+        self.assertIn("stall deltas are unavailable", " ".join(comparison_analysis.warnings))
         self.assertNotIn("stall_frequency_elevated", triage.anomaly_flags)
+
+    def test_invalid_optional_comparison_bundle_falls_back_to_baseline_only(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = "```csv\n" + MALFORMED_SUMMARY_CSV + "\n```"
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertIsNone(triage.comparison)
+        self.assertIsNone(triage.comparison_analysis)
+        self.assertTrue(triage.comparison_bundle_provided)
+        self.assertIn("Unexpected telemetry CSV header", require_not_none(triage.comparison_load_error))
+        self.assertIsNotNone(triage.baseline.steady_state)
+        self.assertIn("Comparison telemetry bundle was ignored", " ".join(triage.warnings))
+        self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
+
+    def test_invalid_required_baseline_summary_bundle_raises(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["baseline_bundle"] = "```csv\n" + MALFORMED_SUMMARY_CSV + "\n```"
+        issue_fields["comparison_bundle"] = ""
+
+        with self.assertRaisesRegex(automation.AutomationError, "Unexpected telemetry CSV header"):
+            automation.build_triage_analysis(21, issue_fields)
+
+    def test_invalid_optional_comparison_bundle_with_companion_stalls_falls_back_to_baseline_only(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n" + MALFORMED_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertIsNone(triage.comparison)
+        self.assertIsNone(triage.comparison_analysis)
+        self.assertTrue(triage.comparison_bundle_provided)
+        self.assertIn("Unexpected telemetry CSV header", require_not_none(triage.comparison_load_error))
+        self.assertIsNotNone(triage.baseline.steady_state)
+        self.assertIn("Comparison telemetry bundle was ignored", " ".join(triage.warnings))
+        self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
+
+    def test_invalid_optional_comparison_bundle_truncates_error_detail(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = "supplied but unreadable"
+        original_load_bundle_analysis = automation.load_bundle_analysis
+
+        def fake_load_bundle_analysis(
+            raw_field_text: str,
+            *,
+            label: str,
+            field_label: str,
+            required: bool,
+        ) -> tuple[automation.RunAnalysis | None, list[str]]:
+            if label == "Baseline":
+                return original_load_bundle_analysis(
+                    raw_field_text,
+                    label=label,
+                    field_label=field_label,
+                    required=required,
+                )
+            raise automation.AutomationError("X" * 2000)
+
+        with mock.patch.object(automation, "load_bundle_analysis", side_effect=fake_load_bundle_analysis):
+            triage = automation.build_triage_analysis(21, issue_fields)
+
+        comparison_load_error = require_not_none(triage.comparison_load_error)
+        payload = automation.build_machine_payload(triage)
+
+        self.assertEqual(len(comparison_load_error), automation.COMPARISON_LOAD_ERROR_LIMIT)
+        self.assertTrue(comparison_load_error.endswith("..."))
+        self.assertIn(comparison_load_error, " ".join(triage.warnings))
+        self.assertEqual(payload["comparison_bundle"]["load_error"], comparison_load_error)
 
     def test_load_bundle_documents_supports_csv_attachments(self) -> None:
         field_text = "\n".join(
@@ -420,3 +521,18 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn(automation.PERF_TELEMETRY_PAYLOAD_START_MARKER, comment)
         self.assertNotIn("root cause", comment.lower())
         self.assertNotIn("mod caused the stall", comment.lower())
+
+    def test_render_managed_comment_distinguishes_ignored_comparison_bundle(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = "```csv\n" + MALFORMED_SUMMARY_CSV + "\n```"
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+        comment = automation.render_managed_comment(triage)
+        payload = automation.build_machine_payload(triage)
+
+        self.assertIn("A comparison telemetry bundle was provided but could not be used.", comment)
+        self.assertIn("See the warnings above for the comparison bundle failure reason.", comment)
+        self.assertNotIn("No comparison telemetry bundle was provided.", comment)
+        self.assertTrue(payload["comparison_bundle"]["provided"])
+        self.assertFalse(payload["comparison_bundle"]["loaded"])
+        self.assertIn("Unexpected telemetry CSV header", payload["comparison_bundle"]["load_error"])
