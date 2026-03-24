@@ -111,15 +111,10 @@ namespace NoOfficeDemandFix.Systems
 
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
+            public NativeQueue<int2>.ParallelWriter ChunkTelemetryResults;
             public bool AttachCorrectiveBuyerTag;
             public bool CaptureProbeResults;
             public bool CaptureTelemetry;
-
-            [NativeDisableParallelForRestriction]
-            public NativeArray<int> ChunkInspectedEntityCounts;
-
-            [NativeDisableParallelForRestriction]
-            public NativeArray<int> ChunkOverrideCounts;
 
             public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in Unity.Burst.Intrinsics.v128 chunkEnabledMask)
             {
@@ -232,8 +227,7 @@ namespace NoOfficeDemandFix.Systems
 
                 if (CaptureTelemetry)
                 {
-                    ChunkInspectedEntityCounts[unfilteredChunkIndex] = chunk.Count;
-                    ChunkOverrideCounts[unfilteredChunkIndex] = overrideCount;
+                    ChunkTelemetryResults.Enqueue(new int2(chunk.Count, overrideCount));
                 }
             }
 
@@ -501,81 +495,53 @@ namespace NoOfficeDemandFix.Systems
 
                 ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
                 bool captureProbeResults = diagnosticsEnabled;
-                int chunkCount = captureTelemetry ? officeCompanyQuery.CalculateChunkCount() : 0;
-                NativeArray<int> chunkInspectedEntityCounts = default;
-                NativeArray<int> chunkOverrideCounts = default;
+                using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
+                using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
+                using NativeQueue<int2> chunkTelemetryResults = new NativeQueue<int2>(Allocator.TempJob);
 
-                try
+                JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
+                    new ApplyBuyerOverridesJob
+                    {
+                        EntityType = GetEntityTypeHandle(),
+                        PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
+                        PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
+                        ResourceType = GetBufferTypeHandle<Resources>(isReadOnly: true),
+                        TripNeededType = GetBufferTypeHandle<CitizenTripNeeded>(isReadOnly: true),
+                        Transforms = GetComponentLookup<Transform>(isReadOnly: true),
+                        IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
+                        StorageLimitDatas = GetComponentLookup<StorageLimitData>(isReadOnly: true),
+                        ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
+                        OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
+                        DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
+                        LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
+                        ResourcePrefabs = resourcePrefabs,
+                        CommandBuffer = commandBuffer.AsParallelWriter(),
+                        ProbeResults = probeResults.AsParallelWriter(),
+                        ChunkTelemetryResults = chunkTelemetryResults.AsParallelWriter(),
+                        AttachCorrectiveBuyerTag = diagnosticsEnabled,
+                        CaptureProbeResults = captureProbeResults,
+                        CaptureTelemetry = captureTelemetry
+                    },
+                    officeCompanyQuery,
+                    Dependency);
+
+                jobHandle.Complete();
+                commandBuffer.Playback(EntityManager);
+
+                while (captureTelemetry && chunkTelemetryResults.TryDequeue(out int2 chunkTelemetry))
                 {
-                    if (captureTelemetry && chunkCount > 0)
-                    {
-                        chunkInspectedEntityCounts = new NativeArray<int>(chunkCount, Allocator.TempJob);
-                        chunkOverrideCounts = new NativeArray<int>(chunkCount, Allocator.TempJob);
-                    }
-
-                    using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
-                    using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
-
-                    JobHandle jobHandle = JobChunkExtensions.ScheduleParallel(
-                        new ApplyBuyerOverridesJob
-                        {
-                            EntityType = GetEntityTypeHandle(),
-                            PrefabType = GetComponentTypeHandle<PrefabRef>(isReadOnly: true),
-                            PropertyType = GetComponentTypeHandle<PropertyRenter>(isReadOnly: true),
-                            ResourceType = GetBufferTypeHandle<Resources>(isReadOnly: true),
-                            TripNeededType = GetBufferTypeHandle<CitizenTripNeeded>(isReadOnly: true),
-                            Transforms = GetComponentLookup<Transform>(isReadOnly: true),
-                            IndustrialProcessDatas = GetComponentLookup<IndustrialProcessData>(isReadOnly: true),
-                            StorageLimitDatas = GetComponentLookup<StorageLimitData>(isReadOnly: true),
-                            ResourceDatas = GetComponentLookup<ResourceData>(isReadOnly: true),
-                            OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
-                            DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
-                            LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
-                            ResourcePrefabs = resourcePrefabs,
-                            CommandBuffer = commandBuffer.AsParallelWriter(),
-                            ProbeResults = probeResults.AsParallelWriter(),
-                            AttachCorrectiveBuyerTag = diagnosticsEnabled,
-                            CaptureProbeResults = captureProbeResults,
-                            CaptureTelemetry = captureTelemetry && chunkCount > 0,
-                            ChunkInspectedEntityCounts = chunkInspectedEntityCounts,
-                            ChunkOverrideCounts = chunkOverrideCounts
-                        },
-                        officeCompanyQuery,
-                        Dependency);
-
-                    jobHandle.Complete();
-                    commandBuffer.Playback(EntityManager);
-
-                    if (captureTelemetry && chunkCount > 0)
-                    {
-                        for (int i = 0; i < chunkCount; i++)
-                        {
-                            telemetryEntitiesInspected += chunkInspectedEntityCounts[i];
-                            telemetryRepathRequested += chunkOverrideCounts[i];
-                        }
-                    }
-
-                    if (!captureProbeResults)
-                    {
-                        return;
-                    }
-
-                    while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
-                    {
-                        AccumulateProbe(probeRecord);
-                    }
+                    telemetryEntitiesInspected += chunkTelemetry.x;
+                    telemetryRepathRequested += chunkTelemetry.y;
                 }
-                finally
-                {
-                    if (chunkInspectedEntityCounts.IsCreated)
-                    {
-                        chunkInspectedEntityCounts.Dispose();
-                    }
 
-                    if (chunkOverrideCounts.IsCreated)
-                    {
-                        chunkOverrideCounts.Dispose();
-                    }
+                if (!captureProbeResults)
+                {
+                    return;
+                }
+
+                while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
+                {
+                    AccumulateProbe(probeRecord);
                 }
             }
             finally
