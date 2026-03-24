@@ -39,6 +39,7 @@ SUMMARY_FILE_KIND = "summary"
 STALLS_FILE_KIND = "stalls"
 UNKNOWN_SCENARIO_ID = "unknown"
 UNSAVED_NAME = "unsaved"
+COMPARISON_LOAD_ERROR_LIMIT = 500
 
 PERF_TELEMETRY_FORM_LABELS = {
     "game version": "game_version",
@@ -221,6 +222,8 @@ class TriageAnalysis:
     baseline: RunAnalysis
     comparison: RunAnalysis | None
     comparison_analysis: ComparisonAnalysis | None
+    comparison_bundle_provided: bool
+    comparison_load_error: str | None
     warnings: list[str]
     anomaly_flags: list[str]
     follow_up_suggestions: list[str]
@@ -295,20 +298,27 @@ def build_triage_analysis(issue_number: int, issue_fields: dict[str, str]) -> Tr
     )
     if baseline is None:
         raise AssertionError("Required baseline telemetry bundle unexpectedly returned no analysis.")
+    comparison_bundle_raw = issue_fields.get("comparison_bundle", "")
+    comparison_bundle_provided = bool(comparison_bundle_raw.strip())
+    comparison_load_error: str | None = None
     # The comparison bundle is optional, so a malformed or unreadable
     # comparison input should not discard a valid baseline report.
     # Downstream analysis will treat this as baseline-only triage and skip
-    # direct comparison deltas because `comparison` stays `None`.
+    # direct comparison deltas because `comparison` stays `None`, but we
+    # still preserve whether a comparison bundle was supplied and why it
+    # was ignored so maintainers do not confuse an invalid attachment
+    # with an omitted comparison.
     try:
         comparison, comparison_warnings = load_bundle_analysis(
-            issue_fields.get("comparison_bundle", ""),
+            comparison_bundle_raw,
             label="Comparison",
             field_label="Comparison telemetry bundle",
             required=False,
         )
     except AutomationError as error:
         comparison = None
-        comparison_warnings = [f"Comparison telemetry bundle was ignored: {error}"]
+        comparison_load_error = truncate_text(str(error), COMPARISON_LOAD_ERROR_LIMIT)
+        comparison_warnings = [f"Comparison telemetry bundle was ignored: {comparison_load_error}"]
 
     warnings = baseline_warnings + comparison_warnings
     comparison_analysis: ComparisonAnalysis | None = None
@@ -325,6 +335,8 @@ def build_triage_analysis(issue_number: int, issue_fields: dict[str, str]) -> Tr
         baseline=baseline,
         comparison=comparison,
         comparison_analysis=comparison_analysis,
+        comparison_bundle_provided=comparison_bundle_provided,
+        comparison_load_error=comparison_load_error,
         warnings=dedupe_preserve_order(warnings),
         anomaly_flags=anomaly_flags,
         follow_up_suggestions=follow_up_suggestions,
@@ -365,13 +377,19 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
         lines.extend(render_run_summary_block(triage.comparison))
 
     if triage.comparison is None:
+        comparison_lines = [
+            "",
+            "## Comparison",
+            "- Baseline-only summary is available; direct before/after deltas were not computed.",
+        ]
+        if triage.comparison_bundle_provided:
+            comparison_lines.insert(2, "- A comparison telemetry bundle was provided but could not be used.")
+            if triage.comparison_load_error:
+                comparison_lines.append("- See the warnings above for the comparison bundle failure reason.")
+        else:
+            comparison_lines.insert(2, "- No comparison telemetry bundle was provided.")
         lines.extend(
-            [
-                "",
-                "## Comparison",
-                "- No comparison telemetry bundle was provided.",
-                "- Baseline-only summary is available; direct before/after deltas were not computed.",
-            ]
+            comparison_lines
         )
     elif triage.comparison_analysis and triage.comparison_analysis.directly_comparable:
         lines.extend(
@@ -436,6 +454,11 @@ def build_machine_payload(triage: TriageAnalysis) -> dict[str, Any]:
             "other_mods": triage.issue_fields.get("other_mods", ""),
         },
         "baseline": asdict(triage.baseline),
+        "comparison_bundle": {
+            "provided": triage.comparison_bundle_provided,
+            "loaded": triage.comparison is not None,
+            "load_error": triage.comparison_load_error,
+        },
         "comparison": asdict(triage.comparison) if triage.comparison is not None else None,
         "comparison_analysis": asdict(triage.comparison_analysis) if triage.comparison_analysis is not None else None,
         "warnings": triage.warnings,

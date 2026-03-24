@@ -214,6 +214,8 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         baseline_stalls = require_not_none(triage.baseline.stalls)
 
         self.assertIsNone(triage.comparison)
+        self.assertFalse(triage.comparison_bundle_provided)
+        self.assertIsNone(triage.comparison_load_error)
         self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
         self.assertIsNotNone(triage.baseline.steady_state)
         self.assertEqual(baseline_stalls.count, 1)
@@ -350,6 +352,8 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
 
         self.assertIsNone(triage.comparison)
         self.assertIsNone(triage.comparison_analysis)
+        self.assertTrue(triage.comparison_bundle_provided)
+        self.assertIn("Unexpected telemetry CSV header", require_not_none(triage.comparison_load_error))
         self.assertIsNotNone(triage.baseline.steady_state)
         self.assertIn("Comparison telemetry bundle was ignored", " ".join(triage.warnings))
         self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
@@ -372,9 +376,43 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
 
         self.assertIsNone(triage.comparison)
         self.assertIsNone(triage.comparison_analysis)
+        self.assertTrue(triage.comparison_bundle_provided)
+        self.assertIn("Unexpected telemetry CSV header", require_not_none(triage.comparison_load_error))
         self.assertIsNotNone(triage.baseline.steady_state)
         self.assertIn("Comparison telemetry bundle was ignored", " ".join(triage.warnings))
         self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
+
+    def test_invalid_optional_comparison_bundle_truncates_error_detail(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = "supplied but unreadable"
+        original_load_bundle_analysis = automation.load_bundle_analysis
+
+        def fake_load_bundle_analysis(
+            raw_field_text: str,
+            *,
+            label: str,
+            field_label: str,
+            required: bool,
+        ) -> tuple[automation.RunAnalysis | None, list[str]]:
+            if label == "Baseline":
+                return original_load_bundle_analysis(
+                    raw_field_text,
+                    label=label,
+                    field_label=field_label,
+                    required=required,
+                )
+            raise automation.AutomationError("X" * 2000)
+
+        with mock.patch.object(automation, "load_bundle_analysis", side_effect=fake_load_bundle_analysis):
+            triage = automation.build_triage_analysis(21, issue_fields)
+
+        comparison_load_error = require_not_none(triage.comparison_load_error)
+        payload = automation.build_machine_payload(triage)
+
+        self.assertEqual(len(comparison_load_error), automation.COMPARISON_LOAD_ERROR_LIMIT)
+        self.assertTrue(comparison_load_error.endswith("..."))
+        self.assertIn(comparison_load_error, " ".join(triage.warnings))
+        self.assertEqual(payload["comparison_bundle"]["load_error"], comparison_load_error)
 
     def test_load_bundle_documents_supports_csv_attachments(self) -> None:
         field_text = "\n".join(
@@ -483,3 +521,18 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn(automation.PERF_TELEMETRY_PAYLOAD_START_MARKER, comment)
         self.assertNotIn("root cause", comment.lower())
         self.assertNotIn("mod caused the stall", comment.lower())
+
+    def test_render_managed_comment_distinguishes_ignored_comparison_bundle(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = "```csv\n" + MALFORMED_SUMMARY_CSV + "\n```"
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+        comment = automation.render_managed_comment(triage)
+        payload = automation.build_machine_payload(triage)
+
+        self.assertIn("A comparison telemetry bundle was provided but could not be used.", comment)
+        self.assertIn("See the warnings above for the comparison bundle failure reason.", comment)
+        self.assertNotIn("No comparison telemetry bundle was provided.", comment)
+        self.assertTrue(payload["comparison_bundle"]["provided"])
+        self.assertFalse(payload["comparison_bundle"]["loaded"])
+        self.assertIn("Unexpected telemetry CSV header", payload["comparison_bundle"]["load_error"])
