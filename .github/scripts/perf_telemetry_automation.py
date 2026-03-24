@@ -606,28 +606,25 @@ def load_bundle_documents_from_attachments(
     warnings: list[str] = []
     documents: dict[str, str] = {}
     sanitized_urls = [sanitize_url(url) for url in attachment_urls]
-    zip_urls = [url for url in attachment_urls if sanitized_url_basename(url).lower().endswith(".zip")]
-
-    if zip_urls:
-        selected_url = zip_urls[0]
-        if len(attachment_urls) > 1:
-            warnings.append(f"{field_label} includes multiple attachments; using `{sanitize_url(selected_url)}`.")
-        zip_documents, zip_warnings = extract_documents_from_zip(
-            download_attachment_bytes(selected_url),
-            sanitize_url(selected_url),
-        )
-        documents.update(zip_documents)
-        warnings.extend(zip_warnings)
-        if not documents:
-            raise AutomationError(f"{field_label} zip attachment does not contain recognizable telemetry CSV files.")
-        return "attachment", f"zip attachment `{sanitize_url(selected_url)}`", documents, warnings
+    selected_source_description: str | None = None
+    telemetry_attachment_count = 0
 
     for attachment_url in attachment_urls:
         attachment_name = sanitized_url_basename(attachment_url)
         content = download_attachment_bytes(attachment_url)
-        if looks_like_zip_bytes(content):
+        is_zip_attachment = attachment_name.lower().endswith(".zip") or looks_like_zip_bytes(content)
+        if is_zip_attachment:
             zip_documents, zip_warnings = extract_documents_from_zip(content, sanitize_url(attachment_url))
             warnings.extend(zip_warnings)
+            if not zip_documents:
+                warnings.append(
+                    f"{field_label} skipped zip attachment `{sanitize_url(attachment_url)}` because it does not "
+                    "contain recognizable telemetry CSV files."
+                )
+                continue
+            telemetry_attachment_count += 1
+            if selected_source_description is None:
+                selected_source_description = f"zip attachment `{sanitize_url(attachment_url)}`"
             merge_documents(documents, zip_documents, field_label, warnings, source_hint=attachment_name)
             continue
 
@@ -638,13 +635,20 @@ def load_bundle_documents_from_attachments(
                 f"{field_label} skipped non-telemetry attachment `{sanitize_url(attachment_url)}`."
             )
             continue
+        telemetry_attachment_count += 1
+        if selected_source_description is None:
+            selected_source_description = f"attachment `{sanitize_url(attachment_url)}`"
         warnings.extend(inline_warnings)
         merge_documents(documents, inline_documents, field_label, warnings, source_hint=attachment_name)
 
     if not documents:
         raise AutomationError(f"{field_label} attachments did not contain recognizable telemetry CSV files.")
 
-    description = f"attachment `{sanitized_urls[0]}`" if len(attachment_urls) == 1 else "attachment CSV pair"
+    description = (
+        selected_source_description
+        if telemetry_attachment_count == 1 and selected_source_description is not None
+        else f"attachment `{sanitized_urls[0]}`" if len(attachment_urls) == 1 else "attachment CSV pair"
+    )
     return "attachment", description, documents, warnings
 
 

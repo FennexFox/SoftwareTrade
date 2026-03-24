@@ -376,6 +376,39 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn("summary", documents)
         self.assertIn("stalls", documents)
 
+    def test_load_bundle_documents_falls_back_after_non_telemetry_zip(self) -> None:
+        telemetry_free_zip = io.BytesIO()
+        with zipfile.ZipFile(telemetry_free_zip, "w") as archive:
+            archive.writestr("notes.txt", "not telemetry")
+
+        field_text = "\n".join(
+            [
+                "https://github.com/user-attachments/files/baseline/unrelated.zip",
+                "https://github.com/user-attachments/files/baseline/perf_summary.csv",
+                "https://github.com/user-attachments/files/baseline/perf_stalls.csv",
+            ]
+        )
+
+        with mock.patch.object(
+            automation,
+            "download_attachment_bytes",
+            side_effect=[
+                telemetry_free_zip.getvalue(),
+                BASELINE_SUMMARY_CSV.encode("utf-8"),
+                BASELINE_STALLS_CSV.encode("utf-8"),
+            ],
+        ):
+            source_mode, source_description, documents, warnings = automation.load_bundle_documents(
+                field_text,
+                "Baseline telemetry bundle",
+            )
+
+        self.assertEqual(source_mode, "attachment")
+        self.assertEqual(source_description, "attachment CSV pair")
+        self.assertIn("summary", documents)
+        self.assertIn("stalls", documents)
+        self.assertIn("skipped zip attachment", " ".join(warnings))
+
     def test_render_managed_comment_keeps_output_observational(self) -> None:
         triage = automation.build_triage_analysis(21, automation.parse_issue_form_sections(PERF_ISSUE_BODY))
 
