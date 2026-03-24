@@ -12,6 +12,9 @@ Prefer filling the repository template at
   - `<type>(<scope>): <summary>`
 - Choose `type`/`scope` using the same rules as commit messages.
 - Summary 72 characters or fewer, imperative mood, no trailing period.
+- The PR title is also the default subject for PR merge commits into
+  long-running branches, so it must stand on its own in
+  `git log --oneline`.
 - Determine `type` from the full PR outcome, not the active file, latest
   commit, or noisiest part of the diff.
 - Title the primary behavior or workflow change, not the biggest file or
@@ -32,6 +35,9 @@ Prefer filling the repository template at
   treat docs/tests/config as supporting detail.
 - For multi-commit PRs, ignore intermediate cleanup/follow-up commit
   messages and summarize the final merged state instead.
+- Because PR merge commits usually reuse the PR title without a body,
+  keep the title specific enough that the merge commit still reads well
+  on its own.
 - Avoid generic or misleading titles like `fix(docs): ...` when the PR
   also introduces or changes runtime code, workflows, automation, or
   shipped behavior.
@@ -39,6 +45,9 @@ Prefer filling the repository template at
 ## PR Description Template
 Use these sections in template order. Keep bullets concise, concrete,
 and non-redundant.
+
+The PR description is the canonical detailed summary for PR merges. Do
+not rely on merge commit bodies for routine reviewer context.
 
 ## What changed
 - 2-6 bullets covering the main functional or behavioral changes

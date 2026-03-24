@@ -93,6 +93,13 @@ Merge expectations:
 - topic branch -> `track/*`: use squash merge
 - `track/*` -> `develop`: use merge commit
 - `develop` -> `master`: use merge commit
+- for PR merge commits into long-running branches, use the PR title as
+  the merge commit subject
+- leave PR merge commit bodies empty unless the merge itself adds
+  release or integration context not already captured in the PR
+- do not use `Merge pull request #...` as the merge commit subject
+- for pure branch-sync merges without a PR, the default merge message is
+  fine
 
 Because the long-running branches may diverge:
 
@@ -103,11 +110,14 @@ Because the long-running branches may diverge:
 
 ## Commit And PR Expectations
 
-- use Conventional Commits: `type(scope): subject`
+- use Conventional Commits for ordinary commits, squash merges, and PR
+  titles: `type(scope): subject`
 - keep the subject imperative, concise, and without a trailing period
 - use the PR template at [`.github/pull_request_template.md`](./.github/pull_request_template.md)
 - explain changed defaults, reload or restart requirements, and save impact when relevant
 - make sure the PR title describes the main effect of the final diff, not just the first change you made
+- for PR merge commits into long-running branches, reuse the PR title as
+  the merge commit subject and treat the PR body as the detailed summary
 
 Repository-specific writing instructions:
 

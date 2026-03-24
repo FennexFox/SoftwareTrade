@@ -7,11 +7,19 @@ When asked to generate a commit message, output only the final commit
 message.
 
 ## Format
-- Use Conventional Commits:
+- For ordinary commits and squash-merge commit text, use Conventional
+  Commits:
   - `<type>(<scope>): <subject>`
   - Body and footer are optional.
   - If a body is present, separate subject, body, and footer with blank
     lines.
+
+## PR Merge Commits
+- For PR merge commits into long-running branches, use the PR title
+  exactly as the merge commit subject.
+- Leave the body empty unless the merge itself adds release or
+  integration context not already captured in the PR description.
+- Do not use `Merge pull request #123 from ...` as the subject.
 
 ## Types
 Use one of:
