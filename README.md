@@ -54,7 +54,7 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | `CaptureStableEvidence` | `false` | Keeps scheduled software diagnostics running even when the city looks stable. Use it only when you want baseline logs for troubleshooting. |
 | `VerboseLogging` | `false` | Adds noisier correction traces and supplemental office-trade detail lines, and forces diagnostics output at the configured cadence while it is on. Use it only when you want detailed troubleshooting logs. |
 | `EnablePerformanceTelemetry` | `false` | Captures coarse in-memory performance summaries and stall events, then writes `perf_summary.csv` and `perf_stalls.csv` when the current session ends. Keep it off unless you are intentionally measuring performance. |
-| `PerformanceTelemetrySamplingIntervalSec` | `1` | Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. |
+| `PerformanceTelemetrySamplingIntervalSec` | `1.0` | Controls the coarse wall-clock summary window for performance telemetry in seconds. Lower values produce denser CSV output and slightly more telemetry overhead. |
 | `PerformanceTelemetryStallThresholdMs` | `250` | Defines the render-latency threshold used to start and end coarse stall-event tracking. |
 
 ## Implementation
