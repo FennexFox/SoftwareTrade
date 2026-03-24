@@ -240,6 +240,7 @@ namespace NoOfficeDemandFix.Telemetry
             }
             catch (Exception ex)
             {
+                DisablePathfindReflectionSampling();
                 if (!s_PathfindReflectionUnavailableLogged)
                 {
                     Mod.log.Error($"Performance telemetry could not read PathfindQueueSystem internals. Path queue metrics will stay at 0. {ex}");
@@ -582,7 +583,8 @@ namespace NoOfficeDemandFix.Telemetry
         {
             if (s_PathfindReflectionInitialized)
             {
-                return s_PathfindActionFields != null && s_PathfindActionNextIndexFields != null;
+                return s_PathfindActionFields != null &&
+                    s_PathfindActionNextIndexFields != null;
             }
 
             s_PathfindReflectionInitialized = true;
@@ -609,11 +611,19 @@ namespace NoOfficeDemandFix.Telemetry
 
             if (!valid && !s_PathfindReflectionUnavailableLogged)
             {
+                DisablePathfindReflectionSampling();
                 Mod.log.Error("Performance telemetry could not bind PathfindQueueSystem fields. Path queue metrics will stay at 0.");
                 s_PathfindReflectionUnavailableLogged = true;
             }
 
             return valid;
+        }
+
+        private static void DisablePathfindReflectionSampling()
+        {
+            s_PathfindActionFields = null;
+            s_PathfindActionNextIndexFields = null;
+            s_PathfindReflectionInitialized = true;
         }
 
         private static void ResetRunState()
