@@ -471,7 +471,7 @@ def render_run_summary_block(run_analysis: RunAnalysis) -> list[str]:
             f"{steady_state.path_queue_len_max} max"
         )
 
-    if run_analysis.stalls is None or not run_analysis.stalls.file_available:
+    if run_analysis.stalls is None:
         lines.append(f"- {run_analysis.label} stalls: `perf_stalls.csv` unavailable")
     else:
         stalls = run_analysis.stalls
@@ -545,14 +545,22 @@ def load_bundle_analysis(
     summary_metadata, summary_rows, summary_warnings = parse_summary_document(summary_text, field_label)
     warnings.extend(summary_warnings)
 
-    stall_rows: list[StallRow] = []
-    stall_file_available = False
+    stall_rows: list[StallRow] | None = None
     if STALLS_FILE_KIND in documents:
         try:
-            stall_metadata, stall_rows, stall_parse_warnings = parse_stall_document(documents[STALLS_FILE_KIND], field_label)
-            stall_file_available = True
+            stall_metadata, parsed_stall_rows, stall_parse_warnings = parse_stall_document(
+                documents[STALLS_FILE_KIND], field_label
+            )
             warnings.extend(stall_parse_warnings)
-            warnings.extend(compare_metadata(summary_metadata, stall_metadata, field_label))
+            metadata_warnings = compare_metadata(summary_metadata, stall_metadata, field_label)
+            warnings.extend(metadata_warnings)
+            if metadata_warnings:
+                warnings.append(
+                    f"{field_label} `perf_stalls.csv` was ignored because its telemetry metadata does not match "
+                    "`perf_summary.csv`."
+                )
+            else:
+                stall_rows = parsed_stall_rows
         except AutomationError as error:
             warnings.append(f"{field_label} contains an unreadable `perf_stalls.csv`: {error}")
     else:
@@ -564,10 +572,10 @@ def load_bundle_analysis(
         source_description=source_description,
         metadata=summary_metadata,
         summary_row_count=len(summary_rows),
-        stall_row_count=len(stall_rows),
+        stall_row_count=0 if stall_rows is None else len(stall_rows),
         warnings=dedupe_preserve_order(warnings),
         steady_state=rollup_steady_state(summary_rows, summary_metadata),
-        stalls=rollup_stalls(stall_rows, stall_file_available),
+        stalls=None if stall_rows is None else rollup_stalls(stall_rows),
     )
 
     return run_analysis, run_analysis.warnings
@@ -1003,10 +1011,7 @@ def rollup_steady_state(
     )
 
 
-def rollup_stalls(stall_rows: list[StallRow], file_available: bool) -> StallRollup | None:
-    if not file_available:
-        return StallRollup(False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0)
-
+def rollup_stalls(stall_rows: list[StallRow]) -> StallRollup:
     if not stall_rows:
         return StallRollup(True, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0, 0)
 
@@ -1125,7 +1130,7 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
         analysis.max_stall_duration_sec_delta = comparison.stalls.max_duration_sec - baseline.stalls.max_duration_sec
         analysis.stall_peak_path_queue_delta = comparison.stalls.peak_path_queue_len - baseline.stalls.peak_path_queue_len
     else:
-        analysis.warnings.append("stall deltas are unavailable because one run is missing `perf_stalls.csv`.")
+        analysis.warnings.append("stall deltas are unavailable because one run has no valid `perf_stalls.csv` data.")
 
     analysis.warnings = dedupe_preserve_order(analysis.warnings)
     return analysis
@@ -1175,7 +1180,7 @@ def detect_anomaly_flags(
         if baseline.steady_state is not None and baseline.steady_state.mod_update_mean_ms >= 2.0:
             flags.append("steady_state_mod_overhead_elevated")
 
-        if baseline.stalls is not None and baseline.stalls.file_available:
+        if baseline.stalls is not None:
             if baseline.stalls.count >= 3 and baseline.stalls.total_duration_sec >= 10.0:
                 flags.append("stall_frequency_elevated")
             if baseline.stalls.max_duration_sec >= 5.0:
@@ -1218,7 +1223,7 @@ def build_follow_up_suggestions(
     ):
         suggestions.append("collect matching diagnostics log for semantic cause analysis")
 
-    if baseline.stalls is not None and not baseline.stalls.file_available:
+    if baseline.stalls is None:
         suggestions.append("include perf_stalls.csv in the next capture")
 
     return dedupe_preserve_order(suggestions)

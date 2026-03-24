@@ -115,6 +115,14 @@ MALFORMED_STALLS_CSV = textwrap.dedent(
     """
 ).strip()
 
+MISMATCHED_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='wrong-run', file_kind='stalls', save_name='Wrong City', scenario_id='map_z')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    wrong-run,1,2,8,6,540,520,220,15,80
+    """
+).strip()
+
 INLINE_BASELINE_BUNDLE = (
     "```csv\n" + BASELINE_SUMMARY_CSV + "\n```\n\n```csv\n" + BASELINE_STALLS_CSV + "\n```"
 )
@@ -240,6 +248,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
 
         triage = automation.build_triage_analysis(21, issue_fields)
 
+        self.assertIsNone(triage.baseline.stalls)
         self.assertIn("missing `perf_stalls.csv`", " ".join(triage.baseline.warnings))
         self.assertIn("include perf_stalls.csv in the next capture", triage.follow_up_suggestions)
 
@@ -254,6 +263,33 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
 
         self.assertIn("unreadable `perf_stalls.csv`", " ".join(triage.baseline.warnings))
         self.assertIsNotNone(triage.baseline.steady_state)
+        self.assertIsNone(triage.baseline.stalls)
+
+    def test_mismatched_stall_file_is_ignored_for_run_summary(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```\n\n```csv\n" + MISMATCHED_STALLS_CSV + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertTrue(triage.comparison_analysis.directly_comparable)
+        self.assertIsNone(triage.comparison.stalls)
+        self.assertIsNone(triage.comparison_analysis.stall_count_delta)
+        self.assertIn("do not share the same `run_id`", " ".join(triage.comparison.warnings))
+        self.assertIn("was ignored because its telemetry metadata does not match", " ".join(triage.comparison.warnings))
+
+    def test_missing_comparison_stall_file_suppresses_stall_deltas(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```"
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertTrue(triage.comparison_analysis.directly_comparable)
+        self.assertIsNone(triage.comparison.stalls)
+        self.assertIsNone(triage.comparison_analysis.stall_count_delta)
+        self.assertIn("stall deltas are unavailable", " ".join(triage.comparison_analysis.warnings))
+        self.assertNotIn("stall_frequency_elevated", triage.anomaly_flags)
 
     def test_load_bundle_documents_supports_csv_attachments(self) -> None:
         field_text = "\n".join(
