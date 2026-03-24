@@ -1,5 +1,8 @@
 # Pull Request Instructions
 
+This file is the canonical source for generated PR titles and
+descriptions in this repository. Read it before drafting PR text.
+
 When asked to generate a PR title/description, follow this structure.
 Prefer filling the repository template at
 `.github/pull_request_template.md`.
