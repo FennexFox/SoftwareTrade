@@ -92,6 +92,11 @@ reintroduce cargo or storage physicalization.
 - pushing zero-weight office resources through cargo/storage definitions as if they were physical goods
 - claiming the `software` track is solved without stronger evidence
 
+## Planning And Tracking
+
+Active work is tracked in the public project board [NoOfficeDemandFix Tracker](https://github.com/users/FennexFox/projects/7).
+For the operating rules behind that board, start with [MAINTAINING.md](./MAINTAINING.md).
+
 ## Reporting And Telemetry
 
 For coarse performance comparisons, start with

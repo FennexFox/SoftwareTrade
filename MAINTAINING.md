@@ -7,6 +7,59 @@ metadata maintenance.
 It is not a replacement for [CONTRIBUTING.md](./CONTRIBUTING.md). Contributor
 branching, commit, PR, and testing expectations stay there.
 
+## GitHub Project Operations
+
+Use the public project board [NoOfficeDemandFix Tracker](https://github.com/users/FennexFox/projects/7) as the issue-centric planning surface for this repo.
+
+- All new issues start in `Inbox`.
+- Triage moves an issue to exactly one of `Backlog`, `Ready`, or `Blocked`.
+- `Backlog` means the item is valid but not scheduled yet.
+- `Ready` means the item can be picked up without further setup.
+- `Blocked` means the item needs a prerequisite such as reproduction, evidence, or a decision before work can continue.
+- `In Progress` means active implementation or investigation work is underway.
+- `Review` is for Delivery items awaiting human review.
+- `Validate` is for Discovery items that need evidence confirmation or interpretation.
+- `Done` means the work is finished and the linked issue is closed.
+
+Type meanings:
+
+- `Bug` for incorrect behavior or confirmed regressions
+- `Feature` for intentional capability or behavior additions
+- `Docs` for documentation-only changes
+- `Repo Ops` for GitHub, workflow, automation, or repository maintenance work
+- `Investigation` for hypothesis-driven analysis and reproduction work
+- `Evidence` for normalized evidence issues promoted from raw logs or other intake
+- `Performance` for telemetry, stall, and optimization analysis
+- `Intake` for first-pass reports that still need triage
+- `Release` for release-preparation tracking
+
+Planning rules:
+
+- keep `In Progress` WIP at `2` or less
+- use `Milestone` as the only release-target field
+- use `Iteration` for the short active set, starting on `2026-03-23` with weekly cadence
+- use labels for domain tagging, not for lifecycle state
+- keep Delivery and Discovery separated by `Type` and downstream status flow, not by the intake status
+
+Project setup checklist:
+
+- If you replace `Status` options through the API, GitHub may disable `Item added to project`, `Item closed`, and `Auto-close issue`; revisit those workflows in the UI and rebind them to the new status values.
+- In the project UI, keep `Auto-add to project` enabled so new repo issues enter the board automatically.
+- In the project UI, enable `Item added to project` and set `Status -> Inbox`.
+- In the project UI, enable `Item closed` and set `Status -> Done`.
+- In the project UI, enable `Auto-close issue` so moving an item to `Done` closes the linked issue.
+- Keep PR-oriented workflows disabled so pull requests do not appear as first-class board items.
+- Create these views in the project UI:
+  - `Command`: board layout, grouped by `Status`, hide `Done`
+  - `Inbox`: table layout, only items with `Status=Inbox`
+  - `Current Iteration`: table layout, only items in the current iteration and not `Done`
+  - `Discovery`: table layout, only `Investigation`, `Evidence`, `Performance`, or `Intake` items that are not `Done`
+  - `Delivery`: table layout, only `Bug`, `Feature`, `Docs`, `Repo Ops`, or `Release` items that are not `Done`
+  - `Blocked`: table layout, only items with `Status=Blocked`
+  - `Release`: table layout, only `Release` items or items with a milestone set
+
+Operationally, the board should stay issue-centric. PRs may still be linked to issues, but they should not be treated as first-class board items.
+
 ## Release Operations
 
 - Treat [`.github/workflows/release.yml`](./.github/workflows/release.yml) as the authoritative release definition.
