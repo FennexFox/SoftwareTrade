@@ -27,7 +27,8 @@ namespace NoOfficeDemandFix.Telemetry
             "m_FlowActions",
             "m_PathfindActions",
             "m_TimeActions",
-            "m_UpdateActions"
+            "m_UpdateActions",
+            "m_WorkerActions"
         };
 
         private static readonly List<PerformanceSummaryRow> s_SummaryRows = new List<PerformanceSummaryRow>();
