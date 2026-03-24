@@ -293,6 +293,8 @@ def build_triage_analysis(issue_number: int, issue_fields: dict[str, str]) -> Tr
         field_label="Baseline telemetry bundle",
         required=True,
     )
+    if baseline is None:
+        raise AssertionError("Required baseline telemetry bundle unexpectedly returned no analysis.")
     comparison, comparison_warnings = load_bundle_analysis(
         issue_fields.get("comparison_bundle", ""),
         label="Comparison",
@@ -632,9 +634,10 @@ def load_bundle_documents_from_attachments(
         decoded_text = content.decode("utf-8", errors="replace")
         inline_documents, inline_warnings = extract_inline_documents(decoded_text)
         if not inline_documents:
-            raise AutomationError(
-                f"{field_label} attachment `{sanitize_url(attachment_url)}` does not contain recognizable telemetry CSV content."
+            warnings.append(
+                f"{field_label} skipped non-telemetry attachment `{sanitize_url(attachment_url)}`."
             )
+            continue
         warnings.extend(inline_warnings)
         merge_documents(documents, inline_documents, field_label, warnings, source_hint=attachment_name)
 

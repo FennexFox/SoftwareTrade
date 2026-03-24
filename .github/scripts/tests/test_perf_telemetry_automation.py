@@ -333,6 +333,31 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn("summary", documents)
         self.assertIn("stalls", documents)
 
+    def test_load_bundle_documents_skips_non_telemetry_attachments(self) -> None:
+        field_text = "\n".join(
+            [
+                "https://github.com/user-attachments/files/baseline/perf_summary.csv",
+                "https://github.com/user-attachments/files/baseline/screenshot.txt",
+                "https://github.com/user-attachments/files/baseline/perf_stalls.csv",
+            ]
+        )
+
+        with mock.patch.object(
+            automation,
+            "download_attachment_bytes",
+            side_effect=[
+                BASELINE_SUMMARY_CSV.encode("utf-8"),
+                b"this is not telemetry csv content",
+                BASELINE_STALLS_CSV.encode("utf-8"),
+            ],
+        ):
+            source_mode, _, documents, warnings = automation.load_bundle_documents(field_text, "Baseline telemetry bundle")
+
+        self.assertEqual(source_mode, "attachment")
+        self.assertIn("summary", documents)
+        self.assertIn("stalls", documents)
+        self.assertIn("skipped non-telemetry attachment", " ".join(warnings))
+
     def test_load_bundle_documents_supports_zip_attachment(self) -> None:
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, "w") as archive:
