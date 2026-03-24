@@ -73,12 +73,16 @@ PR handling rules:
 - Treat [`.github/workflows/release.yml`](./.github/workflows/release.yml) as the authoritative release definition.
 - For maintainer releases and local dry-runs, use the same inputs and sequence defined in the release workflow.
 - Keep release-version and player-facing release-copy decisions in the release or merge-specific change, not in investigation docs.
-- Treat `develop -> master` releases as evidence-gated when the release still ships experimental `software`-track behavior.
-- Before tagging a release that includes the current software import corrections, collect at least one release-build bounded evidence run that is directly comparable to the current comparison-anchor software evidence entry on the same or a tightly matched save lineage.
-- Use release-candidate settings that preserve comparison value: `EnablePhantomVacancyFix=True`, `EnableOutsideConnectionVirtualSellerFix=True`, `EnableVirtualOfficeResourceBuyerFix=True`, `EnableOfficeDemandDirectPatch=True`, `EnableDemandDiagnostics=True`, `DiagnosticsSamplesPerDay=8`, `CaptureStableEvidence=True`, `VerboseLogging=True`.
-- Treat `3 days` as the minimum reusable release-gate window and prefer `5 days` when buyer-lifecycle interpretation is part of the release decision.
-- Record a short validation note on the release PR before release confirming whether release-build diagnostics still preserve the current schema-level fields and verbose lifecycle artifacts needed for comparison.
-- Do not tag the release until `PublishConfiguration.xml`, `README.md`, and the release evidence summary all agree that the software path remains experimental rather than solved.
+- Determine release-gate requirements from the shipped change scope before tagging.
+- No special evidence gate is required for docs-only, release-plumbing, metadata-only, or other releases that do not materially change experimental or investigation-sensitive runtime tracks.
+- Software-track gate: when a release materially changes experimental `software`-track runtime behavior or the diagnostics contract used to compare that behavior, collect at least one release-build bounded evidence run that is directly comparable to the current comparison-anchor software evidence entry on the same or a tightly matched save lineage.
+- Use release-candidate settings that preserve software-track comparison value: `EnablePhantomVacancyFix=True`, `EnableOutsideConnectionVirtualSellerFix=True`, `EnableVirtualOfficeResourceBuyerFix=True`, `EnableOfficeDemandDirectPatch=True`, `EnableDemandDiagnostics=True`, `DiagnosticsSamplesPerDay=8`, `CaptureStableEvidence=True`, `VerboseLogging=True`.
+- Treat `3 days` as the minimum reusable software-gate window and prefer `5 days` when buyer-lifecycle interpretation is part of the release decision.
+- Record a short validation note on the release PR before release confirming whether release-build diagnostics still preserve the current schema-level fields and verbose lifecycle artifacts needed for software-track comparison.
+- Performance telemetry validation: when a release materially changes telemetry capture, telemetry triage rules, or performance-sensitive runtime behavior whose release risk is about overhead or stall behavior, capture at least one validation artifact appropriate to that scope. Prefer a directly comparable `Performance telemetry report` issue when you need before/after claims; otherwise record the automated test result or narrower validation note that proves the telemetry path still works in release conditions.
+- Telemetry remains a performance-comparison artifact, not a replacement for software evidence.
+- Mixed-scope releases should satisfy each applicable gate or validation track independently.
+- Do not tag the release until `PublishConfiguration.xml`, `README.md`, and the applicable release evidence or validation summary agree on the shipped state. If the software-track gate applies, that summary must still describe the software path as experimental rather than solved.
 
 ## Software Investigation Quickstart
 
