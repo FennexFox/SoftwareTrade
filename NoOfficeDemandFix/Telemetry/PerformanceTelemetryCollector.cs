@@ -143,7 +143,7 @@ namespace NoOfficeDemandFix.Telemetry
 
             // Keep the trailing partial window so session-end flushes do not
             // silently drop the last seconds of a run.
-            if (s_Window.FrameCount > 0)
+            if (ShouldEmitTrailingSummaryRow())
             {
                 EmitSummaryRow(s_ElapsedSec);
             }
@@ -456,6 +456,25 @@ namespace NoOfficeDemandFix.Telemetry
 
             s_Window = default;
             s_WindowLatencySamplesMs.Clear();
+        }
+
+        private static bool ShouldEmitTrailingSummaryRow()
+        {
+            if (s_Window.FrameCount <= 0)
+            {
+                return false;
+            }
+
+            if (s_SummaryRows.Count <= 0)
+            {
+                return true;
+            }
+
+            PerformanceSummaryRow previousRow = s_SummaryRows[s_SummaryRows.Count - 1];
+            bool duplicateSimulationTick = s_Window.LastSimulationTick == previousRow.SimulationTick;
+            bool noSimulationOrPathfindWork = s_Window.TotalSimulationStepMs <= 0d && s_Window.TotalPathfindUpdateMs <= 0d;
+            bool tinyTrailingWindow = s_Window.TotalDurationSec <= 0.01d;
+            return !(duplicateSimulationTick && noSimulationOrPathfindWork && tinyTrailingWindow);
         }
 
         private static double CalculatePercentile(List<float> samples, double percentile)

@@ -544,6 +544,8 @@ def load_bundle_analysis(
 
     summary_metadata, summary_rows, summary_warnings = parse_summary_document(summary_text, field_label)
     warnings.extend(summary_warnings)
+    summary_rows, summary_artifact_warnings = drop_terminal_summary_artifact_rows(summary_rows, field_label)
+    warnings.extend(summary_artifact_warnings)
 
     stall_rows: list[StallRow] | None = None
     if STALLS_FILE_KIND in documents:
@@ -954,6 +956,32 @@ def parse_stall_row(raw_row: dict[str, str]) -> StallRow:
         stall_mod_repath_requested_count=parse_int(raw_row.get("stall_mod_repath_requested_count")),
         stall_mod_entities_inspected_count=parse_int(raw_row.get("stall_mod_entities_inspected_count")),
     )
+
+
+def drop_terminal_summary_artifact_rows(summary_rows: list[SummaryRow], field_label: str) -> tuple[list[SummaryRow], list[str]]:
+    filtered_rows = list(summary_rows)
+    dropped = 0
+    while len(filtered_rows) >= 2 and is_likely_terminal_summary_artifact(filtered_rows[-2], filtered_rows[-1]):
+        filtered_rows.pop()
+        dropped += 1
+
+    if dropped == 0:
+        return filtered_rows, []
+
+    return filtered_rows, [
+        f"{field_label} ignored {dropped} likely terminal flush artifact row(s) in `perf_summary.csv`."
+    ]
+
+
+def is_likely_terminal_summary_artifact(previous_row: SummaryRow, candidate_row: SummaryRow) -> bool:
+    if candidate_row.simulation_tick != previous_row.simulation_tick:
+        return False
+
+    elapsed_delta = candidate_row.elapsed_sec - previous_row.elapsed_sec
+    if elapsed_delta < 0.0 or elapsed_delta > 0.01:
+        return False
+
+    return candidate_row.simulation_step_mean_ms <= 0.0 and candidate_row.pathfind_update_mean_ms <= 0.0
 
 
 def rollup_steady_state(

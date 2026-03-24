@@ -107,6 +107,16 @@ BOTH_IDENTITY_MISMATCH_SUMMARY_CSV = textwrap.dedent(
     """
 ).strip()
 
+TERMINAL_ARTIFACT_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    baseline-run,1.000000,100,60,16,18,3,1,0.20,10,1,1,2,false
+    baseline-run,2.000000,200,58,17,19,3.2,1.1,0.25,12,0,2,4,false
+    baseline-run,2.000500,200,4000,0.25,0.30,0,0,0.05,3,0,2,4,false
+    """
+).strip()
+
 MALFORMED_STALLS_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='baseline-run', file_kind='stalls')}
@@ -264,6 +274,18 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn("unreadable `perf_stalls.csv`", " ".join(triage.baseline.warnings))
         self.assertIsNotNone(triage.baseline.steady_state)
         self.assertIsNone(triage.baseline.stalls)
+
+    def test_terminal_flush_artifact_row_is_ignored_in_summary_analysis(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["baseline_bundle"] = "```csv\n" + TERMINAL_ARTIFACT_SUMMARY_CSV + "\n```"
+        issue_fields["comparison_bundle"] = ""
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertEqual(triage.baseline.summary_row_count, 2)
+        self.assertEqual(triage.baseline.steady_state.window_count, 2)
+        self.assertLess(triage.baseline.steady_state.fps_mean, 100.0)
+        self.assertIn("ignored 1 likely terminal flush artifact row", " ".join(triage.baseline.warnings))
 
     def test_mismatched_stall_file_is_ignored_for_run_summary(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
