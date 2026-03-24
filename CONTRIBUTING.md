@@ -4,6 +4,8 @@ Use this document for contributor-facing workflow and expectations.
 
 If you are operating releases, evidence promotion, or other maintainer-only processes, start with [MAINTAINING.md](./MAINTAINING.md) instead.
 
+Most work should start from a tracked issue so the board can carry the intent, scope, and status of the change.
+
 ## Project Scope
 
 This repository is a Cities: Skylines II mod for:
@@ -57,11 +59,13 @@ Use the long-running branch that matches the work:
 | `master` | released code, released docs, and small release-facing repo fixes that belong directly on the released branch |
 | `develop` | cross-track integration work intended to converge toward the next release |
 | `track/phantom-vacancy` | vacancy-state cleanup, market-listing correctness, signature-building demand suppression, and related reproductions |
+| `track/optimization` | performance telemetry, stall analysis, and optimization work tied to measured behavior |
 | `track/software-instability` | office-resource flow, outside-connection or cargo storage patching, diagnostics, raw log intake, evidence promotion, and `software`-track investigation work |
 
 Practical rule:
 
 - branch from `track/phantom-vacancy` for phantom-vacancy work
+- branch from `track/optimization` for performance, stall, and optimization work
 - branch from `track/software-instability` for `software`-track and evidence workflow work
 - branch from `develop` only for genuine integration work
 - branch from `master` only for small release-facing fixes that really belong there

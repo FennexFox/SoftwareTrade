@@ -1,5 +1,8 @@
 # Commit Message Instructions
 
+This file is the canonical source for generated commit messages in this
+repository. Read it before drafting commit text.
+
 When asked to generate a commit message, output only the final commit
 message.
 

@@ -7,6 +7,67 @@ metadata maintenance.
 It is not a replacement for [CONTRIBUTING.md](./CONTRIBUTING.md). Contributor
 branching, commit, PR, and testing expectations stay there.
 
+## GitHub Project Operations
+
+Use the public project board [NoOfficeDemandFix Tracker](https://github.com/users/FennexFox/projects/7) as the issue-centric planning surface for this repo.
+
+- All new issues start in `Inbox`.
+- Triage moves an issue to exactly one of `Backlog`, `Ready`, or `Blocked`.
+- `Backlog` means the item is valid but not scheduled yet.
+- `Ready` means the item can be picked up without further setup.
+- `Blocked` means the item needs a prerequisite such as reproduction, evidence, or a decision before work can continue.
+- `In Progress` means active implementation or investigation work is underway.
+- `Review` is for Delivery items awaiting human review.
+- `Validate` is for Discovery items that need evidence confirmation or interpretation.
+- `Done` means the work is finished and the linked issue is closed.
+
+Type meanings:
+
+- `Bug` for incorrect behavior or confirmed regressions
+- `Feature` for intentional capability or behavior additions
+- `Docs` for documentation-only changes
+- `Repo Ops` for GitHub, workflow, automation, or repository maintenance work
+- `Investigation` for hypothesis-driven analysis and reproduction work
+- `Evidence` for normalized evidence issues promoted from raw logs or other intake
+- `Performance` for telemetry, stall, and optimization analysis
+- `Intake` for first-pass reports that still need triage
+- `Release` for release-preparation tracking
+
+Planning rules:
+
+- keep `In Progress` WIP at `2` or less
+- use `Milestone` as the only release-target field
+- use `Iteration` for the short active set, starting on `2026-03-23` with weekly cadence
+- use labels for domain tagging, not for lifecycle state
+- keep Delivery and Discovery separated by `Type` and downstream status flow, not by the intake status
+
+Expected board configuration:
+
+- If you replace `Status` options through the API, GitHub may disable `Item added to project`, `Item closed`, and `Auto-close issue`; verify those workflows in the UI and rebind them to the current status values.
+- Keep `Auto-add to project` enabled so new repo issues enter the board automatically.
+- Keep `Item added to project` enabled and bound to `Status -> Inbox`.
+- Keep `Item closed` enabled and bound to `Status -> Done`.
+- Keep `Auto-close issue` enabled so moving an item to `Done` closes the linked issue.
+- Keep PR-oriented workflows disabled so pull requests do not appear as first-class board items.
+- Keep these views available:
+  - `Command`: board layout, grouped by `Status`, with `Done` hidden
+  - `Inbox`: table layout for untriaged items with `Status=Inbox`
+  - `Current Iteration`: table layout for the active iteration, normally excluding `Done`
+  - `Discovery`: table layout for `Investigation`, `Evidence`, `Performance`, and `Intake` work that is not `Done`
+  - `Delivery`: table layout for `Bug`, `Feature`, `Docs`, `Repo Ops`, and `Release` work that is not `Done`
+  - `Blocked`: table layout for items with `Status=Blocked`
+  - `Release`: table layout for `Release` items or items with a milestone set
+
+Operationally, the board should stay issue-centric. PRs may still be linked to issues, but they should not be treated as first-class board items.
+
+PR handling rules:
+
+- Treat the linked issue as the planning source of truth and the PR as the implementation artifact.
+- Do not add normal PRs to the project board.
+- Put `Type`, `Area`, `Priority`, `Size`, `Iteration`, and `Milestone` on the linked issue rather than duplicating them on the PR.
+- Keep normal PRs free of board-style labels and milestones unless a release-specific exception is genuinely useful.
+- Link each PR to its driving issue with `Closes #...` or `Refs #...` so review activity and closure still flow back to the issue.
+
 ## Release Operations
 
 - Treat [`.github/workflows/release.yml`](./.github/workflows/release.yml) as the authoritative release definition.
@@ -64,10 +125,47 @@ Detailed capture rules, interpretation rules, and comparison checkpoints live in
 [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md),
 and [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md).
 
+## Performance Telemetry
+
+The coarse performance telemetry CSVs are for before/after comparisons of
+steady-state overhead and stall behavior.
+
+Measured:
+
+- coarse render-latency timing from wall-clock frame deltas
+- coarse `SimulationSystem`, pathfind setup/queue, and mod update wall time
+- buyer-fix inspection counts and mod-triggered path/repath request counts
+- pathfind pending-request snapshots, coarse queue-length maxima, and worker backlog maxima
+- merged stall-event duration, peak latency, p95 latency, and peak queue pressure
+
+Intentionally not measured:
+
+- GPU-only timing or render-pipeline breakdowns
+- per-entity top offenders or reason-code explosions
+- raw per-frame trace dumps
+- asynchronous job execution time that does not block a measured `OnUpdate`
+
+Design intent:
+
+- keep observer effect low on already-stressed saves
+- store only coarse in-memory summaries during runtime
+- write CSV output on session end or final shutdown fallback rather than logging continuously
+- treat telemetry as a performance-comparison artifact, not a semantic evidence artifact
+
+Telemetry intake:
+
+- use the `Performance telemetry report` issue for steady-state and stall regression intake
+- prefer one `.zip` bundle per run containing `perf_summary.csv` and `perf_stalls.csv`
+- direct comparison requires matching save/scenario identity, enabled-fix set, sampling interval, and stall threshold
+- keep telemetry triage deterministic and observational; do not treat it as root-cause proof
+- if a telemetry regression needs semantic interpretation, collect the matching diagnostics raw log on the same save and settings
+
 ## Automation Notes
 
 - raw-log triage runs on raw-log intake issue open and edit events
 - maintainers can rerun raw-log triage with `/retriage` after parser or prompt changes land on `master`
+- performance-telemetry triage runs on performance telemetry intake issue open and edit events
+- maintainers can rerun performance-telemetry triage with `/retriage`
 - evidence promotion runs primarily from maintainer comments that include `/promote-evidence` and a non-empty `maintainer_reply` YAML block
 - optional LLM drafting uses GitHub Models through the workflow `GITHUB_TOKEN`; keep `models: read` permission on the triage workflow
 - deterministic automation is responsible for redaction, anchor extraction, excerpt-candidate bounds, validation, and conservative fallbacks
@@ -76,6 +174,7 @@ and [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.m
 ## References
 
 - raw-log onboarding: [LOG_REPORTING.md](./LOG_REPORTING.md)
+- performance telemetry onboarding: [PERF_REPORTING.md](./PERF_REPORTING.md)
 - evidence schema: [`.github/software-evidence-schema.md`](./.github/software-evidence-schema.md)
 - investigation workflow: [`.github/software-investigation-workflow.md`](./.github/software-investigation-workflow.md)
 - evidence entry form: [`.github/ISSUE_TEMPLATE/software_evidence.yml`](./.github/ISSUE_TEMPLATE/software_evidence.yml)

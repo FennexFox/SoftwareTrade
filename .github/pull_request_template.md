@@ -1,10 +1,21 @@
 <!--
+Before filling this template, read:
+- .github/instructions/pull-request.instructions.md
+
 PR title format:
 <type>(<scope>): <summary>
 
 Examples:
 - fix(systems): guard stale signature market flags
 - docs(readme): clarify release workflow
+
+Automation guardrails:
+- Treat the instruction file above as the canonical source for generated
+  PR text.
+- Replace every placeholder bullet with concrete details from the final
+  diff, or remove the bullet if it does not apply.
+- Do not fill this template from memory or the latest commit summary
+  when the instruction file above applies.
 -->
 
 ## What changed

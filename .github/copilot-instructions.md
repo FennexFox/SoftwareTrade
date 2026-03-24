@@ -4,6 +4,19 @@ These default instructions apply to general Copilot outputs in this
 repository. Task-specific templates are split by topic under
 `.github/instructions/`.
 
+## Git Text Workflow
+- Treat the files under `.github/instructions/` as the canonical source
+  for generated commit messages and PR text.
+- Before generating a commit message, open and follow
+  `.github/instructions/commit-message.instructions.md`.
+- Before generating a PR title or body, open and follow
+  `.github/instructions/pull-request.instructions.md`, then fill
+  `.github/pull_request_template.md`.
+- Do not draft commit messages or PR text from memory, the active file,
+  or the latest commit when one of those instruction files applies.
+- If the relevant instruction file is missing or conflicts with the
+  request, say so explicitly instead of improvising.
+
 ## General
 - Always write in English.
 - Be concise, factual, and reviewer-friendly.

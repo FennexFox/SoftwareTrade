@@ -200,6 +200,7 @@ namespace NoOfficeDemandFix.Systems
             public string SoftwareTradeLifecycleDetails;
             public string SoftwareVirtualResolutionProbeDetails;
             public string SoftwareBuyerTimingProbeDetails;
+            public ObservationDetailCapture DetailCapture;
         }
 
         private struct SoftwareNeedState
@@ -369,6 +370,66 @@ namespace NoOfficeDemandFix.Systems
             public bool IsProducer;
             public bool IsConsumer;
             public bool OutputHasWeight;
+        }
+
+        private struct SoftwareOfficeDetailCandidate
+        {
+            public Entity Company;
+            public Entity CompanyPrefab;
+            public Entity Property;
+            public IndustrialProcessData ProcessData;
+            public bool IsProducer;
+            public bool IsConsumer;
+            public bool SoftwareInputZero;
+            public bool HasEfficiency;
+            public float Efficiency;
+            public float LackResources;
+            public SoftwareConsumerDiagnosticState SoftwareConsumerState;
+        }
+
+        private struct SoftwareTradeLifecycleDetailCandidate
+        {
+            public Entity Company;
+            public Entity CompanyPrefab;
+            public Entity Property;
+            public IndustrialProcessData ProcessData;
+            public bool IsProducer;
+            public bool HasEfficiency;
+            public float Efficiency;
+            public float LackResources;
+            public SoftwareConsumerDiagnosticState SoftwareConsumerState;
+        }
+
+        private struct SoftwareVirtualResolutionProbeDetailCandidate
+        {
+            public Entity Company;
+            public Entity CompanyPrefab;
+            public Entity Property;
+            public SoftwareConsumerDiagnosticState SoftwareConsumerState;
+        }
+
+        private struct SoftwareBuyerTimingProbeDetailCandidate
+        {
+            public Entity Company;
+            public Entity CompanyPrefab;
+            public Entity Property;
+            public IndustrialProcessData ProcessData;
+            public bool HasEfficiency;
+            public float Efficiency;
+            public float LackResources;
+            public SoftwareConsumerDiagnosticState SoftwareConsumerState;
+        }
+
+        private sealed class ObservationDetailCapture
+        {
+            public readonly List<SoftwareOfficeDetailCandidate> SoftwareOfficeDetailCandidates =
+                new List<SoftwareOfficeDetailCandidate>(kMaxDetailEntries);
+            public readonly List<SoftwareTradeLifecycleDetailCandidate> SoftwareTradeLifecycleDetailCandidates =
+                new List<SoftwareTradeLifecycleDetailCandidate>(kMaxDetailEntries);
+            public readonly List<SoftwareVirtualResolutionProbeDetailCandidate> SoftwareVirtualResolutionProbeDetailCandidates =
+                new List<SoftwareVirtualResolutionProbeDetailCandidate>(kMaxDetailEntries);
+            public readonly List<SoftwareBuyerTimingProbeDetailCandidate> SoftwareBuyerTimingProbeDetailCandidates =
+                new List<SoftwareBuyerTimingProbeDetailCandidate>(kMaxDetailEntries);
         }
 
         [BurstCompile]
@@ -829,7 +890,7 @@ namespace NoOfficeDemandFix.Systems
                 return;
             }
 
-            DiagnosticSnapshot currentSnapshot = CaptureSnapshot(
+            DiagnosticSnapshot currentSnapshot = CaptureSummarySnapshot(
                 sampleWindow.Day,
                 sampleWindow.SampleIndex,
                 sampleWindow.SampleSlot,
@@ -858,6 +919,7 @@ namespace NoOfficeDemandFix.Systems
             }
 
             int sampleCount = m_RunObservationCount + 1;
+            PopulateObservationDetails(ref snapshot, settingsState.VerboseLogging);
 
             Mod.log.Info(
                 MachineParsedLogContract.FormatObservationWindow(
@@ -959,7 +1021,7 @@ namespace NoOfficeDemandFix.Systems
             m_LastObservedSampleIndex = snapshot.SampleIndex;
         }
 
-        private DiagnosticSnapshot CaptureSnapshot(
+        private DiagnosticSnapshot CaptureSummarySnapshot(
             int day,
             int sampleIndex,
             int sampleSlot,
@@ -1008,11 +1070,29 @@ namespace NoOfficeDemandFix.Systems
             return snapshot;
         }
 
+        private void PopulateObservationDetails(ref DiagnosticSnapshot snapshot, bool verboseLogging)
+        {
+            snapshot.FreeSoftwareOfficePropertyDetails = CollectFreeSoftwareOfficePropertyDetails();
+            snapshot.OnMarketOfficePropertyDetails = CollectOnMarketOfficePropertyDetails();
+            snapshot.SoftwareOfficeDetails = RenderSoftwareOfficeDetails(snapshot.DetailCapture);
+
+            if (!verboseLogging)
+            {
+                snapshot.SoftwareTradeLifecycleDetails = string.Empty;
+                snapshot.SoftwareVirtualResolutionProbeDetails = string.Empty;
+                snapshot.SoftwareBuyerTimingProbeDetails = string.Empty;
+                return;
+            }
+
+            snapshot.SoftwareTradeLifecycleDetails = RenderSoftwareTradeLifecycleDetails(snapshot.DetailCapture);
+            snapshot.SoftwareVirtualResolutionProbeDetails = RenderSoftwareVirtualResolutionProbeDetails(snapshot.DetailCapture);
+            snapshot.SoftwareBuyerTimingProbeDetails = RenderSoftwareBuyerTimingProbeDetails(snapshot.DetailCapture);
+        }
+
         private void CountFreeOfficeProperties(ref DiagnosticSnapshot snapshot)
         {
             if (m_FreeOfficePropertyQuery.IsEmptyIgnoreFilter)
             {
-                snapshot.FreeSoftwareOfficePropertyDetails = string.Empty;
                 return;
             }
 
@@ -1044,15 +1124,12 @@ namespace NoOfficeDemandFix.Systems
                 snapshot.FreeOfficePropertiesInOccupiedBuildings += summary.InOccupiedBuildings;
                 snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings += summary.SoftwareInOccupiedBuildings;
             }
-
-            snapshot.FreeSoftwareOfficePropertyDetails = CollectFreeSoftwareOfficePropertyDetails();
         }
 
         private void CountOnMarketProperties(ref DiagnosticSnapshot snapshot)
         {
             if (m_OnMarketPropertyQuery.IsEmptyIgnoreFilter)
             {
-                snapshot.OnMarketOfficePropertyDetails = string.Empty;
                 return;
             }
 
@@ -1088,8 +1165,6 @@ namespace NoOfficeDemandFix.Systems
                 snapshot.NonSignatureOccupiedOnMarketOffice += summary.NonSignatureOccupiedOnMarketOffice;
                 snapshot.NonSignatureOccupiedOnMarketIndustrial += summary.NonSignatureOccupiedOnMarketIndustrial;
             }
-
-            snapshot.OnMarketOfficePropertyDetails = CollectOnMarketOfficePropertyDetails();
         }
 
         private void CountToBeOnMarketProperties(ref DiagnosticSnapshot snapshot)
@@ -1124,14 +1199,7 @@ namespace NoOfficeDemandFix.Systems
 
         private void CountSoftwareOffices(ref DiagnosticSnapshot snapshot, bool verboseLogging)
         {
-            StringBuilder details = null;
-            int detailCount = 0;
-            StringBuilder lifecycleDetails = null;
-            int lifecycleDetailCount = 0;
-            StringBuilder virtualResolutionProbeDetails = null;
-            int virtualResolutionProbeDetailCount = 0;
-            StringBuilder buyerTimingProbeDetails = null;
-            int buyerTimingProbeDetailCount = 0;
+            ObservationDetailCapture detailCapture = snapshot.DetailCapture;
             using NativeArray<Entity> companies = m_OfficeCompanyQuery.ToEntityArray(Allocator.Temp);
             for (int i = 0; i < companies.Length; i++)
             {
@@ -1320,88 +1388,250 @@ namespace NoOfficeDemandFix.Systems
                     snapshot.SoftwareConsumerOfficeSoftwareInputZero++;
                 }
 
-                if (detailCount < kMaxDetailEntries &&
-                    (efficiencyZero || lackResourcesZero || softwareInputZero || (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState))))
+                if (efficiencyZero ||
+                    lackResourcesZero ||
+                    softwareInputZero ||
+                    (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState)))
                 {
-                    AppendDetail(ref details, ref detailCount, DescribeSoftwareOffice(company, prefabRef.m_Prefab, propertyRenter.m_Property, processData, isProducer, isConsumer, softwareInputZero, hasEfficiency, efficiency, lackResources, softwareConsumerState));
+                    EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
+                    TryAddCandidate(
+                        detailCapture.SoftwareOfficeDetailCandidates,
+                        new SoftwareOfficeDetailCandidate
+                        {
+                            Company = company,
+                            CompanyPrefab = prefabRef.m_Prefab,
+                            Property = propertyRenter.m_Property,
+                            ProcessData = processData,
+                            IsProducer = isProducer,
+                            IsConsumer = isConsumer,
+                            SoftwareInputZero = softwareInputZero,
+                            HasEfficiency = hasEfficiency,
+                            Efficiency = efficiency,
+                            LackResources = lackResources,
+                            SoftwareConsumerState = softwareConsumerState
+                        });
                 }
 
                 if (verboseLogging &&
-                    lifecycleDetailCount < kMaxDetailEntries &&
                     isConsumer &&
                     ShouldCaptureConsumerTradeLifecycle(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
                 {
-                    AppendDetail(
-                        ref lifecycleDetails,
-                        ref lifecycleDetailCount,
-                        DescribeConsumerTradeLifecycle(
-                            company,
-                            prefabRef.m_Prefab,
-                            propertyRenter.m_Property,
-                            processData,
-                            hasEfficiency,
-                            efficiency,
-                            lackResources,
-                            softwareConsumerState));
+                    EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
+                    TryAddCandidate(
+                        detailCapture.SoftwareTradeLifecycleDetailCandidates,
+                        new SoftwareTradeLifecycleDetailCandidate
+                        {
+                            Company = company,
+                            CompanyPrefab = prefabRef.m_Prefab,
+                            Property = propertyRenter.m_Property,
+                            ProcessData = processData,
+                            IsProducer = false,
+                            HasEfficiency = hasEfficiency,
+                            Efficiency = efficiency,
+                            LackResources = lackResources,
+                            SoftwareConsumerState = softwareConsumerState
+                        });
                 }
 
                 if (verboseLogging &&
-                    virtualResolutionProbeDetailCount < kMaxDetailEntries &&
                     isConsumer &&
                     ShouldCaptureVirtualResolutionProbe(softwareConsumerState))
                 {
-                    AppendDetail(
-                        ref virtualResolutionProbeDetails,
-                        ref virtualResolutionProbeDetailCount,
-                        DescribeSoftwareVirtualResolutionProbe(
-                            company,
-                            prefabRef.m_Prefab,
-                            propertyRenter.m_Property,
-                            softwareConsumerState));
+                    EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
+                    TryAddCandidate(
+                        detailCapture.SoftwareVirtualResolutionProbeDetailCandidates,
+                        new SoftwareVirtualResolutionProbeDetailCandidate
+                        {
+                            Company = company,
+                            CompanyPrefab = prefabRef.m_Prefab,
+                            Property = propertyRenter.m_Property,
+                            SoftwareConsumerState = softwareConsumerState
+                        });
                 }
 
                 if (verboseLogging &&
-                    buyerTimingProbeDetailCount < kMaxDetailEntries &&
                     isConsumer &&
                     ShouldCaptureBuyerTimingProbe(softwareConsumerState))
                 {
-                    AppendDetail(
-                        ref buyerTimingProbeDetails,
-                        ref buyerTimingProbeDetailCount,
-                        DescribeSoftwareBuyerTimingProbe(
-                            company,
-                            prefabRef.m_Prefab,
-                            propertyRenter.m_Property,
-                            processData,
-                            hasEfficiency,
-                            efficiency,
-                            lackResources,
-                            softwareConsumerState));
+                    EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
+                    TryAddCandidate(
+                        detailCapture.SoftwareBuyerTimingProbeDetailCandidates,
+                        new SoftwareBuyerTimingProbeDetailCandidate
+                        {
+                            Company = company,
+                            CompanyPrefab = prefabRef.m_Prefab,
+                            Property = propertyRenter.m_Property,
+                            ProcessData = processData,
+                            HasEfficiency = hasEfficiency,
+                            Efficiency = efficiency,
+                            LackResources = lackResources,
+                            SoftwareConsumerState = softwareConsumerState
+                        });
                 }
 
                 if (verboseLogging &&
-                    lifecycleDetailCount < kMaxDetailEntries &&
                     isProducer &&
                     (efficiencyZero || lackResourcesZero))
                 {
-                    AppendDetail(
-                        ref lifecycleDetails,
-                        ref lifecycleDetailCount,
-                        DescribeProducerTradeLifecycle(
-                            company,
-                            prefabRef.m_Prefab,
-                            propertyRenter.m_Property,
-                            processData,
-                            hasEfficiency,
-                            efficiency,
-                            lackResources));
+                    EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
+                    TryAddCandidate(
+                        detailCapture.SoftwareTradeLifecycleDetailCandidates,
+                        new SoftwareTradeLifecycleDetailCandidate
+                        {
+                            Company = company,
+                            CompanyPrefab = prefabRef.m_Prefab,
+                            Property = propertyRenter.m_Property,
+                            ProcessData = processData,
+                            IsProducer = true,
+                            HasEfficiency = hasEfficiency,
+                            Efficiency = efficiency,
+                            LackResources = lackResources
+                        });
                 }
             }
+        }
 
-            snapshot.SoftwareOfficeDetails = details == null ? string.Empty : details.ToString();
-            snapshot.SoftwareTradeLifecycleDetails = lifecycleDetails == null ? string.Empty : lifecycleDetails.ToString();
-            snapshot.SoftwareVirtualResolutionProbeDetails = virtualResolutionProbeDetails == null ? string.Empty : virtualResolutionProbeDetails.ToString();
-            snapshot.SoftwareBuyerTimingProbeDetails = buyerTimingProbeDetails == null ? string.Empty : buyerTimingProbeDetails.ToString();
+        private static void EnsureObservationDetailCapture(ref DiagnosticSnapshot snapshot, ref ObservationDetailCapture detailCapture)
+        {
+            if (detailCapture != null)
+            {
+                return;
+            }
+
+            detailCapture = new ObservationDetailCapture();
+            snapshot.DetailCapture = detailCapture;
+        }
+
+        private static void TryAddCandidate<T>(List<T> candidates, T candidate)
+        {
+            if (candidates.Count >= kMaxDetailEntries)
+            {
+                return;
+            }
+
+            candidates.Add(candidate);
+        }
+
+        private string RenderSoftwareOfficeDetails(ObservationDetailCapture detailCapture)
+        {
+            if (detailCapture == null || detailCapture.SoftwareOfficeDetailCandidates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            StringBuilder details = null;
+            int detailCount = 0;
+            for (int i = 0; i < detailCapture.SoftwareOfficeDetailCandidates.Count; i++)
+            {
+                SoftwareOfficeDetailCandidate candidate = detailCapture.SoftwareOfficeDetailCandidates[i];
+                AppendDetail(
+                    ref details,
+                    ref detailCount,
+                    DescribeSoftwareOffice(
+                        candidate.Company,
+                        candidate.CompanyPrefab,
+                        candidate.Property,
+                        candidate.ProcessData,
+                        candidate.IsProducer,
+                        candidate.IsConsumer,
+                        candidate.SoftwareInputZero,
+                        candidate.HasEfficiency,
+                        candidate.Efficiency,
+                        candidate.LackResources,
+                        candidate.SoftwareConsumerState));
+            }
+
+            return details == null ? string.Empty : details.ToString();
+        }
+
+        private string RenderSoftwareTradeLifecycleDetails(ObservationDetailCapture detailCapture)
+        {
+            if (detailCapture == null || detailCapture.SoftwareTradeLifecycleDetailCandidates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            StringBuilder details = null;
+            int detailCount = 0;
+            for (int i = 0; i < detailCapture.SoftwareTradeLifecycleDetailCandidates.Count; i++)
+            {
+                SoftwareTradeLifecycleDetailCandidate candidate = detailCapture.SoftwareTradeLifecycleDetailCandidates[i];
+                string detail = candidate.IsProducer
+                    ? DescribeProducerTradeLifecycle(
+                        candidate.Company,
+                        candidate.CompanyPrefab,
+                        candidate.Property,
+                        candidate.ProcessData,
+                        candidate.HasEfficiency,
+                        candidate.Efficiency,
+                        candidate.LackResources)
+                    : DescribeConsumerTradeLifecycle(
+                        candidate.Company,
+                        candidate.CompanyPrefab,
+                        candidate.Property,
+                        candidate.ProcessData,
+                        candidate.HasEfficiency,
+                        candidate.Efficiency,
+                        candidate.LackResources,
+                        candidate.SoftwareConsumerState);
+                AppendDetail(ref details, ref detailCount, detail);
+            }
+
+            return details == null ? string.Empty : details.ToString();
+        }
+
+        private string RenderSoftwareVirtualResolutionProbeDetails(ObservationDetailCapture detailCapture)
+        {
+            if (detailCapture == null || detailCapture.SoftwareVirtualResolutionProbeDetailCandidates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            StringBuilder details = null;
+            int detailCount = 0;
+            for (int i = 0; i < detailCapture.SoftwareVirtualResolutionProbeDetailCandidates.Count; i++)
+            {
+                SoftwareVirtualResolutionProbeDetailCandidate candidate = detailCapture.SoftwareVirtualResolutionProbeDetailCandidates[i];
+                AppendDetail(
+                    ref details,
+                    ref detailCount,
+                    DescribeSoftwareVirtualResolutionProbe(
+                        candidate.Company,
+                        candidate.CompanyPrefab,
+                        candidate.Property,
+                        candidate.SoftwareConsumerState));
+            }
+
+            return details == null ? string.Empty : details.ToString();
+        }
+
+        private string RenderSoftwareBuyerTimingProbeDetails(ObservationDetailCapture detailCapture)
+        {
+            if (detailCapture == null || detailCapture.SoftwareBuyerTimingProbeDetailCandidates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            StringBuilder details = null;
+            int detailCount = 0;
+            for (int i = 0; i < detailCapture.SoftwareBuyerTimingProbeDetailCandidates.Count; i++)
+            {
+                SoftwareBuyerTimingProbeDetailCandidate candidate = detailCapture.SoftwareBuyerTimingProbeDetailCandidates[i];
+                AppendDetail(
+                    ref details,
+                    ref detailCount,
+                    DescribeSoftwareBuyerTimingProbe(
+                        candidate.Company,
+                        candidate.CompanyPrefab,
+                        candidate.Property,
+                        candidate.ProcessData,
+                        candidate.HasEfficiency,
+                        candidate.Efficiency,
+                        candidate.LackResources,
+                        candidate.SoftwareConsumerState));
+            }
+
+            return details == null ? string.Empty : details.ToString();
         }
 
         private string DescribeSoftwareOffice(Entity company, Entity companyPrefab, Entity property, IndustrialProcessData processData, bool isProducer, bool isConsumer, bool softwareInputZero, bool hasEfficiency, float efficiency, float lackResources, SoftwareConsumerDiagnosticState softwareConsumerState)

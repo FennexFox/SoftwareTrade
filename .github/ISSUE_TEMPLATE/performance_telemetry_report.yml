@@ -1,0 +1,86 @@
+name: Performance telemetry report
+description: Submit coarse performance telemetry CSVs for deterministic steady-state and stall triage.
+title: "[Performance Telemetry] "
+labels: ["performance", "area: optimization"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        <!-- performance-telemetry-report -->
+        Use this form when you want to share coarse performance telemetry and let automation summarize steady-state overhead, stall behavior, and direct-comparison validity.
+        This intake is for performance regression or before/after optimization comparison, not for semantic game-state diagnosis.
+        Preferred upload is one `.zip` bundle per run containing `perf_summary.csv` and `perf_stalls.csv`. You can also attach the two CSV files directly or paste both CSV texts inline.
+  - type: input
+    id: game_version
+    attributes:
+      label: Game version
+      placeholder: 1.5.xf1
+    validations:
+      required: true
+  - type: input
+    id: mod_version
+    attributes:
+      label: Mod version
+      placeholder: current release, unreleased, or local dev build
+    validations:
+      required: true
+  - type: input
+    id: save_or_city_label
+    attributes:
+      label: Save or city label
+      placeholder: Save name, city name, or another short scenario label
+    validations:
+      required: true
+  - type: textarea
+    id: what_changed
+    attributes:
+      label: What changed
+      description: Briefly describe the optimization, config change, or baseline/comparison difference you are trying to measure.
+      placeholder: |
+        Baseline is current release behavior.
+        Comparison is a local branch with a buyer-fix cadence optimization.
+        Same save, same game version, same telemetry settings.
+    validations:
+      required: true
+  - type: textarea
+    id: platform_notes
+    attributes:
+      label: Platform notes
+      description: Optional platform, install-layout, or hardware notes that may matter for later comparison.
+      placeholder: Windows release build, local dev build, or none
+  - type: textarea
+    id: other_mods
+    attributes:
+      label: Other mods
+      description: List only other mods that could affect performance, simulation cadence, pathfinding load, or time scaling.
+      placeholder: none known
+  - type: textarea
+    id: baseline_bundle
+    attributes:
+      label: Baseline telemetry bundle
+      description: Attach a `.zip` with `perf_summary.csv` and `perf_stalls.csv`, attach both CSV files directly, or paste both CSV texts inline.
+      placeholder: |
+        Preferred: drag and drop `baseline.zip`
+
+        Inline fallback:
+        ```csv
+        # telemetry_schema_version=1
+        # telemetry_file_kind=summary
+        ...
+        run_id,elapsed_sec,...
+        ```
+
+        ```csv
+        # telemetry_schema_version=1
+        # telemetry_file_kind=stalls
+        ...
+        run_id,stall_id,...
+        ```
+    validations:
+      required: true
+  - type: textarea
+    id: comparison_bundle
+    attributes:
+      label: Comparison telemetry bundle
+      description: Optional. Use the same bundle format as the baseline when you want before/after deltas.
+      placeholder: Drag and drop `comparison.zip`, attach the two CSVs, or paste the CSV text inline.
