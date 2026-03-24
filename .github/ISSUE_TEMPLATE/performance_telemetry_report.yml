@@ -1,7 +1,7 @@
 name: Performance telemetry report
 description: Submit coarse performance telemetry CSVs for deterministic steady-state and stall triage.
 title: "[Performance Telemetry] "
-labels: ["performance"]
+labels: ["performance", "area: optimization"]
 body:
   - type: markdown
     attributes:

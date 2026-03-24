@@ -59,7 +59,7 @@ body:
         - phantom-vacancy
         - software-track
         - diagnostics
-        - trade-patch
+        - optimization
         - repo-meta
     validations:
       required: true

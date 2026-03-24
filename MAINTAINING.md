@@ -41,24 +41,32 @@ Planning rules:
 - use labels for domain tagging, not for lifecycle state
 - keep Delivery and Discovery separated by `Type` and downstream status flow, not by the intake status
 
-Project setup checklist:
+Expected board configuration:
 
-- If you replace `Status` options through the API, GitHub may disable `Item added to project`, `Item closed`, and `Auto-close issue`; revisit those workflows in the UI and rebind them to the new status values.
-- In the project UI, keep `Auto-add to project` enabled so new repo issues enter the board automatically.
-- In the project UI, enable `Item added to project` and set `Status -> Inbox`.
-- In the project UI, enable `Item closed` and set `Status -> Done`.
-- In the project UI, enable `Auto-close issue` so moving an item to `Done` closes the linked issue.
+- If you replace `Status` options through the API, GitHub may disable `Item added to project`, `Item closed`, and `Auto-close issue`; verify those workflows in the UI and rebind them to the current status values.
+- Keep `Auto-add to project` enabled so new repo issues enter the board automatically.
+- Keep `Item added to project` enabled and bound to `Status -> Inbox`.
+- Keep `Item closed` enabled and bound to `Status -> Done`.
+- Keep `Auto-close issue` enabled so moving an item to `Done` closes the linked issue.
 - Keep PR-oriented workflows disabled so pull requests do not appear as first-class board items.
-- Create these views in the project UI:
-  - `Command`: board layout, grouped by `Status`, hide `Done`
-  - `Inbox`: table layout, only items with `Status=Inbox`
-  - `Current Iteration`: table layout, only items in the current iteration and not `Done`
-  - `Discovery`: table layout, only `Investigation`, `Evidence`, `Performance`, or `Intake` items that are not `Done`
-  - `Delivery`: table layout, only `Bug`, `Feature`, `Docs`, `Repo Ops`, or `Release` items that are not `Done`
-  - `Blocked`: table layout, only items with `Status=Blocked`
-  - `Release`: table layout, only `Release` items or items with a milestone set
+- Keep these views available:
+  - `Command`: board layout, grouped by `Status`, with `Done` hidden
+  - `Inbox`: table layout for untriaged items with `Status=Inbox`
+  - `Current Iteration`: table layout for the active iteration, normally excluding `Done`
+  - `Discovery`: table layout for `Investigation`, `Evidence`, `Performance`, and `Intake` work that is not `Done`
+  - `Delivery`: table layout for `Bug`, `Feature`, `Docs`, `Repo Ops`, and `Release` work that is not `Done`
+  - `Blocked`: table layout for items with `Status=Blocked`
+  - `Release`: table layout for `Release` items or items with a milestone set
 
 Operationally, the board should stay issue-centric. PRs may still be linked to issues, but they should not be treated as first-class board items.
+
+PR handling rules:
+
+- Treat the linked issue as the planning source of truth and the PR as the implementation artifact.
+- Do not add normal PRs to the project board.
+- Put `Type`, `Area`, `Priority`, `Size`, `Iteration`, and `Milestone` on the linked issue rather than duplicating them on the PR.
+- Keep normal PRs free of board-style labels and milestones unless a release-specific exception is genuinely useful.
+- Link each PR to its driving issue with `Closes #...` or `Refs #...` so review activity and closure still flow back to the issue.
 
 ## Release Operations
 
