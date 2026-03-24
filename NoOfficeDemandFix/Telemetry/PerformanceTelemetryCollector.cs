@@ -310,21 +310,22 @@ namespace NoOfficeDemandFix.Telemetry
 
             if (s_ActiveStall.IsActive)
             {
-                AddFrameToActiveStall(renderLatencyMs, pathQueueLength, modRepathRequested, modEntitiesInspected);
                 if (isAboveThreshold)
                 {
+                    AddFrameToActiveStall(renderLatencyMs, pathQueueLength, modRepathRequested, modEntitiesInspected);
                     s_ConsecutiveBelowThreshold = 0;
-                }
-                else
-                {
-                    s_ConsecutiveBelowThreshold++;
-                    if (s_ConsecutiveBelowThreshold >= kStallDebounceFrames)
-                    {
-                        FinalizeActiveStall(frameEndSec);
-                    }
+                    s_ConsecutiveAboveThreshold++;
+                    return true;
                 }
 
-                s_ConsecutiveAboveThreshold = isAboveThreshold ? s_ConsecutiveAboveThreshold + 1 : 0;
+                s_ConsecutiveBelowThreshold++;
+                if (s_ConsecutiveBelowThreshold >= kStallDebounceFrames)
+                {
+                    FinalizeActiveStall(frameStartSec);
+                    return false;
+                }
+
+                s_ConsecutiveAboveThreshold = 0;
                 return true;
             }
 
@@ -449,6 +450,9 @@ namespace NoOfficeDemandFix.Telemetry
                 ModUpdateMeanMs = s_Window.TotalModUpdateMs / s_Window.FrameCount,
                 ModEntitiesInspectedCount = s_Window.ModEntitiesInspectedCount,
                 ModRepathRequestedCount = s_Window.ModRepathRequestedCount,
+                // TODO(perf-telemetry): Revisit whether pending backlog should
+                // be emitted as a window rollup or demoted to a snapshot-only
+                // diagnostic; queue maxima have been the stronger KPI so far.
                 PathRequestsPendingCount = s_Window.LastPathRequestsPendingCount,
                 PathQueueLenMax = s_Window.PathQueueLenMax,
                 IsStallWindow = s_Window.IsStallWindow
