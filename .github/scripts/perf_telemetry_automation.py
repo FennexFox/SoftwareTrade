@@ -295,12 +295,20 @@ def build_triage_analysis(issue_number: int, issue_fields: dict[str, str]) -> Tr
     )
     if baseline is None:
         raise AssertionError("Required baseline telemetry bundle unexpectedly returned no analysis.")
-    comparison, comparison_warnings = load_bundle_analysis(
-        issue_fields.get("comparison_bundle", ""),
-        label="Comparison",
-        field_label="Comparison telemetry bundle",
-        required=False,
-    )
+    # The comparison bundle is optional, so a malformed or unreadable
+    # comparison input should not discard a valid baseline report.
+    # Downstream analysis will treat this as baseline-only triage and skip
+    # direct comparison deltas because `comparison` stays `None`.
+    try:
+        comparison, comparison_warnings = load_bundle_analysis(
+            issue_fields.get("comparison_bundle", ""),
+            label="Comparison",
+            field_label="Comparison telemetry bundle",
+            required=False,
+        )
+    except AutomationError as error:
+        comparison = None
+        comparison_warnings = [f"Comparison telemetry bundle was ignored: {error}"]
 
     warnings = baseline_warnings + comparison_warnings
     comparison_analysis: ComparisonAnalysis | None = None
