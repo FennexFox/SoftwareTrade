@@ -11,7 +11,7 @@ from perf_telemetry_automation import (
     load_event_payload,
     parse_issue_form_sections,
     render_managed_comment,
-    upsert_managed_comment,
+    upsert_perf_telemetry_managed_comment,
 )
 
 
@@ -35,7 +35,7 @@ def run_triage_for_issue(
     issue_fields = parse_issue_form_sections(issue_body)
     triage = build_triage_analysis(issue_number, issue_fields)
     comment_body = render_managed_comment(triage)
-    updated_comment = upsert_managed_comment(repo, issue_number, comment_body, github_token)
+    updated_comment = upsert_perf_telemetry_managed_comment(repo, issue_number, comment_body, github_token)
     print(
         f"Managed performance telemetry triage comment upserted for issue #{issue_number}: "
         f"{updated_comment.get('html_url', '')}"

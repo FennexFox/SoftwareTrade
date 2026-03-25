@@ -124,7 +124,11 @@ class RunPerfTelemetryTriageTests(unittest.TestCase):
         with mock.patch.object(triage_script, "parse_issue_form_sections", return_value=issue_fields):
             with mock.patch.object(triage_script, "build_triage_analysis", return_value=triage):
                 with mock.patch.object(triage_script, "render_managed_comment", return_value="managed-body"):
-                    with mock.patch.object(triage_script, "upsert_managed_comment", return_value=updated_comment) as upsert_mock:
+                    with mock.patch.object(
+                        triage_script,
+                        "upsert_perf_telemetry_managed_comment",
+                        return_value=updated_comment,
+                    ) as upsert_mock:
                         result = triage_script.run_triage_for_issue(
                             "FennexFox/NoOfficeDemandFix",
                             21,

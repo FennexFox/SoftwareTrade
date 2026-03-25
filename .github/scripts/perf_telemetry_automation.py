@@ -18,13 +18,14 @@ from raw_log_automation import (
     comment_has_retriage_command,
     create_issue_comment,
     extract_attachment_urls,
+    get_issue_comments,
     get_issue,
     is_allowed_attachment_url,
     is_bot_comment,
     is_maintainer_comment,
     load_event_payload,
     sanitize_url,
-    upsert_managed_comment,
+    update_issue_comment,
 )
 
 
@@ -459,6 +460,23 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
     )
 
     return "\n".join(lines).strip() + "\n"
+
+
+def find_perf_telemetry_managed_comment(comments: list[dict[str, Any]]) -> dict[str, Any] | None:
+    managed_comments = [
+        comment for comment in comments if PERF_TELEMETRY_MANAGED_COMMENT_MARKER in comment.get("body", "")
+    ]
+    if not managed_comments:
+        return None
+    return sorted(managed_comments, key=lambda item: item.get("updated_at", item.get("created_at", "")))[-1]
+
+
+def upsert_perf_telemetry_managed_comment(repo: str, issue_number: int, body: str, token: str) -> dict[str, Any]:
+    comments = get_issue_comments(repo, issue_number, token)
+    managed_comment = find_perf_telemetry_managed_comment(comments)
+    if managed_comment:
+        return update_issue_comment(repo, int(managed_comment["id"]), body, token)
+    return create_issue_comment(repo, issue_number, body, token)
 
 
 def build_machine_payload(triage: TriageAnalysis) -> dict[str, Any]:

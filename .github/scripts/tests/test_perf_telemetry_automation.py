@@ -690,3 +690,47 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertTrue(payload["comparison_bundle"]["provided"])
         self.assertFalse(payload["comparison_bundle"]["loaded"])
         self.assertIn("Unexpected telemetry CSV header", payload["comparison_bundle"]["load_error"])
+
+    def test_find_perf_telemetry_managed_comment_uses_perf_marker(self) -> None:
+        comments = [
+            {"id": 1, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
+            {
+                "id": 2,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nold",
+                "created_at": "2026-03-24T00:01:00Z",
+            },
+            {
+                "id": 3,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nnew",
+                "updated_at": "2026-03-24T00:02:00Z",
+            },
+        ]
+
+        managed_comment = automation.find_perf_telemetry_managed_comment(comments)
+
+        self.assertIsNotNone(managed_comment)
+        self.assertEqual(managed_comment["id"], 3)
+
+    def test_upsert_perf_telemetry_managed_comment_updates_existing_perf_comment(self) -> None:
+        comments = [
+            {"id": 10, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
+            {
+                "id": 11,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nexisting",
+                "updated_at": "2026-03-24T00:01:00Z",
+            },
+        ]
+
+        with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+            with mock.patch.object(automation, "update_issue_comment", return_value={"id": 11}) as update_mock:
+                with mock.patch.object(automation, "create_issue_comment") as create_mock:
+                    result = automation.upsert_perf_telemetry_managed_comment(
+                        "FennexFox/NoOfficeDemandFix",
+                        100,
+                        "managed-body",
+                        "token",
+                    )
+
+        self.assertEqual(result, {"id": 11})
+        update_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 11, "managed-body", "token")
+        create_mock.assert_not_called()
