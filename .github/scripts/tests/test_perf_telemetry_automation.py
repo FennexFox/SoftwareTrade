@@ -215,6 +215,24 @@ MISMATCHED_STALLS_CSV = textwrap.dedent(
     """
 ).strip()
 
+ZERO_QUEUE_PRESSURE_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    baseline-run,1,100,60,16,18,3,0.20,0.05,10,1,120,0,false
+    baseline-run,2,200,58,17,19,3.2,0.25,0.06,12,0,180,0,false
+    baseline-run,3,300,4,350,400,20,5.0,0.50,20,2,250,0,true
+    """
+).strip()
+
+ZERO_QUEUE_PRESSURE_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='stalls')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    baseline-run,1,2,6,4,400,380,0,2,20
+    """
+).strip()
+
 INLINE_BASELINE_BUNDLE = (
     "```csv\n" + BASELINE_SUMMARY_CSV + "\n```\n\n```csv\n" + BASELINE_STALLS_CSV + "\n```"
 )
@@ -283,6 +301,18 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn("same-save rerun recommended", triage.follow_up_suggestions)
         self.assertIsNotNone(triage.baseline.steady_state)
         self.assertEqual(baseline_stalls.count, 1)
+
+    def test_build_triage_analysis_warns_when_queue_metrics_look_unbound(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["baseline_bundle"] = (
+            "```csv\n" + ZERO_QUEUE_PRESSURE_SUMMARY_CSV + "\n```\n\n```csv\n" + ZERO_QUEUE_PRESSURE_STALLS_CSV + "\n```"
+        )
+        issue_fields["comparison_bundle"] = ""
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertIn("path queue metrics are all zero", " ".join(triage.baseline.warnings))
+        self.assertIn("telemetry bind errors", " ".join(triage.warnings))
 
     def test_build_triage_analysis_computes_comparison_and_flags(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)

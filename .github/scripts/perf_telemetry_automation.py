@@ -632,6 +632,7 @@ def load_bundle_analysis(
         steady_state=rollup_steady_state(summary_rows, summary_metadata),
         stalls=None if stall_rows is None else rollup_stalls(stall_rows),
     )
+    run_analysis.warnings = dedupe_preserve_order(run_analysis.warnings + detect_queue_metric_sampling_warnings(run_analysis))
 
     return run_analysis, run_analysis.warnings
 
@@ -1115,6 +1116,28 @@ def rollup_stalls(stall_rows: list[StallRow]) -> StallRollup:
         total_mod_repath_requested=sum(row.stall_mod_repath_requested_count for row in ordered_rows),
         total_mod_entities_inspected=sum(row.stall_mod_entities_inspected_count for row in ordered_rows),
     )
+
+
+def detect_queue_metric_sampling_warnings(run_analysis: RunAnalysis) -> list[str]:
+    steady_state = run_analysis.steady_state
+    if steady_state is None:
+        return []
+
+    if steady_state.path_queue_len_max != 0:
+        return []
+
+    stalls = run_analysis.stalls
+    if stalls is not None and stalls.peak_path_queue_len != 0:
+        return []
+
+    has_path_pressure = steady_state.path_requests_pending_max >= 100 or steady_state.path_requests_pending_p95 >= 50
+    has_pathfind_activity = steady_state.pathfind_update_mean_ms >= 0.05
+    if not has_path_pressure or not has_pathfind_activity:
+        return []
+
+    return [
+        "path queue metrics are all zero despite non-trivial pathfind activity; verify PathfindQueueSystem sampling and check the mod log for telemetry bind errors."
+    ]
 
 
 def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAnalysis:
