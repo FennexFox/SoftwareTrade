@@ -716,11 +716,13 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
                 "id": 2,
                 "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nold",
                 "created_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
             },
             {
                 "id": 3,
                 "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nnew",
                 "updated_at": "2026-03-24T00:02:00Z",
+                "user": {"login": "github-actions[bot]"},
             },
         ]
 
@@ -729,6 +731,45 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIsNotNone(managed_comment)
         self.assertEqual(managed_comment["id"], 3)
 
+    def test_find_perf_telemetry_managed_comment_ignores_human_marker_quotes(self) -> None:
+        comments = [
+            {
+                "id": 2,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nquoted in discussion",
+                "updated_at": "2026-03-24T00:02:00Z",
+                "user": {"login": "repo-owner"},
+            },
+            {
+                "id": 3,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nmanaged",
+                "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
+            },
+        ]
+
+        managed_comment = automation.find_perf_telemetry_managed_comment(comments)
+
+        self.assertIsNotNone(managed_comment)
+        self.assertEqual(managed_comment["id"], 3)
+
+    def test_find_perf_telemetry_managed_comment_allows_configured_actor_login(self) -> None:
+        comments = [
+            {
+                "id": 4,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nmanaged",
+                "updated_at": "2026-03-24T00:03:00Z",
+                "user": {"login": "triage-maintainer"},
+            }
+        ]
+
+        managed_comment = automation.find_perf_telemetry_managed_comment(
+            comments,
+            managed_author_login="triage-maintainer",
+        )
+
+        self.assertIsNotNone(managed_comment)
+        self.assertEqual(managed_comment["id"], 4)
+
     def test_upsert_perf_telemetry_managed_comment_updates_existing_perf_comment(self) -> None:
         comments = [
             {"id": 10, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
@@ -736,6 +777,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
                 "id": 11,
                 "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nexisting",
                 "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
             },
         ]
 
@@ -752,6 +794,30 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertEqual(result, {"id": 11})
         update_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 11, "managed-body", "token")
         create_mock.assert_not_called()
+
+    def test_upsert_perf_telemetry_managed_comment_creates_new_comment_when_only_human_perf_marker_exists(self) -> None:
+        comments = [
+            {
+                "id": 11,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nquoted",
+                "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "repo-owner"},
+            },
+        ]
+
+        with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+            with mock.patch.object(automation, "update_issue_comment") as update_mock:
+                with mock.patch.object(automation, "create_issue_comment", return_value={"id": 12}) as create_mock:
+                    result = automation.upsert_perf_telemetry_managed_comment(
+                        "FennexFox/NoOfficeDemandFix",
+                        100,
+                        "managed-body",
+                        "token",
+                    )
+
+        self.assertEqual(result, {"id": 12})
+        update_mock.assert_not_called()
+        create_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 100, "managed-body", "token")
 
     def test_upsert_perf_telemetry_managed_comment_creates_new_comment_when_only_other_markers_exist(self) -> None:
         comments = [

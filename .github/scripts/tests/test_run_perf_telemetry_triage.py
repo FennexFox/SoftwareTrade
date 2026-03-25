@@ -165,6 +165,7 @@ class RunPerfTelemetryTriageTests(unittest.TestCase):
                 "id": 11,
                 "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nexisting",
                 "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
             },
         ]
 

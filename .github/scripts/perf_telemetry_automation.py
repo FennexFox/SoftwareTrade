@@ -462,18 +462,42 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def find_perf_telemetry_managed_comment(comments: list[dict[str, Any]]) -> dict[str, Any] | None:
+def is_perf_telemetry_managed_comment(
+    comment: dict[str, Any],
+    managed_author_login: str | None = None,
+) -> bool:
+    if PERF_TELEMETRY_MANAGED_COMMENT_MARKER not in comment.get("body", ""):
+        return False
+    if is_bot_comment(comment):
+        return True
+
+    user_login = str(comment.get("user", {}).get("login", "")).strip()
+    return bool(managed_author_login and user_login == managed_author_login.strip())
+
+
+def find_perf_telemetry_managed_comment(
+    comments: list[dict[str, Any]],
+    managed_author_login: str | None = None,
+) -> dict[str, Any] | None:
     managed_comments = [
-        comment for comment in comments if PERF_TELEMETRY_MANAGED_COMMENT_MARKER in comment.get("body", "")
+        comment
+        for comment in comments
+        if is_perf_telemetry_managed_comment(comment, managed_author_login=managed_author_login)
     ]
     if not managed_comments:
         return None
     return sorted(managed_comments, key=lambda item: item.get("updated_at", item.get("created_at", "")))[-1]
 
 
-def upsert_perf_telemetry_managed_comment(repo: str, issue_number: int, body: str, token: str) -> dict[str, Any]:
+def upsert_perf_telemetry_managed_comment(
+    repo: str,
+    issue_number: int,
+    body: str,
+    token: str,
+    managed_author_login: str | None = None,
+) -> dict[str, Any]:
     comments = get_issue_comments(repo, issue_number, token)
-    managed_comment = find_perf_telemetry_managed_comment(comments)
+    managed_comment = find_perf_telemetry_managed_comment(comments, managed_author_login=managed_author_login)
     if managed_comment:
         return update_issue_comment(repo, int(managed_comment["id"]), body, token)
     return create_issue_comment(repo, issue_number, body, token)
