@@ -164,6 +164,7 @@ Telemetry intake:
 - if the fix toggle itself is the variable under test, still capture the pair and record the exact fix-state difference; telemetry triage still rejects multi-toggle drift and runs whose fix-state metadata cannot be verified
 - keep telemetry triage deterministic and observational; do not treat it as root-cause proof
 - if a telemetry regression needs semantic interpretation, collect the matching diagnostics raw log on the same save and settings
+- when several telemetry intakes support the same optimization or regression question, keep the rolling conclusion in one generic `Investigation` umbrella issue and link the individual telemetry captures there
 
 ## Automation Notes
 

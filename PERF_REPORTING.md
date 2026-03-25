@@ -33,6 +33,12 @@ Use `Raw log report` instead when:
 - the question depends on `softwareEvidenceDiagnostics detail(...)` lines
 - you want evidence promotion into the `software` investigation flow
 
+When multiple telemetry captures feed the same performance question:
+
+- keep each capture as its own `Performance telemetry report` intake issue
+- summarize rolling interpretation, comparisons, and next steps in one generic `Investigation` umbrella issue for that performance line
+- link the intake issues from the umbrella instead of treating a telemetry intake issue as the long-lived conclusion tracker
+
 ## Before You Capture Telemetry
 
 - turn on `EnablePerformanceTelemetry`
