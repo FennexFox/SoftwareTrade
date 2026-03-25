@@ -233,6 +233,15 @@ ZERO_QUEUE_PRESSURE_STALLS_CSV = textwrap.dedent(
     """
 ).strip()
 
+LOW_PRESSURE_ZERO_QUEUE_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    baseline-run,1,100,60,16,18,3,0.01,0.05,10,1,2,0,false
+    baseline-run,2,200,58,17,19,3.2,0.02,0.06,12,0,3,0,false
+    """
+).strip()
+
 INLINE_BASELINE_BUNDLE = (
     "```csv\n" + BASELINE_SUMMARY_CSV + "\n```\n\n```csv\n" + BASELINE_STALLS_CSV + "\n```"
 )
@@ -313,6 +322,15 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
 
         self.assertIn("path queue metrics are all zero", " ".join(triage.baseline.warnings))
         self.assertIn("telemetry bind errors", " ".join(triage.warnings))
+
+    def test_build_triage_analysis_skips_queue_warning_without_path_pressure(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["baseline_bundle"] = "```csv\n" + LOW_PRESSURE_ZERO_QUEUE_SUMMARY_CSV + "\n```"
+        issue_fields["comparison_bundle"] = ""
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertNotIn("path queue metrics are all zero", " ".join(triage.baseline.warnings))
 
     def test_build_triage_analysis_computes_comparison_and_flags(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
@@ -734,3 +752,22 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertEqual(result, {"id": 11})
         update_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 11, "managed-body", "token")
         create_mock.assert_not_called()
+
+    def test_upsert_perf_telemetry_managed_comment_creates_new_comment_when_only_other_markers_exist(self) -> None:
+        comments = [
+            {"id": 10, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
+        ]
+
+        with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+            with mock.patch.object(automation, "update_issue_comment") as update_mock:
+                with mock.patch.object(automation, "create_issue_comment", return_value={"id": 12}) as create_mock:
+                    result = automation.upsert_perf_telemetry_managed_comment(
+                        "FennexFox/NoOfficeDemandFix",
+                        100,
+                        "managed-body",
+                        "token",
+                    )
+
+        self.assertEqual(result, {"id": 12})
+        update_mock.assert_not_called()
+        create_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 100, "managed-body", "token")
