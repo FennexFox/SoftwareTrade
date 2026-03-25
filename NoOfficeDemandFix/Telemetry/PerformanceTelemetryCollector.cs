@@ -658,6 +658,12 @@ namespace NoOfficeDemandFix.Telemetry
 
         private static int GetActionListDepth(object actionList, int index)
         {
+            FieldInfo nextIndexField = s_PathfindActionNextIndexFields[index];
+            if (nextIndexField != null)
+            {
+                return Math.Max(0, (int)nextIndexField.GetValue(actionList));
+            }
+
             FieldInfo itemsField = s_PathfindActionItemsFields[index];
             if (itemsField != null)
             {
@@ -666,12 +672,6 @@ namespace NoOfficeDemandFix.Telemetry
                 {
                     return Math.Max(0, collection.Count);
                 }
-            }
-
-            FieldInfo nextIndexField = s_PathfindActionNextIndexFields[index];
-            if (nextIndexField != null)
-            {
-                return Math.Max(0, (int)nextIndexField.GetValue(actionList));
             }
 
             return 0;
