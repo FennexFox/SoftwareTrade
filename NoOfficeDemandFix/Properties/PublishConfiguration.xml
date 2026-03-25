@@ -38,9 +38,9 @@ Current release status:
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 <ChangeLog>
-- Hardened coarse performance telemetry queue sampling so queue metrics can still be read when the current game build no longer exposes the older next-index reflection path.
-- Added a telemetry warning when queue metrics stay at `0` despite visible pathfind pressure, making reflection bind failures easier to spot in captures.
-- Clarified the current release copy so the shipped experimental software seller and buyer paths are described consistently as fallbacks.
+- Improved occupied Signature property market cleanup while keeping the shipped office-demand baseline rollback and software-track release wording aligned with the current release.
+- Refined software diagnostics and troubleshooting output for the current investigation track, including clearer release-facing wording for the experimental seller and buyer fallbacks.
+- Added optional coarse performance telemetry capture and reporting, including more reliable queue sampling and clearer before/after comparison triage.
 </ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
