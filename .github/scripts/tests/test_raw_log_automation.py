@@ -1109,6 +1109,119 @@ class RawLogAutomationTests(unittest.TestCase):
             deterministic["log_excerpt"],
         )
 
+    def test_render_managed_comment_aggressively_compacts_issue102_style_payload(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        issue_fields["other_mods"] = "\n".join(f"mod {index}" for index in range(2500))
+        log_source = {
+            "mode": "attachment",
+            "url": "https://github.com/user-attachments/files/26229545/NoOfficeDemandFix.Mod.log",
+            "attachment_urls": ["https://github.com/user-attachments/files/26229545/NoOfficeDemandFix.Mod.log"],
+            "text": GENERIC_SUPPLEMENTAL_ARTIFACT_LOG,
+        }
+        parsed_log = automation.parse_log(TRADE_LIFECYCLE_LOG)
+        bloated_parsed_log = dict(parsed_log)
+        bloated_parsed_log["latest_observation"] = dict(parsed_log["latest_observation"])
+        bloated_parsed_log["latest_observation"]["diagnostic_counters_raw"] = "softwareCounter=" + ("X" * 12000)
+        bloated_parsed_log["latest_observation"]["message"] = "M" * 14000
+        bloated_parsed_log["latest_observation"]["raw_line"] = "R" * 14000
+        bloated_parsed_log["latest_software_office_detail"] = dict(parsed_log["latest_software_office_detail"])
+        bloated_parsed_log["latest_software_office_detail"]["values"] = "office-state=" + ("O" * 9000)
+        bloated_parsed_log["latest_software_office_detail"]["message"] = "D" * 9000
+        bloated_parsed_log["latest_software_office_detail"]["raw_line"] = "L" * 9000
+        bloated_parsed_log["latest_trade_lifecycle_detail"] = dict(parsed_log["latest_trade_lifecycle_detail"])
+        bloated_parsed_log["latest_trade_lifecycle_detail"]["values"] = "trade-state=" + ("T" * 14000)
+        bloated_parsed_log["latest_trade_lifecycle_detail"]["message"] = "Q" * 14000
+        bloated_parsed_log["latest_trade_lifecycle_detail"]["raw_line"] = "W" * 14000
+        bloated_parsed_log["latest_virtual_resolution_probe_detail"] = dict(
+            automation.parse_log(VIRTUAL_RESOLUTION_PROBE_TRUE_LOG)["latest_virtual_resolution_probe_detail"]
+        )
+        bloated_parsed_log["latest_virtual_resolution_probe_detail"]["values"] = "virtual-probe=" + ("V" * 6000)
+        bloated_parsed_log["latest_supplemental_detail"] = {
+            "detail_type": "softwareBuyerTimingProbe",
+            "session_id": "20260310T052953590Z",
+            "run_id": 1,
+            "observation_end_day": 22,
+            "observation_end_sample_index": 153,
+            "role": "consumer",
+            "values": "supplemental=" + ("S" * 30000),
+            "message": "P" * 30000,
+            "raw_line": "Z" * 30000,
+        }
+        bloated_parsed_log["log_excerpt_candidates"] = [
+            {
+                "label": f"candidate_{index}",
+                "kind": "detail_excerpt",
+                "sample_day": 22,
+                "sample_index": 153 + index,
+                "observation_window": f"sample_day=22, sample_index={153 + index}",
+                "emphasis": "software office state",
+                "markdown": "```text\n" + ("Y" * 6000) + "\n```",
+                "lines": [f"line {line_index} " + ("K" * 1200) for line_index in range(6)],
+            }
+            for index in range(6)
+        ]
+        deterministic = automation.build_deterministic_draft(
+            21,
+            issue_fields,
+            bloated_parsed_log,
+            log_source,
+            [],
+        )
+        deterministic["log_excerpt"] = "```text\n" + ("E" * 12000) + "\n```"
+        deterministic["notes"] = "N" * 6000
+        deterministic["analysis_basis"] = "A" * 5000
+        deterministic["evidence_summary"] = "B" * 4000
+
+        with mock.patch.object(automation, "COMMENT_BODY_LIMIT", 2500):
+            body, payload = automation.render_managed_comment(
+                21,
+                issue_fields,
+                log_source,
+                bloated_parsed_log,
+                deterministic,
+                None,
+                {
+                    "title": deterministic["title"],
+                    "scenario_label": "Bridgeross 30",
+                    "scenario_type": "existing save",
+                    "reproduction_conditions": "Loaded save and let the game run for 3 in-game days.",
+                    "mod_ref": "",
+                    "symptom_classification": deterministic["symptom_classification"],
+                    "evidence_summary": deterministic["evidence_summary"],
+                    "comparison_baseline": deterministic["comparison_baseline"],
+                    "confounders": deterministic["confounders"],
+                    "analysis_basis": deterministic["analysis_basis"],
+                    "notes": deterministic["notes"],
+                },
+                [],
+                "skipped",
+                "no eligible observation",
+            )
+
+        self.assertLessEqual(len(body), automation.GITHUB_ISSUE_COMMENT_MAX_LENGTH)
+        parsed = automation.parse_managed_comment(body)
+        self.assertEqual(parsed["payload"]["raw_issue"]["fields"]["what_happened"], issue_fields["what_happened"])
+        self.assertEqual(
+            parsed["payload"]["parsed_log"]["latest_observation"]["observation_window"]["sample_day"],
+            parsed_log["latest_observation"]["observation_window"]["sample_day"],
+        )
+        self.assertLessEqual(
+            len(parsed["payload"]["parsed_log"]["latest_observation"]["diagnostic_counters_raw"]),
+            2200,
+        )
+        self.assertLessEqual(
+            len(parsed["payload"]["parsed_log"]["latest_software_office_detail"]["values"]),
+            1600,
+        )
+        self.assertLessEqual(
+            len(parsed["payload"]["parsed_log"]["log_excerpt_candidates"]),
+            automation.COMPACT_MANAGED_COMMENT_CANDIDATE_LIMIT,
+        )
+        self.assertLessEqual(
+            len(parsed["payload"]["deterministic_draft"]["log_excerpt"]),
+            automation.AGGRESSIVE_DRAFT_FIELD_LIMITS["log_excerpt"],
+        )
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}

@@ -71,6 +71,88 @@ MAX_EXCERPT_CANDIDATES_PER_GROUP = 2
 MAX_SELECTED_EXCERPT_CANDIDATES = 4
 MAX_DETERMINISTIC_EXCERPT_CANDIDATES = 2
 MAX_STYLE_EXAMPLES = 2
+COMPACT_MANAGED_COMMENT_CANDIDATE_LIMIT = 2
+MINIMAL_MANAGED_COMMENT_CANDIDATE_LIMIT = 1
+COMPACT_MANAGED_COMMENT_CANDIDATE_LINES = 3
+MINIMAL_MANAGED_COMMENT_CANDIDATE_LINES = 2
+COMPACT_MANAGED_COMMENT_CANDIDATE_LINE_LIMIT = 220
+MINIMAL_MANAGED_COMMENT_CANDIDATE_LINE_LIMIT = 160
+COMPACT_MANAGED_COMMENT_CANDIDATE_MARKDOWN_LIMIT = 900
+MINIMAL_MANAGED_COMMENT_CANDIDATE_MARKDOWN_LIMIT = 500
+COMPACT_PREVIEW_FIELD_LIMITS = {
+    "settings": 500,
+    "reproduction-conditions": 600,
+    "platform-notes": 600,
+    "other-mods": 600,
+    "observation-window": 700,
+    "diagnostic-counters": 1800,
+    "comparison-baseline": 600,
+    "evidence-summary": 1200,
+    "confounders": 900,
+    "analysis-basis": 600,
+    "artifacts": 600,
+    "notes": 1200,
+}
+AGGRESSIVE_PREVIEW_FIELD_LIMITS = {
+    "settings": 320,
+    "reproduction-conditions": 360,
+    "platform-notes": 320,
+    "other-mods": 320,
+    "observation-window": 420,
+    "diagnostic-counters": 1200,
+    "comparison-baseline": 420,
+    "evidence-summary": 700,
+    "confounders": 600,
+    "analysis-basis": 420,
+    "artifacts": 360,
+    "notes": 700,
+}
+AGGRESSIVE_RAW_ISSUE_FIELD_LIMITS = {
+    "platform_notes": 400,
+    "other_mods": 1200,
+    "save_or_city_label": 200,
+    "what_happened": 800,
+}
+AGGRESSIVE_DRAFT_FIELD_LIMITS = {
+    "title": 220,
+    "platform_notes": 400,
+    "comparison_baseline": 420,
+    "evidence_summary": 900,
+    "confounders": 700,
+    "analysis_basis": 700,
+    "log_excerpt": 1400,
+    "notes": 900,
+    "reasoning_summary": 800,
+    "custom_symptom_classification": 140,
+}
+COMPACT_REPLY_FIELD_LIMITS = {
+    "title": 220,
+    "scenario_label": 200,
+    "scenario_type": 120,
+    "reproduction_conditions": 600,
+    "platform_notes": 400,
+    "comparison_baseline": 420,
+    "custom_symptom_classification": 140,
+    "evidence_summary": 900,
+    "confounders": 700,
+    "analysis_basis": 700,
+    "log_excerpt": 1400,
+    "notes": 900,
+}
+AGGRESSIVE_REPLY_FIELD_LIMITS = {
+    "title": 220,
+    "scenario_label": 200,
+    "scenario_type": 120,
+    "reproduction_conditions": 360,
+    "platform_notes": 320,
+    "comparison_baseline": 420,
+    "custom_symptom_classification": 140,
+    "evidence_summary": 700,
+    "confounders": 600,
+    "analysis_basis": 420,
+    "log_excerpt": 700,
+    "notes": 700,
+}
 LLM_CONTEXT_VARIANTS = (
     {
         "name": "default",
@@ -3641,11 +3723,12 @@ def render_managed_comment(
         return body, payload
 
     compact_payload = build_compact_managed_comment_payload(payload)
+    compact_reply_fields = compact_reply_fields_for_managed_comment(reply_fields)
     body = render_managed_comment_body(
         issue_number,
         preview_fields,
         compact_payload,
-        reply_fields,
+        compact_reply_fields,
         combined_missing,
         log_source["mode"],
         redaction_summary,
@@ -3663,7 +3746,7 @@ def render_managed_comment(
         issue_number,
         compact_preview_fields,
         compact_payload,
-        reply_fields,
+        compact_reply_fields,
         combined_missing,
         log_source["mode"],
         redaction_summary,
@@ -3673,7 +3756,47 @@ def render_managed_comment(
         llm_reasoning,
         compact=True,
     )
-    return body, compact_payload
+    if len(body) <= GITHUB_ISSUE_COMMENT_MAX_LENGTH:
+        return body, compact_payload
+
+    aggressive_payload = build_aggressive_managed_comment_payload(compact_payload)
+    aggressive_preview_fields = compact_preview_evidence_fields(preview_fields, aggressive=True)
+    aggressive_reply_fields = compact_reply_fields_for_managed_comment(reply_fields, aggressive=True)
+    body = render_managed_comment_body(
+        issue_number,
+        aggressive_preview_fields,
+        aggressive_payload,
+        aggressive_reply_fields,
+        combined_missing,
+        log_source["mode"],
+        redaction_summary,
+        llm_status,
+        llm_detail,
+        deterministic_reasoning,
+        llm_reasoning,
+        compact=True,
+    )
+    if len(body) <= GITHUB_ISSUE_COMMENT_MAX_LENGTH:
+        return body, aggressive_payload
+
+    minimal_payload = build_minimal_managed_comment_payload(aggressive_payload)
+    minimal_preview_fields = build_minimal_preview_evidence_fields(preview_fields)
+    minimal_reply_fields = build_minimal_reply_fields_for_managed_comment(reply_fields)
+    body = render_managed_comment_body(
+        issue_number,
+        minimal_preview_fields,
+        minimal_payload,
+        minimal_reply_fields,
+        combined_missing,
+        log_source["mode"],
+        redaction_summary,
+        llm_status,
+        llm_detail,
+        deterministic_reasoning,
+        llm_reasoning,
+        compact=True,
+    )
+    return body, minimal_payload
 
 
 def build_compact_managed_comment_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -3719,17 +3842,272 @@ def build_compact_managed_comment_payload(payload: dict[str, Any]) -> dict[str, 
     }
 
 
-def compact_preview_evidence_fields(preview_fields: dict[str, str]) -> dict[str, str]:
-    compact = dict(preview_fields)
-    compact["reproduction-conditions"] = truncate_text(compact.get("reproduction-conditions", ""), 600)
-    compact["platform-notes"] = truncate_text(compact.get("platform-notes", ""), 600)
-    compact["other-mods"] = truncate_text(compact.get("other-mods", ""), 600)
-    compact["diagnostic-counters"] = truncate_text(compact.get("diagnostic-counters", ""), 1500)
-    compact["comparison-baseline"] = truncate_text(compact.get("comparison-baseline", ""), 600)
-    compact["confounders"] = truncate_text(compact.get("confounders", ""), 900)
-    compact["analysis-basis"] = truncate_text(compact.get("analysis-basis", ""), 600)
-    compact["notes"] = truncate_text(compact.get("notes", ""), 1200)
+def truncate_dict_text_fields(values: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
+    compact = dict(values)
+    for field_name, limit in limits.items():
+        if field_name in compact:
+            compact[field_name] = truncate_text(str(compact.get(field_name, "")), limit)
+    return compact
+
+
+def compact_latest_observation_for_managed_comment(observation: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(observation, dict):
+        return observation
+
+    compact: dict[str, Any] = {}
+    for field_name in (
+        "timestamp",
+        "source",
+        "parse_confidence",
+        "observation_window",
+        "settings",
+        "patch_state",
+        "diagnostic_counters",
+        "top_factors",
+        "session_id",
+        "run_id",
+        "start_day",
+        "end_day",
+        "start_sample_index",
+        "end_sample_index",
+        "sample_day",
+        "sample_index",
+        "sample_slot",
+        "samples_per_day",
+        "sample_count",
+        "observation_kind",
+        "skipped_sample_slots",
+        "clock_source",
+        "trigger",
+    ):
+        if field_name in observation:
+            compact[field_name] = observation[field_name]
+
+    return truncate_dict_text_fields(
+        compact
+        | {
+            "observation_window_raw": observation.get("observation_window_raw", ""),
+            "settings_raw": observation.get("settings_raw", ""),
+            "diagnostic_counters_raw": observation.get("diagnostic_counters_raw", ""),
+            "diagnostic_context_raw": observation.get("diagnostic_context_raw", ""),
+        },
+        {
+            "observation_window_raw": 500,
+            "settings_raw": 400,
+            "diagnostic_counters_raw": 2200,
+            "diagnostic_context_raw": 300,
+        },
+    )
+
+
+def compact_detail_for_managed_comment(detail: dict[str, Any] | None, *, value_limit: int) -> dict[str, Any] | None:
+    if not isinstance(detail, dict):
+        return detail
+
+    compact: dict[str, Any] = {}
+    for field_name in (
+        "timestamp",
+        "source",
+        "parse_confidence",
+        "detail_type",
+        "session_id",
+        "run_id",
+        "observation_end_day",
+        "observation_end_sample_index",
+        "role",
+        "event_type",
+        "sample_day",
+        "sample_index",
+        "sample_slot",
+        "metadata",
+        "parsed_values",
+    ):
+        if field_name in detail:
+            compact[field_name] = detail[field_name]
+
+    for field_name, limit in {
+        "metadata_raw": 240,
+        "values": value_limit,
+    }.items():
+        if field_name in detail:
+            compact[field_name] = truncate_text(str(detail.get(field_name, "")), limit)
+
+    return compact
+
+
+def compact_log_excerpt_candidates_for_managed_comment(
+    candidates: list[dict[str, Any]],
+    *,
+    candidate_limit: int,
+    markdown_limit: int,
+    line_limit: int,
+    line_count: int,
+) -> list[dict[str, Any]]:
+    compact_candidates: list[dict[str, Any]] = []
+    for candidate in select_preferred_excerpt_candidates(list(candidates), candidate_limit):
+        compact_candidate: dict[str, Any] = {}
+        for field_name in (
+            "label",
+            "kind",
+            "sample_day",
+            "sample_index",
+            "observation_window",
+            "emphasis",
+        ):
+            if field_name in candidate:
+                compact_candidate[field_name] = candidate[field_name]
+
+        compact_candidate["markdown"] = truncate_text(str(candidate.get("markdown", "")), markdown_limit)
+        compact_candidate["lines"] = [
+            truncate_text(str(line), line_limit) for line in list(candidate.get("lines", []))[:line_count]
+        ]
+        compact_candidates.append(compact_candidate)
+
+    return compact_candidates
+
+
+def compact_draft_for_managed_comment(draft: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(draft, dict):
+        return draft
+    return truncate_dict_text_fields(draft, AGGRESSIVE_DRAFT_FIELD_LIMITS)
+
+
+def compact_reply_fields_for_managed_comment(
+    reply_fields: dict[str, str],
+    *,
+    aggressive: bool = False,
+) -> dict[str, str]:
+    limits = AGGRESSIVE_REPLY_FIELD_LIMITS if aggressive else COMPACT_REPLY_FIELD_LIMITS
+    return truncate_dict_text_fields(reply_fields, limits)
+
+
+def build_minimal_reply_fields_for_managed_comment(reply_fields: dict[str, str]) -> dict[str, str]:
+    compact = compact_reply_fields_for_managed_comment(reply_fields, aggressive=True)
+    compact["analysis_basis"] = truncate_text(compact.get("analysis_basis", ""), 240)
+    compact["log_excerpt"] = ""
+    compact["notes"] = ""
+    return compact
+
+
+def build_aggressive_managed_comment_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    parsed_log = payload.get("parsed_log", {})
+    return {
+        "parser_version": payload.get("parser_version", get_parser_version()),
+        "raw_issue": {
+            "number": payload.get("raw_issue", {}).get("number"),
+            "fields": truncate_dict_text_fields(
+                dict(payload.get("raw_issue", {}).get("fields", {})),
+                AGGRESSIVE_RAW_ISSUE_FIELD_LIMITS,
+            ),
+        },
+        "log_source": dict(payload.get("log_source", {})),
+        "redaction_notes": [truncate_text(str(note), 160) for note in list(payload.get("redaction_notes", []))[:6]],
+        "parsed_log": {
+            "latest_observation": compact_latest_observation_for_managed_comment(parsed_log.get("latest_observation")),
+            "latest_software_office_detail": compact_detail_for_managed_comment(
+                parsed_log.get("latest_software_office_detail"),
+                value_limit=1600,
+            ),
+            "latest_trade_lifecycle_detail": compact_detail_for_managed_comment(
+                parsed_log.get("latest_trade_lifecycle_detail"),
+                value_limit=1500,
+            ),
+            "latest_virtual_resolution_probe_detail": compact_detail_for_managed_comment(
+                parsed_log.get("latest_virtual_resolution_probe_detail"),
+                value_limit=1200,
+            ),
+            "latest_supplemental_detail": compact_detail_for_managed_comment(
+                parsed_log.get("latest_supplemental_detail"),
+                value_limit=1200,
+            ),
+            "latest_outside_connection_virtual_seller_probe": compact_detail_for_managed_comment(
+                parsed_log.get("latest_outside_connection_virtual_seller_probe"),
+                value_limit=1000,
+            ),
+            "latest_virtual_office_buyer_fix_probe": compact_detail_for_managed_comment(
+                parsed_log.get("latest_virtual_office_buyer_fix_probe"),
+                value_limit=900,
+            ),
+            "log_excerpt_candidates": compact_log_excerpt_candidates_for_managed_comment(
+                list(parsed_log.get("log_excerpt_candidates", [])),
+                candidate_limit=COMPACT_MANAGED_COMMENT_CANDIDATE_LIMIT,
+                markdown_limit=COMPACT_MANAGED_COMMENT_CANDIDATE_MARKDOWN_LIMIT,
+                line_limit=COMPACT_MANAGED_COMMENT_CANDIDATE_LINE_LIMIT,
+                line_count=COMPACT_MANAGED_COMMENT_CANDIDATE_LINES,
+            ),
+            "observation_count": parsed_log.get("observation_count", 0),
+            "all_detail_count": parsed_log.get("all_detail_count", 0),
+            "detail_count": parsed_log.get("detail_count", 0),
+            "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
+            "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
+            "supplemental_detail_count": parsed_log.get("supplemental_detail_count", 0),
+            "outside_connection_virtual_seller_probe_count": parsed_log.get(
+                "outside_connection_virtual_seller_probe_count",
+                0,
+            ),
+            "virtual_office_buyer_fix_probe_count": parsed_log.get("virtual_office_buyer_fix_probe_count", 0),
+        },
+        "deterministic_draft": compact_draft_for_managed_comment(payload.get("deterministic_draft")),
+        "llm_draft": compact_draft_for_managed_comment(payload.get("llm_draft")),
+        "combined_missing_user_input": list(payload.get("combined_missing_user_input", [])),
+        "llm_status": str(payload.get("llm_status", "")),
+        "llm_detail": truncate_text(str(payload.get("llm_detail", "")), 220),
+    }
+
+
+def build_minimal_managed_comment_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    parsed_log = payload.get("parsed_log", {})
+    return {
+        "parser_version": payload.get("parser_version", get_parser_version()),
+        "raw_issue": dict(payload.get("raw_issue", {})),
+        "log_source": dict(payload.get("log_source", {})),
+        "redaction_notes": list(payload.get("redaction_notes", [])),
+        "parsed_log": {
+            "latest_observation": compact_latest_observation_for_managed_comment(parsed_log.get("latest_observation")),
+            "latest_software_office_detail": compact_detail_for_managed_comment(
+                parsed_log.get("latest_software_office_detail"),
+                value_limit=900,
+            ),
+            "log_excerpt_candidates": compact_log_excerpt_candidates_for_managed_comment(
+                list(parsed_log.get("log_excerpt_candidates", [])),
+                candidate_limit=MINIMAL_MANAGED_COMMENT_CANDIDATE_LIMIT,
+                markdown_limit=MINIMAL_MANAGED_COMMENT_CANDIDATE_MARKDOWN_LIMIT,
+                line_limit=MINIMAL_MANAGED_COMMENT_CANDIDATE_LINE_LIMIT,
+                line_count=MINIMAL_MANAGED_COMMENT_CANDIDATE_LINES,
+            ),
+            "observation_count": parsed_log.get("observation_count", 0),
+            "all_detail_count": parsed_log.get("all_detail_count", 0),
+            "detail_count": parsed_log.get("detail_count", 0),
+            "trade_lifecycle_detail_count": parsed_log.get("trade_lifecycle_detail_count", 0),
+            "virtual_resolution_probe_detail_count": parsed_log.get("virtual_resolution_probe_detail_count", 0),
+            "supplemental_detail_count": parsed_log.get("supplemental_detail_count", 0),
+            "outside_connection_virtual_seller_probe_count": parsed_log.get(
+                "outside_connection_virtual_seller_probe_count",
+                0,
+            ),
+            "virtual_office_buyer_fix_probe_count": parsed_log.get("virtual_office_buyer_fix_probe_count", 0),
+        },
+        "deterministic_draft": compact_draft_for_managed_comment(payload.get("deterministic_draft")),
+        "llm_draft": compact_draft_for_managed_comment(payload.get("llm_draft")),
+        "combined_missing_user_input": list(payload.get("combined_missing_user_input", [])),
+        "llm_status": str(payload.get("llm_status", "")),
+        "llm_detail": truncate_text(str(payload.get("llm_detail", "")), 220),
+    }
+
+
+def compact_preview_evidence_fields(preview_fields: dict[str, str], *, aggressive: bool = False) -> dict[str, str]:
+    limits = AGGRESSIVE_PREVIEW_FIELD_LIMITS if aggressive else COMPACT_PREVIEW_FIELD_LIMITS
+    compact = truncate_dict_text_fields(preview_fields, limits)
     compact["log-excerpt"] = ""
+    return compact
+
+
+def build_minimal_preview_evidence_fields(preview_fields: dict[str, str]) -> dict[str, str]:
+    compact = compact_preview_evidence_fields(preview_fields, aggressive=True)
+    compact["analysis-basis"] = ""
+    compact["notes"] = ""
+    compact["artifacts"] = truncate_text(compact.get("artifacts", ""), 240)
+    compact["other-mods"] = truncate_text(compact.get("other-mods", ""), 240)
     return compact
 
 
