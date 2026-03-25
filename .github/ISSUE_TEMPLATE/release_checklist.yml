@@ -20,12 +20,18 @@ body:
   - type: textarea
     id: evidence
     attributes:
-      label: Release-gate evidence
-      description: Link the release-build software evidence entry, the comparison summary against the current anchor evidence entry, and the validation note captured on the release PR. If the release does not ship experimental software-track behavior, say so explicitly.
+      label: Release-gate evidence / validation
+      description: List only the gate or validation artifacts that apply to this release scope. For software-track releases, link the release-build software evidence entry, the comparison summary against the current anchor evidence entry, and the release PR validation note. For telemetry/performance releases, link the performance telemetry issue or other validation artifact and summarize what it proves. If no scoped gate applies, say so explicitly.
       placeholder: |
-        - comparable evidence: #...
-        - anchor comparison summary: same / better / worse / unclear
-        - release PR validation note: ...
+        - software gate (if applicable):
+          - comparable software evidence: #...
+          - software anchor comparison summary: same / better / worse / unclear
+          - software release PR validation note: ...
+        - telemetry validation (if applicable):
+          - performance telemetry issue or validation artifact: #...
+          - telemetry validation summary: capture OK / comparison OK / triage OK / unclear
+        - no scoped gate:
+          - none required for this release
     validations:
       required: true
   - type: checkboxes
@@ -37,8 +43,8 @@ body:
         - label: PublishConfiguration wording reviewed against shipped behavior
         - label: Diagnostics wording reviewed
         - label: Release build completed successfully
-        - label: Release-build software evidence captured and compared against the current anchor evidence entry
-        - label: Release PR validation note recorded for the release candidate diagnostics
+        - label: Applicable release-gate evidence or validation artifacts captured
+        - label: Applicable comparison summaries and release PR validation notes recorded
         - label: Tag/version confirmed
         - label: Release notes reviewed
         - label: Local release script verified

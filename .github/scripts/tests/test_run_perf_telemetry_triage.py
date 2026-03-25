@@ -10,6 +10,7 @@ sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import run_perf_telemetry_triage as triage_script  # noqa: E402
 import run_retriage_perf_telemetry_comment as retriage_script  # noqa: E402
+import perf_telemetry_automation as automation  # noqa: E402
 
 
 PERF_ISSUE_BODY = textwrap.dedent(
@@ -124,7 +125,11 @@ class RunPerfTelemetryTriageTests(unittest.TestCase):
         with mock.patch.object(triage_script, "parse_issue_form_sections", return_value=issue_fields):
             with mock.patch.object(triage_script, "build_triage_analysis", return_value=triage):
                 with mock.patch.object(triage_script, "render_managed_comment", return_value="managed-body"):
-                    with mock.patch.object(triage_script, "upsert_managed_comment", return_value=updated_comment) as upsert_mock:
+                    with mock.patch.object(
+                        triage_script,
+                        "upsert_perf_telemetry_managed_comment",
+                        return_value=updated_comment,
+                    ) as upsert_mock:
                         result = triage_script.run_triage_for_issue(
                             "FennexFox/NoOfficeDemandFix",
                             21,
@@ -140,6 +145,47 @@ class RunPerfTelemetryTriageTests(unittest.TestCase):
             "managed-body",
             "token",
         )
+
+    def test_run_triage_for_issue_updates_only_perf_managed_comment(self) -> None:
+        issue_fields = {
+            "game_version": "1.5.xf1",
+            "mod_version": "0.2.0",
+            "save_or_city_label": "New Seoul",
+            "what_changed": "Comparison build changes buyer cadence.",
+            "platform_notes": "Windows release build",
+            "other_mods": "none known",
+            "baseline_bundle": "bundle",
+            "comparison_bundle": "",
+        }
+        triage = mock.Mock()
+        updated_comment = {"html_url": "https://example.invalid/comment"}
+        comments = [
+            {"id": 10, "body": "<!-- raw-log-triage:managed-comment -->\nraw", "created_at": "2026-03-24T00:00:00Z"},
+            {
+                "id": 11,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nexisting",
+                "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
+            },
+        ]
+
+        with mock.patch.object(triage_script, "parse_issue_form_sections", return_value=issue_fields):
+            with mock.patch.object(triage_script, "build_triage_analysis", return_value=triage):
+                with mock.patch.object(triage_script, "render_managed_comment", return_value="managed-body"):
+                    with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+                        with mock.patch.object(automation, "update_issue_comment", return_value=updated_comment) as update_mock:
+                            with mock.patch.object(automation, "create_issue_comment") as create_mock:
+                                result = triage_script.run_triage_for_issue(
+                                    "FennexFox/NoOfficeDemandFix",
+                                    21,
+                                    "[Performance Telemetry] test",
+                                    PERF_ISSUE_BODY,
+                                    "token",
+                                )
+
+        self.assertEqual(result, updated_comment)
+        update_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 11, "managed-body", "token")
+        create_mock.assert_not_called()
 
 
 class RetriagePerfTelemetryCommentTests(unittest.TestCase):

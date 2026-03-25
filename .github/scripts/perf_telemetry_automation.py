@@ -18,13 +18,14 @@ from raw_log_automation import (
     comment_has_retriage_command,
     create_issue_comment,
     extract_attachment_urls,
+    get_issue_comments,
     get_issue,
     is_allowed_attachment_url,
     is_bot_comment,
     is_maintainer_comment,
     load_event_payload,
     sanitize_url,
-    upsert_managed_comment,
+    update_issue_comment,
 )
 
 
@@ -33,13 +34,19 @@ PERF_TELEMETRY_TITLE_PREFIX = "[Performance Telemetry]"
 PERF_TELEMETRY_MANAGED_COMMENT_MARKER = "<!-- perf-telemetry-triage:managed-comment -->"
 PERF_TELEMETRY_PAYLOAD_START_MARKER = "<!-- perf-telemetry-triage:machine-payload:start -->"
 PERF_TELEMETRY_PAYLOAD_END_MARKER = "<!-- perf-telemetry-triage:machine-payload:end -->"
-AUTOMATION_PARSER_VERSION = "2026-03-23-perf-telemetry-v1"
+AUTOMATION_PARSER_VERSION = "2026-03-25-perf-telemetry-v2"
 USER_AGENT = "NoOfficeDemandFixPerfTelemetryAutomation/1.0"
 SUMMARY_FILE_KIND = "summary"
 STALLS_FILE_KIND = "stalls"
 UNKNOWN_SCENARIO_ID = "unknown"
 UNSAVED_NAME = "unsaved"
 COMPARISON_LOAD_ERROR_LIMIT = 500
+FIX_TOGGLE_FIELDS = (
+    ("enable_phantom_vacancy_fix", "EnablePhantomVacancyFix"),
+    ("enable_outside_connection_virtual_seller_fix", "EnableOutsideConnectionVirtualSellerFix"),
+    ("enable_virtual_office_resource_buyer_fix", "EnableVirtualOfficeResourceBuyerFix"),
+    ("enable_office_demand_direct_patch", "EnableOfficeDemandDirectPatch"),
+)
 
 PERF_TELEMETRY_FORM_LABELS = {
     "game version": "game_version",
@@ -203,6 +210,8 @@ class RunAnalysis:
 @dataclass
 class ComparisonAnalysis:
     directly_comparable: bool
+    comparability_basis: str = ""
+    fix_toggle_differences: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     steady_state_fps_delta: float | None = None
     steady_state_render_latency_delta_ms: float | None = None
@@ -392,11 +401,23 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
             comparison_lines
         )
     elif triage.comparison_analysis and triage.comparison_analysis.directly_comparable:
+        comparison_status = "- Direct comparison status: comparable"
+        comparison_notes: list[str] = []
+        if triage.comparison_analysis.comparability_basis == "single_fix_toggle_delta":
+            comparison_status = "- Direct comparison status: comparable (single fix-toggle delta)"
+            comparison_notes.extend(
+                [
+                    "- Fix-toggle delta: "
+                    + ", ".join(f"`{name}`" for name in triage.comparison_analysis.fix_toggle_differences),
+                    "- Direct deltas reflect the full effect of the toggle under test, not like-for-like same-fix-set overhead.",
+                ]
+            )
         lines.extend(
             [
                 "",
                 "## Comparison",
-                "- Direct comparison status: comparable",
+                comparison_status,
+                *comparison_notes,
                 *render_comparison_metrics(triage.comparison_analysis),
             ]
         )
@@ -439,6 +460,47 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
     )
 
     return "\n".join(lines).strip() + "\n"
+
+
+def is_perf_telemetry_managed_comment(
+    comment: dict[str, Any],
+    managed_author_login: str | None = None,
+) -> bool:
+    if PERF_TELEMETRY_MANAGED_COMMENT_MARKER not in comment.get("body", ""):
+        return False
+    if is_bot_comment(comment):
+        return True
+
+    user_login = str(comment.get("user", {}).get("login", "")).strip()
+    return bool(managed_author_login and user_login == managed_author_login.strip())
+
+
+def find_perf_telemetry_managed_comment(
+    comments: list[dict[str, Any]],
+    managed_author_login: str | None = None,
+) -> dict[str, Any] | None:
+    managed_comments = [
+        comment
+        for comment in comments
+        if is_perf_telemetry_managed_comment(comment, managed_author_login=managed_author_login)
+    ]
+    if not managed_comments:
+        return None
+    return sorted(managed_comments, key=lambda item: item.get("updated_at", item.get("created_at", "")))[-1]
+
+
+def upsert_perf_telemetry_managed_comment(
+    repo: str,
+    issue_number: int,
+    body: str,
+    token: str,
+    managed_author_login: str | None = None,
+) -> dict[str, Any]:
+    comments = get_issue_comments(repo, issue_number, token)
+    managed_comment = find_perf_telemetry_managed_comment(comments, managed_author_login=managed_author_login)
+    if managed_comment:
+        return update_issue_comment(repo, int(managed_comment["id"]), body, token)
+    return create_issue_comment(repo, issue_number, body, token)
 
 
 def build_machine_payload(triage: TriageAnalysis) -> dict[str, Any]:
@@ -612,6 +674,7 @@ def load_bundle_analysis(
         steady_state=rollup_steady_state(summary_rows, summary_metadata),
         stalls=None if stall_rows is None else rollup_stalls(stall_rows),
     )
+    run_analysis.warnings = dedupe_preserve_order(run_analysis.warnings + detect_queue_metric_sampling_warnings(run_analysis))
 
     return run_analysis, run_analysis.warnings
 
@@ -1097,9 +1160,32 @@ def rollup_stalls(stall_rows: list[StallRow]) -> StallRollup:
     )
 
 
+def detect_queue_metric_sampling_warnings(run_analysis: RunAnalysis) -> list[str]:
+    steady_state = run_analysis.steady_state
+    if steady_state is None:
+        return []
+
+    if steady_state.path_queue_len_max != 0:
+        return []
+
+    stalls = run_analysis.stalls
+    if stalls is not None and stalls.peak_path_queue_len != 0:
+        return []
+
+    has_path_pressure = steady_state.path_requests_pending_max >= 100 or steady_state.path_requests_pending_p95 >= 50
+    has_pathfind_activity = steady_state.pathfind_update_mean_ms >= 0.05
+    if not has_path_pressure or not has_pathfind_activity:
+        return []
+
+    return [
+        "path queue metrics are all zero despite non-trivial pathfind activity; verify PathfindQueueSystem sampling and check the mod log for telemetry bind errors."
+    ]
+
+
 def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAnalysis:
     warnings: list[str] = []
     directly_comparable = True
+    comparability_basis = ""
 
     baseline_metadata = baseline.metadata
     comparison_metadata = comparison.metadata
@@ -1145,9 +1231,27 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
         directly_comparable = False
         warnings.append("matching save or scenario identity could not be verified from telemetry metadata.")
 
-    if baseline_metadata.enabled_fix_state() != comparison_metadata.enabled_fix_state():
+    fix_toggle_differences, unknown_fix_toggles = compare_fix_toggle_state(baseline_metadata, comparison_metadata)
+    if unknown_fix_toggles:
         directly_comparable = False
-        warnings.append("enabled-fix set mismatch between baseline and comparison.")
+        warnings.append("enabled-fix state could not be fully verified from telemetry metadata.")
+        warnings.append(
+            "fix-toggle metadata missing or unknown for: "
+            + ", ".join(f"`{name}`" for name in unknown_fix_toggles)
+            + "."
+        )
+    elif len(fix_toggle_differences) > 1:
+        directly_comparable = False
+        warnings.append(
+            "enabled-fix set mismatch spans multiple fix toggles; direct comparison requires at most one fix-toggle delta."
+        )
+        warnings.append(
+            "fix-toggle differences: " + ", ".join(f"`{name}`" for name in fix_toggle_differences) + "."
+        )
+    elif len(fix_toggle_differences) == 1:
+        comparability_basis = "single_fix_toggle_delta"
+    else:
+        comparability_basis = "same_fix_set"
 
     if baseline_metadata.sampling_interval_sec != comparison_metadata.sampling_interval_sec:
         directly_comparable = False
@@ -1169,7 +1273,12 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
                 f"mod_version mismatch: `{baseline_metadata.mod_version}` vs `{comparison_metadata.mod_version}`."
             )
 
-    analysis = ComparisonAnalysis(directly_comparable=directly_comparable, warnings=dedupe_preserve_order(warnings))
+    analysis = ComparisonAnalysis(
+        directly_comparable=directly_comparable,
+        comparability_basis=comparability_basis if directly_comparable else "",
+        fix_toggle_differences=fix_toggle_differences,
+        warnings=dedupe_preserve_order(warnings),
+    )
     if not directly_comparable:
         return analysis
 
@@ -1200,6 +1309,25 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
 
     analysis.warnings = dedupe_preserve_order(analysis.warnings)
     return analysis
+
+
+def compare_fix_toggle_state(
+    baseline_metadata: TelemetryRunMetadata,
+    comparison_metadata: TelemetryRunMetadata,
+) -> tuple[list[str], list[str]]:
+    differing: list[str] = []
+    unknown: list[str] = []
+
+    for field_name, display_name in FIX_TOGGLE_FIELDS:
+        baseline_value = getattr(baseline_metadata, field_name)
+        comparison_value = getattr(comparison_metadata, field_name)
+        if baseline_value is None or comparison_value is None:
+            unknown.append(display_name)
+            continue
+        if baseline_value != comparison_value:
+            differing.append(display_name)
+
+    return differing, unknown
 
 
 def detect_anomaly_flags(

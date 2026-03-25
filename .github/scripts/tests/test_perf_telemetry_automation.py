@@ -33,26 +33,30 @@ def make_metadata(
     mod_version: str = "0.2.0",
     sampling_interval_sec: str = "1",
     stall_threshold_ms: str = "250",
-    fix_flags: tuple[bool, bool, bool, bool] = (True, True, True, True),
+    fix_flags: tuple[bool | None, bool | None, bool | None, bool | None] = (True, True, True, True),
 ) -> str:
-    return "\n".join(
-        [
-            "# telemetry_schema_version=1",
-            f"# telemetry_file_kind={file_kind}",
-            f"# run_id={run_id}",
-            "# run_start_utc=2026-03-23T00:00:00.0000000Z",
-            f"# game_build_version={game_version}",
-            f"# mod_version={mod_version}",
-            f"# save_name={save_name}",
-            f"# scenario_id={scenario_id}",
-            f"# sampling_interval_sec={sampling_interval_sec}",
-            f"# stall_threshold_ms={stall_threshold_ms}",
-            f"# enable_phantom_vacancy_fix={'true' if fix_flags[0] else 'false'}",
-            f"# enable_outside_connection_virtual_seller_fix={'true' if fix_flags[1] else 'false'}",
-            f"# enable_virtual_office_resource_buyer_fix={'true' if fix_flags[2] else 'false'}",
-            f"# enable_office_demand_direct_patch={'true' if fix_flags[3] else 'false'}",
-        ]
-    )
+    lines = [
+        "# telemetry_schema_version=1",
+        f"# telemetry_file_kind={file_kind}",
+        f"# run_id={run_id}",
+        "# run_start_utc=2026-03-23T00:00:00.0000000Z",
+        f"# game_build_version={game_version}",
+        f"# mod_version={mod_version}",
+        f"# save_name={save_name}",
+        f"# scenario_id={scenario_id}",
+        f"# sampling_interval_sec={sampling_interval_sec}",
+        f"# stall_threshold_ms={stall_threshold_ms}",
+    ]
+    for field_name, value in (
+        ("enable_phantom_vacancy_fix", fix_flags[0]),
+        ("enable_outside_connection_virtual_seller_fix", fix_flags[1]),
+        ("enable_virtual_office_resource_buyer_fix", fix_flags[2]),
+        ("enable_office_demand_direct_patch", fix_flags[3]),
+    ):
+        if value is None:
+            continue
+        lines.append(f"# {field_name}={'true' if value else 'false'}")
+    return "\n".join(lines)
 
 
 BASELINE_SUMMARY_CSV = textwrap.dedent(
@@ -87,6 +91,66 @@ COMPARISON_SUMMARY_CSV = textwrap.dedent(
 COMPARISON_STALLS_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='comparison-run', file_kind='stalls')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    comparison-run,1,2,8,6,540,520,220,15,80
+    comparison-run,2,9,16,7,560,550,260,20,90
+    """
+).strip()
+
+SINGLE_TOGGLE_COMPARISON_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', fix_flags=(True, True, False, True))}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    comparison-run,1,100,55,18,20,3.5,1.3,0.60,10,1,1,3,false
+    comparison-run,2,200,54,20,22,3.7,1.6,0.70,12,1,2,6,false
+    comparison-run,3,300,3,500,540,25,35,4.0,80,15,120,220,true
+    comparison-run,4,400,3,520,560,28,37,4.3,90,20,150,260,true
+    """
+).strip()
+
+SINGLE_TOGGLE_COMPARISON_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='stalls', fix_flags=(True, True, False, True))}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    comparison-run,1,2,8,6,540,520,220,15,80
+    comparison-run,2,9,16,7,560,550,260,20,90
+    """
+).strip()
+
+MULTI_TOGGLE_COMPARISON_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', fix_flags=(False, True, False, True))}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    comparison-run,1,100,55,18,20,3.5,1.3,0.60,10,1,1,3,false
+    comparison-run,2,200,54,20,22,3.7,1.6,0.70,12,1,2,6,false
+    comparison-run,3,300,3,500,540,25,35,4.0,80,15,120,220,true
+    comparison-run,4,400,3,520,560,28,37,4.3,90,20,150,260,true
+    """
+).strip()
+
+MULTI_TOGGLE_COMPARISON_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='stalls', fix_flags=(False, True, False, True))}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    comparison-run,1,2,8,6,540,520,220,15,80
+    comparison-run,2,9,16,7,560,550,260,20,90
+    """
+).strip()
+
+UNKNOWN_TOGGLE_COMPARISON_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', fix_flags=(True, True, None, True))}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    comparison-run,1,100,55,18,20,3.5,1.3,0.60,10,1,1,3,false
+    comparison-run,2,200,54,20,22,3.7,1.6,0.70,12,1,2,6,false
+    comparison-run,3,300,3,500,540,25,35,4.0,80,15,120,220,true
+    comparison-run,4,400,3,520,560,28,37,4.3,90,20,150,260,true
+    """
+).strip()
+
+UNKNOWN_TOGGLE_COMPARISON_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='stalls', fix_flags=(True, True, None, True))}
     run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
     comparison-run,1,2,8,6,540,520,220,15,80
     comparison-run,2,9,16,7,560,550,260,20,90
@@ -148,6 +212,33 @@ MISMATCHED_STALLS_CSV = textwrap.dedent(
     {make_metadata(run_id='wrong-run', file_kind='stalls', save_name='Wrong City', scenario_id='map_z')}
     run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
     wrong-run,1,2,8,6,540,520,220,15,80
+    """
+).strip()
+
+ZERO_QUEUE_PRESSURE_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    baseline-run,1,100,60,16,18,3,0.20,0.05,10,1,120,0,false
+    baseline-run,2,200,58,17,19,3.2,0.25,0.06,12,0,180,0,false
+    baseline-run,3,300,4,350,400,20,5.0,0.50,20,2,250,0,true
+    """
+).strip()
+
+ZERO_QUEUE_PRESSURE_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='stalls')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    baseline-run,1,2,6,4,400,380,0,2,20
+    """
+).strip()
+
+LOW_PRESSURE_ZERO_QUEUE_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary')}
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    baseline-run,1,100,60,16,18,3,0.01,0.05,10,1,2,0,false
+    baseline-run,2,200,58,17,19,3.2,0.02,0.06,12,0,3,0,false
     """
 ).strip()
 
@@ -220,6 +311,27 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIsNotNone(triage.baseline.steady_state)
         self.assertEqual(baseline_stalls.count, 1)
 
+    def test_build_triage_analysis_warns_when_queue_metrics_look_unbound(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["baseline_bundle"] = (
+            "```csv\n" + ZERO_QUEUE_PRESSURE_SUMMARY_CSV + "\n```\n\n```csv\n" + ZERO_QUEUE_PRESSURE_STALLS_CSV + "\n```"
+        )
+        issue_fields["comparison_bundle"] = ""
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertIn("path queue metrics are all zero", " ".join(triage.baseline.warnings))
+        self.assertIn("telemetry bind errors", " ".join(triage.warnings))
+
+    def test_build_triage_analysis_skips_queue_warning_without_path_pressure(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["baseline_bundle"] = "```csv\n" + LOW_PRESSURE_ZERO_QUEUE_SUMMARY_CSV + "\n```"
+        issue_fields["comparison_bundle"] = ""
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+
+        self.assertNotIn("path queue metrics are all zero", " ".join(triage.baseline.warnings))
+
     def test_build_triage_analysis_computes_comparison_and_flags(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
 
@@ -259,6 +371,66 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertTrue(comparison_analysis.directly_comparable)
         self.assertIn("scenario_id mismatch", " ".join(comparison_analysis.warnings))
         self.assertIn("save_name matches", " ".join(comparison_analysis.warnings))
+
+    def test_build_triage_analysis_allows_single_fix_toggle_delta(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n"
+            + SINGLE_TOGGLE_COMPARISON_SUMMARY_CSV
+            + "\n```\n\n```csv\n"
+            + SINGLE_TOGGLE_COMPARISON_STALLS_CSV
+            + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
+
+        self.assertTrue(comparison_analysis.directly_comparable)
+        self.assertEqual(comparison_analysis.comparability_basis, "single_fix_toggle_delta")
+        self.assertEqual(comparison_analysis.fix_toggle_differences, ["EnableVirtualOfficeResourceBuyerFix"])
+        self.assertIsNotNone(comparison_analysis.steady_state_mod_update_delta_ms)
+
+        comment = automation.render_managed_comment(triage)
+        payload = automation.build_machine_payload(triage)
+
+        self.assertIn("Direct comparison status: comparable (single fix-toggle delta)", comment)
+        self.assertIn("Fix-toggle delta: `EnableVirtualOfficeResourceBuyerFix`", comment)
+        self.assertEqual(payload["comparison_analysis"]["comparability_basis"], "single_fix_toggle_delta")
+
+    def test_build_triage_analysis_rejects_multiple_fix_toggle_deltas(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n"
+            + MULTI_TOGGLE_COMPARISON_SUMMARY_CSV
+            + "\n```\n\n```csv\n"
+            + MULTI_TOGGLE_COMPARISON_STALLS_CSV
+            + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
+
+        self.assertFalse(comparison_analysis.directly_comparable)
+        self.assertIn("spans multiple fix toggles", " ".join(comparison_analysis.warnings))
+        self.assertIn("EnablePhantomVacancyFix", " ".join(comparison_analysis.warnings))
+        self.assertIn("EnableVirtualOfficeResourceBuyerFix", " ".join(comparison_analysis.warnings))
+
+    def test_build_triage_analysis_rejects_unknown_fix_toggle_state(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n"
+            + UNKNOWN_TOGGLE_COMPARISON_SUMMARY_CSV
+            + "\n```\n\n```csv\n"
+            + UNKNOWN_TOGGLE_COMPARISON_STALLS_CSV
+            + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
+
+        self.assertFalse(comparison_analysis.directly_comparable)
+        self.assertIn("enabled-fix state could not be fully verified", " ".join(comparison_analysis.warnings))
+        self.assertIn("EnableVirtualOfficeResourceBuyerFix", " ".join(comparison_analysis.warnings))
 
     def test_build_triage_analysis_rejects_runs_when_save_and_scenario_both_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
@@ -536,3 +708,132 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertTrue(payload["comparison_bundle"]["provided"])
         self.assertFalse(payload["comparison_bundle"]["loaded"])
         self.assertIn("Unexpected telemetry CSV header", payload["comparison_bundle"]["load_error"])
+
+    def test_find_perf_telemetry_managed_comment_uses_perf_marker(self) -> None:
+        comments = [
+            {"id": 1, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
+            {
+                "id": 2,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nold",
+                "created_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
+            },
+            {
+                "id": 3,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nnew",
+                "updated_at": "2026-03-24T00:02:00Z",
+                "user": {"login": "github-actions[bot]"},
+            },
+        ]
+
+        managed_comment = automation.find_perf_telemetry_managed_comment(comments)
+
+        self.assertIsNotNone(managed_comment)
+        self.assertEqual(managed_comment["id"], 3)
+
+    def test_find_perf_telemetry_managed_comment_ignores_human_marker_quotes(self) -> None:
+        comments = [
+            {
+                "id": 2,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nquoted in discussion",
+                "updated_at": "2026-03-24T00:02:00Z",
+                "user": {"login": "repo-owner"},
+            },
+            {
+                "id": 3,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nmanaged",
+                "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
+            },
+        ]
+
+        managed_comment = automation.find_perf_telemetry_managed_comment(comments)
+
+        self.assertIsNotNone(managed_comment)
+        self.assertEqual(managed_comment["id"], 3)
+
+    def test_find_perf_telemetry_managed_comment_allows_configured_actor_login(self) -> None:
+        comments = [
+            {
+                "id": 4,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nmanaged",
+                "updated_at": "2026-03-24T00:03:00Z",
+                "user": {"login": "triage-maintainer"},
+            }
+        ]
+
+        managed_comment = automation.find_perf_telemetry_managed_comment(
+            comments,
+            managed_author_login="triage-maintainer",
+        )
+
+        self.assertIsNotNone(managed_comment)
+        self.assertEqual(managed_comment["id"], 4)
+
+    def test_upsert_perf_telemetry_managed_comment_updates_existing_perf_comment(self) -> None:
+        comments = [
+            {"id": 10, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
+            {
+                "id": 11,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nexisting",
+                "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "github-actions[bot]"},
+            },
+        ]
+
+        with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+            with mock.patch.object(automation, "update_issue_comment", return_value={"id": 11}) as update_mock:
+                with mock.patch.object(automation, "create_issue_comment") as create_mock:
+                    result = automation.upsert_perf_telemetry_managed_comment(
+                        "FennexFox/NoOfficeDemandFix",
+                        100,
+                        "managed-body",
+                        "token",
+                    )
+
+        self.assertEqual(result, {"id": 11})
+        update_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 11, "managed-body", "token")
+        create_mock.assert_not_called()
+
+    def test_upsert_perf_telemetry_managed_comment_creates_new_comment_when_only_human_perf_marker_exists(self) -> None:
+        comments = [
+            {
+                "id": 11,
+                "body": automation.PERF_TELEMETRY_MANAGED_COMMENT_MARKER + "\nquoted",
+                "updated_at": "2026-03-24T00:01:00Z",
+                "user": {"login": "repo-owner"},
+            },
+        ]
+
+        with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+            with mock.patch.object(automation, "update_issue_comment") as update_mock:
+                with mock.patch.object(automation, "create_issue_comment", return_value={"id": 12}) as create_mock:
+                    result = automation.upsert_perf_telemetry_managed_comment(
+                        "FennexFox/NoOfficeDemandFix",
+                        100,
+                        "managed-body",
+                        "token",
+                    )
+
+        self.assertEqual(result, {"id": 12})
+        update_mock.assert_not_called()
+        create_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 100, "managed-body", "token")
+
+    def test_upsert_perf_telemetry_managed_comment_creates_new_comment_when_only_other_markers_exist(self) -> None:
+        comments = [
+            {"id": 10, "body": "<!-- raw-log-triage:managed-comment -->", "created_at": "2026-03-24T00:00:00Z"},
+        ]
+
+        with mock.patch.object(automation, "get_issue_comments", return_value=comments):
+            with mock.patch.object(automation, "update_issue_comment") as update_mock:
+                with mock.patch.object(automation, "create_issue_comment", return_value={"id": 12}) as create_mock:
+                    result = automation.upsert_perf_telemetry_managed_comment(
+                        "FennexFox/NoOfficeDemandFix",
+                        100,
+                        "managed-body",
+                        "token",
+                    )
+
+        self.assertEqual(result, {"id": 12})
+        update_mock.assert_not_called()
+        create_mock.assert_called_once_with("FennexFox/NoOfficeDemandFix", 100, "managed-body", "token")

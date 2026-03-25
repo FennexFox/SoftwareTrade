@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -58,6 +59,7 @@ namespace NoOfficeDemandFix.Telemetry
         private static int s_FrameObservedPathQueueLenMax;
 
         private static FieldInfo[] s_PathfindActionFields;
+        private static FieldInfo[] s_PathfindActionItemsFields;
         private static FieldInfo[] s_PathfindActionNextIndexFields;
         private static bool s_PathfindReflectionInitialized;
         private static bool s_PathfindReflectionUnavailableLogged;
@@ -234,7 +236,7 @@ namespace NoOfficeDemandFix.Telemetry
                         continue;
                     }
 
-                    total += (int)s_PathfindActionNextIndexFields[i].GetValue(actionList);
+                    total += GetActionListDepth(actionList, i);
                 }
 
                 return total;
@@ -608,6 +610,7 @@ namespace NoOfficeDemandFix.Telemetry
             if (s_PathfindReflectionInitialized)
             {
                 return s_PathfindActionFields != null &&
+                    s_PathfindActionItemsFields != null &&
                     s_PathfindActionNextIndexFields != null;
             }
 
@@ -617,12 +620,14 @@ namespace NoOfficeDemandFix.Telemetry
             // Queue depth is not exposed publicly on this build, so cache the
             // private action-list fields once and reuse them on each sample.
             s_PathfindActionFields = new FieldInfo[s_PathfindActionFieldNames.Length];
+            s_PathfindActionItemsFields = new FieldInfo[s_PathfindActionFieldNames.Length];
             s_PathfindActionNextIndexFields = new FieldInfo[s_PathfindActionFieldNames.Length];
             for (int i = 0; i < s_PathfindActionFieldNames.Length; i++)
             {
                 s_PathfindActionFields[i] = pathfindQueueType.GetField(s_PathfindActionFieldNames[i], flags);
                 if (s_PathfindActionFields[i] != null)
                 {
+                    s_PathfindActionItemsFields[i] = s_PathfindActionFields[i].FieldType.GetField("m_Items", flags);
                     s_PathfindActionNextIndexFields[i] = s_PathfindActionFields[i].FieldType.GetField("m_NextIndex", flags);
                 }
             }
@@ -630,7 +635,8 @@ namespace NoOfficeDemandFix.Telemetry
             bool valid = true;
             for (int i = 0; i < s_PathfindActionFields.Length; i++)
             {
-                valid &= s_PathfindActionFields[i] != null && s_PathfindActionNextIndexFields[i] != null;
+                valid &= s_PathfindActionFields[i] != null &&
+                    (s_PathfindActionItemsFields[i] != null || s_PathfindActionNextIndexFields[i] != null);
             }
 
             if (!valid && !s_PathfindReflectionUnavailableLogged)
@@ -646,8 +652,30 @@ namespace NoOfficeDemandFix.Telemetry
         private static void DisablePathfindReflectionSampling()
         {
             s_PathfindActionFields = null;
+            s_PathfindActionItemsFields = null;
             s_PathfindActionNextIndexFields = null;
             s_PathfindReflectionInitialized = true;
+        }
+
+        private static int GetActionListDepth(object actionList, int index)
+        {
+            FieldInfo nextIndexField = s_PathfindActionNextIndexFields[index];
+            if (nextIndexField != null)
+            {
+                return Math.Max(0, (int)nextIndexField.GetValue(actionList));
+            }
+
+            FieldInfo itemsField = s_PathfindActionItemsFields[index];
+            if (itemsField != null)
+            {
+                object items = itemsField.GetValue(actionList);
+                if (items is ICollection collection)
+                {
+                    return Math.Max(0, collection.Count);
+                }
+            }
+
+            return 0;
         }
 
         private static void ResetRunState()

@@ -1,20 +1,20 @@
 # No Office Demand Fix
 
 `No Office Demand Fix` is a Cities: Skylines II mod with shipped office fixes
-plus a separate software-stability toolset:
+plus a separate experimental software-troubleshooting toolset:
 
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
 - `Office AI chunk iteration`: office stock consumption and virtual export should
   not stop at the first low-stock office in a chunk
-- office-resource / `software` instability: experimental import seller and buyer corrections plus optional diagnostics for remaining virtual-resource stalls
+- office-resource / `software` instability: experimental import seller and buyer fallbacks plus optional diagnostics for remaining virtual-resource stalls
 
 The current release ships the confirmed `Signature` phantom-vacancy fix and
 an always-on office AI hotfix, and also includes enabled-by-default
-experimental software import corrections. Diagnostics remain available for
+experimental software import seller and buyer fallbacks. Diagnostics remain available for
 troubleshooting but are disabled by default. Optional coarse performance
 telemetry is also available for before/after steady-state and stall
-comparisons and is disabled by default. It does not claim that the broader
-`software` track is fully solved.
+comparisons and is disabled by default. It keeps the broader `software`
+track under investigation.
 
 This release also restores the older `2x` office resource-demand baseline
 with a direct Harmony patch instead of keeping the newer vanilla `3x`
@@ -46,15 +46,15 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
-| `EnableOutsideConnectionVirtualSellerFix` | `true` | Enables the default experimental software import seller correction. Takes effect on the next game launch. It only appends active outside connections that already report stock for the requested office virtual-resource import but were filtered out by the prefab storage mask, and it does not change cargo or storage definitions. |
-| `EnableVirtualOfficeResourceBuyerFix` | `true` | Enables the default experimental software import buyer timing correction. It adds a narrow fallback `ResourceBuyer` for zero-weight office inputs such as `Software` when a company is below the low-stock threshold but still has no buyer/path/trip/current-trading state. |
+| `EnableOutsideConnectionVirtualSellerFix` | `true` | Enables the default experimental software import seller fallback. Takes effect on the next game launch. It only appends active outside connections that already report stock for the requested office virtual-resource import but were filtered out by the prefab storage mask, and it does not change cargo or storage definitions. |
+| `EnableVirtualOfficeResourceBuyerFix` | `true` | Enables the default experimental software import buyer fallback. It adds a narrow fallback `ResourceBuyer` for zero-weight office inputs such as `Software` when a company is below the low-stock threshold but still has no buyer/path/trip/current-trading state. |
 | `EnableOfficeDemandDirectPatch` | `true` | Restores the pre-1.5.6f1 office demand baseline with the shipped direct Harmony patch. Keep it on for the current release unless you are intentionally comparing against the newer vanilla `3x` baseline. |
 | `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` office-state details when the simulation looks suspicious. Disabled by default; turn it on for troubleshooting, or leave it off for quieter logs. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values produce denser logs. |
 | `CaptureStableEvidence` | `false` | Keeps scheduled software diagnostics running even when the city looks stable. Use it only when you want baseline logs for troubleshooting. |
 | `VerboseLogging` | `false` | Adds noisier correction traces and supplemental office-trade detail lines, and forces diagnostics output at the configured cadence while it is on. Use it only when you want detailed troubleshooting logs. |
 | `EnablePerformanceTelemetry` | `false` | Captures coarse in-memory performance summaries and stall events, then writes `perf_summary.csv` and `perf_stalls.csv` when the current session ends. Keep it off unless you are intentionally measuring performance. |
-| `PerformanceTelemetrySamplingIntervalSec` | `1.0` | Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. |
+| `PerformanceTelemetrySamplingIntervalSec` | `1.0` | Controls the coarse wall-clock summary window for performance telemetry in seconds. Lower values produce denser CSV output and slightly more telemetry overhead. |
 | `PerformanceTelemetryStallThresholdMs` | `250` | Defines the render-latency threshold used to start and end coarse stall-event tracking. |
 
 ## Implementation
@@ -74,7 +74,7 @@ The safest repository-facing summary of the current release is:
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
 - confirmed fix for the office AI chunk-iteration abort on low stock
 - shipped comparability rollback for the pre-hotfix office demand baseline via a direct Harmony patch
-- default experimental software import seller and buyer corrections; diagnostics remain available but disabled by default
+- default experimental software import seller and buyer fallbacks; diagnostics remain available but disabled by default
 - retired office-resource storage patch experiment
 - broader software-related office/resource stalls remain under investigation
 - office-demand/global-sales undercount remains a separate follow-up line rather than part of the current runtime corrections
