@@ -14,6 +14,7 @@ namespace NoOfficeDemandFix.Telemetry
     internal static class PerformanceTelemetryCollector
     {
         private const int kStallDebounceFrames = 1;
+        private const string kTelemetrySchemaVersion = "2";
         private const string kUnknownScenarioId = "unknown";
         private const string kUnsavedName = "unsaved";
 
@@ -35,6 +36,7 @@ namespace NoOfficeDemandFix.Telemetry
         private static readonly List<PerformanceSummaryRow> s_SummaryRows = new List<PerformanceSummaryRow>();
         private static readonly List<PerformanceStallRow> s_StallRows = new List<PerformanceStallRow>();
         private static readonly List<float> s_WindowLatencySamplesMs = new List<float>(128);
+        private static readonly List<float> s_WindowSimulationUpdateIntervalSamplesMs = new List<float>(128);
         private static readonly List<float> s_StallLatencySamplesMs = new List<float>(512);
 
         private static PerformanceRunMetadata s_RunMetadata;
@@ -50,6 +52,8 @@ namespace NoOfficeDemandFix.Telemetry
         private static int s_ConsecutiveAboveThreshold;
         private static int s_ConsecutiveBelowThreshold;
         private static int s_NextStallId;
+        private static bool s_HasSimulationUpdateTimestamp;
+        private static long s_LastSimulationUpdateTimestamp;
 
         private static long s_FrameSimulationTicks;
         private static long s_FramePathfindTicks;
@@ -61,6 +65,7 @@ namespace NoOfficeDemandFix.Telemetry
         private static FieldInfo[] s_PathfindActionFields;
         private static FieldInfo[] s_PathfindActionItemsFields;
         private static FieldInfo[] s_PathfindActionNextIndexFields;
+        private static PropertyInfo[] s_PathfindActionCountProperties;
         private static bool s_PathfindReflectionInitialized;
         private static bool s_PathfindReflectionUnavailableLogged;
 
@@ -176,6 +181,29 @@ namespace NoOfficeDemandFix.Telemetry
             }
         }
 
+        public static void RecordSimulationUpdateTimestamp(long timestamp)
+        {
+            if (!IsCollecting || timestamp <= 0L)
+            {
+                return;
+            }
+
+            if (s_HasSimulationUpdateTimestamp)
+            {
+                long intervalTicks = timestamp - s_LastSimulationUpdateTimestamp;
+                if (intervalTicks > 0L)
+                {
+                    float intervalMs = (float)(intervalTicks * 1000d / Stopwatch.Frequency);
+                    s_Window.SimulationUpdateSampleCount++;
+                    s_Window.TotalSimulationUpdateIntervalMs += intervalMs;
+                    s_WindowSimulationUpdateIntervalSamplesMs.Add(intervalMs);
+                }
+            }
+
+            s_LastSimulationUpdateTimestamp = timestamp;
+            s_HasSimulationUpdateTimestamp = true;
+        }
+
         public static void RecordPathfindUpdateElapsedTicks(long elapsedTicks)
         {
             if (IsCollecting && elapsedTicks > 0)
@@ -230,7 +258,13 @@ namespace NoOfficeDemandFix.Telemetry
                 int total = 0;
                 for (int i = 0; i < s_PathfindActionFields.Length; i++)
                 {
-                    object actionList = s_PathfindActionFields[i].GetValue(pathfindQueueSystem);
+                    FieldInfo actionField = s_PathfindActionFields[i];
+                    if (actionField == null)
+                    {
+                        continue;
+                    }
+
+                    object actionList = actionField.GetValue(pathfindQueueSystem);
                     if (actionList == null)
                     {
                         continue;
@@ -439,6 +473,12 @@ namespace NoOfficeDemandFix.Telemetry
             double fpsMean = s_Window.TotalRenderLatencyMs > 0d
                 ? (s_Window.FrameCount * 1000d) / s_Window.TotalRenderLatencyMs
                 : 0d;
+            double simulationUpdateRateMean = s_Window.TotalSimulationUpdateIntervalMs > 0d
+                ? (s_Window.SimulationUpdateSampleCount * 1000d) / s_Window.TotalSimulationUpdateIntervalMs
+                : 0d;
+            double simulationUpdateIntervalMeanMs = s_Window.SimulationUpdateSampleCount > 0
+                ? s_Window.TotalSimulationUpdateIntervalMs / s_Window.SimulationUpdateSampleCount
+                : 0d;
 
             s_SummaryRows.Add(new PerformanceSummaryRow
             {
@@ -448,6 +488,9 @@ namespace NoOfficeDemandFix.Telemetry
                 FpsMean = fpsMean,
                 RenderLatencyMeanMs = s_Window.TotalRenderLatencyMs / s_Window.FrameCount,
                 RenderLatencyP95Ms = CalculatePercentile(s_WindowLatencySamplesMs, 0.95d),
+                SimulationUpdateRateMean = simulationUpdateRateMean,
+                SimulationUpdateIntervalMeanMs = simulationUpdateIntervalMeanMs,
+                SimulationUpdateIntervalP95Ms = CalculatePercentile(s_WindowSimulationUpdateIntervalSamplesMs, 0.95d),
                 SimulationStepMeanMs = s_Window.TotalSimulationStepMs / s_Window.FrameCount,
                 PathfindUpdateMeanMs = s_Window.TotalPathfindUpdateMs / s_Window.FrameCount,
                 ModUpdateMeanMs = s_Window.TotalModUpdateMs / s_Window.FrameCount,
@@ -463,6 +506,7 @@ namespace NoOfficeDemandFix.Telemetry
 
             s_Window = default;
             s_WindowLatencySamplesMs.Clear();
+            s_WindowSimulationUpdateIntervalSamplesMs.Clear();
         }
 
         private static bool ShouldEmitTrailingSummaryRow()
@@ -508,7 +552,7 @@ namespace NoOfficeDemandFix.Telemetry
             using (StreamWriter writer = CreateWriter(summaryPath))
             {
                 WriteMetadataBlock(writer, "summary");
-                writer.WriteLine("run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window");
+                writer.WriteLine("run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_update_rate_mean,simulation_update_interval_mean_ms,simulation_update_interval_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window");
                 for (int i = 0; i < s_SummaryRows.Count; i++)
                 {
                     PerformanceSummaryRow row = s_SummaryRows[i];
@@ -523,6 +567,12 @@ namespace NoOfficeDemandFix.Telemetry
                     writer.Write(FormatDouble(row.RenderLatencyMeanMs));
                     writer.Write(',');
                     writer.Write(FormatDouble(row.RenderLatencyP95Ms));
+                    writer.Write(',');
+                    writer.Write(FormatDouble(row.SimulationUpdateRateMean));
+                    writer.Write(',');
+                    writer.Write(FormatDouble(row.SimulationUpdateIntervalMeanMs));
+                    writer.Write(',');
+                    writer.Write(FormatDouble(row.SimulationUpdateIntervalP95Ms));
                     writer.Write(',');
                     writer.Write(FormatDouble(row.SimulationStepMeanMs));
                     writer.Write(',');
@@ -581,7 +631,7 @@ namespace NoOfficeDemandFix.Telemetry
 
         private static void WriteMetadataBlock(TextWriter writer, string fileKind)
         {
-            WriteMetadataLine(writer, "telemetry_schema_version", "1");
+            WriteMetadataLine(writer, "telemetry_schema_version", kTelemetrySchemaVersion);
             WriteMetadataLine(writer, "telemetry_file_kind", SanitizeMetadataValue(fileKind));
             WriteMetadataLine(writer, "run_id", SanitizeMetadataValue(s_RunMetadata.RunId));
             WriteMetadataLine(writer, "run_start_utc", s_RunMetadata.RunStartUtc.ToString("O", CultureInfo.InvariantCulture));
@@ -611,7 +661,8 @@ namespace NoOfficeDemandFix.Telemetry
             {
                 return s_PathfindActionFields != null &&
                     s_PathfindActionItemsFields != null &&
-                    s_PathfindActionNextIndexFields != null;
+                    s_PathfindActionNextIndexFields != null &&
+                    s_PathfindActionCountProperties != null;
             }
 
             s_PathfindReflectionInitialized = true;
@@ -622,31 +673,52 @@ namespace NoOfficeDemandFix.Telemetry
             s_PathfindActionFields = new FieldInfo[s_PathfindActionFieldNames.Length];
             s_PathfindActionItemsFields = new FieldInfo[s_PathfindActionFieldNames.Length];
             s_PathfindActionNextIndexFields = new FieldInfo[s_PathfindActionFieldNames.Length];
+            s_PathfindActionCountProperties = new PropertyInfo[s_PathfindActionFieldNames.Length];
+            List<string> unsupportedFieldNames = null;
+            int boundFieldCount = 0;
             for (int i = 0; i < s_PathfindActionFieldNames.Length; i++)
             {
                 s_PathfindActionFields[i] = pathfindQueueType.GetField(s_PathfindActionFieldNames[i], flags);
-                if (s_PathfindActionFields[i] != null)
+                if (s_PathfindActionFields[i] == null)
                 {
-                    s_PathfindActionItemsFields[i] = s_PathfindActionFields[i].FieldType.GetField("m_Items", flags);
-                    s_PathfindActionNextIndexFields[i] = s_PathfindActionFields[i].FieldType.GetField("m_NextIndex", flags);
+                    (unsupportedFieldNames ??= new List<string>()).Add($"{s_PathfindActionFieldNames[i]} (missing)");
+                    continue;
                 }
+
+                Type fieldType = s_PathfindActionFields[i].FieldType;
+                s_PathfindActionItemsFields[i] = fieldType.GetField("m_Items", flags);
+                s_PathfindActionNextIndexFields[i] = fieldType.GetField("m_NextIndex", flags);
+                s_PathfindActionCountProperties[i] = GetCountProperty(fieldType, flags);
+
+                if (s_PathfindActionNextIndexFields[i] != null ||
+                    s_PathfindActionItemsFields[i] != null ||
+                    s_PathfindActionCountProperties[i] != null)
+                {
+                    boundFieldCount++;
+                    continue;
+                }
+
+                (unsupportedFieldNames ??= new List<string>()).Add(s_PathfindActionFieldNames[i]);
             }
 
-            bool valid = true;
-            for (int i = 0; i < s_PathfindActionFields.Length; i++)
-            {
-                valid &= s_PathfindActionFields[i] != null &&
-                    (s_PathfindActionItemsFields[i] != null || s_PathfindActionNextIndexFields[i] != null);
-            }
-
-            if (!valid && !s_PathfindReflectionUnavailableLogged)
+            if (boundFieldCount <= 0)
             {
                 DisablePathfindReflectionSampling();
-                Mod.log.Error("Performance telemetry could not bind PathfindQueueSystem fields. Path queue metrics will stay at 0.");
-                s_PathfindReflectionUnavailableLogged = true;
+                if (!s_PathfindReflectionUnavailableLogged)
+                {
+                    Mod.log.Error("Performance telemetry could not bind PathfindQueueSystem fields. Path queue metrics will stay at 0.");
+                    s_PathfindReflectionUnavailableLogged = true;
+                }
+
+                return false;
             }
 
-            return valid;
+            if (unsupportedFieldNames != null && unsupportedFieldNames.Count > 0)
+            {
+                Mod.log.Info($"Performance telemetry will skip unsupported PathfindQueueSystem fields: {string.Join(", ", unsupportedFieldNames)}.");
+            }
+
+            return true;
         }
 
         private static void DisablePathfindReflectionSampling()
@@ -654,6 +726,7 @@ namespace NoOfficeDemandFix.Telemetry
             s_PathfindActionFields = null;
             s_PathfindActionItemsFields = null;
             s_PathfindActionNextIndexFields = null;
+            s_PathfindActionCountProperties = null;
             s_PathfindReflectionInitialized = true;
         }
 
@@ -663,6 +736,16 @@ namespace NoOfficeDemandFix.Telemetry
             if (nextIndexField != null)
             {
                 return Math.Max(0, (int)nextIndexField.GetValue(actionList));
+            }
+
+            PropertyInfo countProperty = s_PathfindActionCountProperties[index];
+            if (countProperty != null)
+            {
+                object countValue = countProperty.GetValue(actionList);
+                if (countValue is int count)
+                {
+                    return Math.Max(0, count);
+                }
             }
 
             FieldInfo itemsField = s_PathfindActionItemsFields[index];
@@ -676,6 +759,20 @@ namespace NoOfficeDemandFix.Telemetry
             }
 
             return 0;
+        }
+
+        private static PropertyInfo GetCountProperty(Type fieldType, BindingFlags flags)
+        {
+            PropertyInfo countProperty = fieldType.GetProperty("Count", flags);
+            if (countProperty != null &&
+                countProperty.CanRead &&
+                countProperty.PropertyType == typeof(int) &&
+                countProperty.GetIndexParameters().Length == 0)
+            {
+                return countProperty;
+            }
+
+            return null;
         }
 
         private static void ResetRunState()
@@ -694,11 +791,14 @@ namespace NoOfficeDemandFix.Telemetry
         {
             s_Window = default;
             s_WindowLatencySamplesMs.Clear();
+            s_WindowSimulationUpdateIntervalSamplesMs.Clear();
             s_ActiveStall = default;
             s_StallLatencySamplesMs.Clear();
             s_PendingStallCandidate = default;
             s_ConsecutiveAboveThreshold = 0;
             s_ConsecutiveBelowThreshold = 0;
+            s_HasSimulationUpdateTimestamp = false;
+            s_LastSimulationUpdateTimestamp = 0L;
             ResetFrameInstrumentation();
         }
 
@@ -747,6 +847,8 @@ namespace NoOfficeDemandFix.Telemetry
             public int FrameCount;
             public double TotalDurationSec;
             public double TotalRenderLatencyMs;
+            public int SimulationUpdateSampleCount;
+            public double TotalSimulationUpdateIntervalMs;
             public double TotalSimulationStepMs;
             public double TotalPathfindUpdateMs;
             public double TotalModUpdateMs;

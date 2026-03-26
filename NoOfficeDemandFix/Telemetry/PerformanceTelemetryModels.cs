@@ -26,6 +26,9 @@ namespace NoOfficeDemandFix.Telemetry
         public double FpsMean;
         public double RenderLatencyMeanMs;
         public double RenderLatencyP95Ms;
+        public double SimulationUpdateRateMean;
+        public double SimulationUpdateIntervalMeanMs;
+        public double SimulationUpdateIntervalP95Ms;
         public double SimulationStepMeanMs;
         public double PathfindUpdateMeanMs;
         public double ModUpdateMeanMs;

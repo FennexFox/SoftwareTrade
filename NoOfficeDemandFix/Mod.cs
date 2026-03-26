@@ -46,11 +46,7 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
-            updateSystem.UpdateAfter<PerformanceTelemetrySystem, SignaturePropertyMarketGuardSystem>(SystemUpdatePhase.GameSimulation);
-            updateSystem.UpdateAfter<PerformanceTelemetrySystem, OfficeAIHotfixSystem>(SystemUpdatePhase.GameSimulation);
-            updateSystem.UpdateAfter<PerformanceTelemetrySystem, VirtualOfficeResourceBuyerFixSystem>(SystemUpdatePhase.GameSimulation);
-            updateSystem.UpdateAfter<PerformanceTelemetrySystem, PathfindSetupSystem>(SystemUpdatePhase.GameSimulation);
-            updateSystem.UpdateAfter<PerformanceTelemetrySystem, PathfindQueueSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<PerformanceTelemetrySystem, SimulationSystem>(SystemUpdatePhase.LateUpdate);
 
             m_Setting = new Setting(this);
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));

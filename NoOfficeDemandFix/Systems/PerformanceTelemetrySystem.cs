@@ -29,7 +29,7 @@ namespace NoOfficeDemandFix.Systems
 
         public override int GetUpdateInterval(SystemUpdatePhase phase)
         {
-            if (phase == SystemUpdatePhase.GameSimulation)
+            if (phase == SystemUpdatePhase.LateUpdate)
             {
                 return 1;
             }

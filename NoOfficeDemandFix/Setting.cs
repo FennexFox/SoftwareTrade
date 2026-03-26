@@ -133,7 +133,7 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetrySamplingIntervalSec)), "Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. Default is 1.00 seconds." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.PerformanceTelemetryStallThresholdMs)), "Stall threshold (ms)" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetryStallThresholdMs)), "Defines the render-latency threshold used to start and end coarse stall-event tracking. Default is 250 ms." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetryStallThresholdMs)), "Defines the render-frame latency threshold used to start and end coarse stall-event tracking. Default is 250 ms." },
             };
         }
 

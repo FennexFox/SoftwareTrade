@@ -17,7 +17,9 @@ namespace NoOfficeDemandFix.Patches
         {
             if (__state != 0L)
             {
-                PerformanceTelemetryCollector.RecordSimulationUpdateElapsedTicks(System.Diagnostics.Stopwatch.GetTimestamp() - __state);
+                long now = System.Diagnostics.Stopwatch.GetTimestamp();
+                PerformanceTelemetryCollector.RecordSimulationUpdateElapsedTicks(now - __state);
+                PerformanceTelemetryCollector.RecordSimulationUpdateTimestamp(now);
             }
         }
     }
