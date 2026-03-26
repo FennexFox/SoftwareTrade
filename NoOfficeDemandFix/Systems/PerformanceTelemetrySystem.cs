@@ -29,6 +29,8 @@ namespace NoOfficeDemandFix.Systems
 
         public override int GetUpdateInterval(SystemUpdatePhase phase)
         {
+            // Use LateUpdate so telemetry is aligned with rendering and measures full frame
+            // latency (simulation + render), matching the render-aligned metrics in Mod.cs.
             if (phase == SystemUpdatePhase.LateUpdate)
             {
                 return 1;

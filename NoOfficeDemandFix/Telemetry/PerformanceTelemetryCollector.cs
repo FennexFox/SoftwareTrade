@@ -629,6 +629,8 @@ namespace NoOfficeDemandFix.Telemetry
             return new StreamWriter(path, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), 65536);
         }
 
+        // Telemetry schema v2 adds simulation_update_rate_mean, simulation_update_interval_mean_ms,
+        // and simulation_update_interval_p95_ms columns to the summary CSV.
         private static void WriteMetadataBlock(TextWriter writer, string fileKind)
         {
             WriteMetadataLine(writer, "telemetry_schema_version", kTelemetrySchemaVersion);

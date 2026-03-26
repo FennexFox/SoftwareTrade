@@ -46,6 +46,8 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
+            // Run performance telemetry in LateUpdate so metrics are captured after simulation completes,
+            // aligned with the rendered frame rather than the main GameSimulation step.
             updateSystem.UpdateAfter<PerformanceTelemetrySystem, SimulationSystem>(SystemUpdatePhase.LateUpdate);
 
             m_Setting = new Setting(this);
