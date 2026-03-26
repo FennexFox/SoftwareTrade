@@ -10,7 +10,7 @@ This intake is for performance comparison. It is not the same as the
 
 Performance telemetry is intended to answer two questions:
 
-- what steady-state overhead the mod adds outside stalls
+- what render-aligned steady-state overhead the mod adds outside stalls
 - how stall frequency, duration, and severity change during stressed periods
 
 The automation summarizes those two views separately and checks whether a
@@ -46,6 +46,7 @@ When multiple telemetry captures feed the same performance question:
 - keep the enabled fix set the same when you want direct before/after deltas
 - if a fix toggle itself is the variable under test, say that explicitly in `What changed`; direct deltas are still allowed when save/scenario, sampling interval, and stall threshold match and telemetry metadata shows exactly one known fix-toggle difference
 - prefer the same save lineage, same game version, and same mod version for direct comparison
+- telemetry bundles should now use `telemetry_schema_version=2`; the summary CSV adds explicit simulation-cadence columns while keeping `fps_mean` and `render_latency_*` aligned to visible frame cadence
 - if you need semantic interpretation later, also capture a matching diagnostics raw log on the same save and settings
 
 ## What To Upload

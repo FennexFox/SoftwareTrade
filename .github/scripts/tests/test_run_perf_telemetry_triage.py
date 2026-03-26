@@ -36,11 +36,11 @@ PERF_ISSUE_BODY = textwrap.dedent(
 
     ### Baseline telemetry bundle
     ```csv
-    # telemetry_schema_version=1
+    # telemetry_schema_version=2
     # telemetry_file_kind=summary
     # run_id=baseline-run
-    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
-    baseline-run,1,100,60,16,18,3,1,0.2,10,1,1,2,false
+    run_id,elapsed_sec,simulation_tick,fps_mean,render_latency_mean_ms,render_latency_p95_ms,simulation_update_rate_mean,simulation_update_interval_mean_ms,simulation_update_interval_p95_ms,simulation_step_mean_ms,pathfind_update_mean_ms,mod_update_mean_ms,mod_entities_inspected_count,mod_repath_requested_count,path_requests_pending_count,path_queue_len_max,is_stall_window
+    baseline-run,1,100,60,16,18,240,4.0,4.4,3,1,0.2,10,1,1,2,false
     ```
 
     ### Comparison telemetry bundle

@@ -67,7 +67,7 @@ PERF_TELEMETRY_REQUIRED_FIELDS = (
     "baseline_bundle",
 )
 
-SUMMARY_FIELDNAMES = [
+SUMMARY_FIELDNAMES_V1 = [
     "run_id",
     "elapsed_sec",
     "simulation_tick",
@@ -84,6 +84,28 @@ SUMMARY_FIELDNAMES = [
     "is_stall_window",
 ]
 
+SUMMARY_FIELDNAMES_V2 = [
+    "run_id",
+    "elapsed_sec",
+    "simulation_tick",
+    "fps_mean",
+    "render_latency_mean_ms",
+    "render_latency_p95_ms",
+    "simulation_update_rate_mean",
+    "simulation_update_interval_mean_ms",
+    "simulation_update_interval_p95_ms",
+    "simulation_step_mean_ms",
+    "pathfind_update_mean_ms",
+    "mod_update_mean_ms",
+    "mod_entities_inspected_count",
+    "mod_repath_requested_count",
+    "path_requests_pending_count",
+    "path_queue_len_max",
+    "is_stall_window",
+]
+
+SUMMARY_FIELDNAMES = SUMMARY_FIELDNAMES_V2
+
 STALL_FIELDNAMES = [
     "run_id",
     "stall_id",
@@ -97,7 +119,10 @@ STALL_FIELDNAMES = [
     "stall_mod_entities_inspected_count",
 ]
 
-SUMMARY_HEADER = ",".join(SUMMARY_FIELDNAMES)
+SUMMARY_HEADER_V1 = ",".join(SUMMARY_FIELDNAMES_V1)
+SUMMARY_HEADER_V2 = ",".join(SUMMARY_FIELDNAMES_V2)
+SUMMARY_HEADER = SUMMARY_HEADER_V2
+SUMMARY_HEADERS = {SUMMARY_HEADER_V1, SUMMARY_HEADER_V2}
 STALL_HEADER = ",".join(STALL_FIELDNAMES)
 
 
@@ -135,6 +160,9 @@ class SummaryRow:
     fps_mean: float
     render_latency_mean_ms: float
     render_latency_p95_ms: float
+    simulation_update_rate_mean: float
+    simulation_update_interval_mean_ms: float
+    simulation_update_interval_p95_ms: float
     simulation_step_mean_ms: float
     pathfind_update_mean_ms: float
     mod_update_mean_ms: float
@@ -821,7 +849,7 @@ def split_csv_fragments(block: str) -> list[str]:
 
 
 def classify_header(line: str) -> str | None:
-    if line == SUMMARY_HEADER:
+    if line in SUMMARY_HEADERS:
         return SUMMARY_FILE_KIND
     if line == STALL_HEADER:
         return STALLS_FILE_KIND
@@ -863,7 +891,7 @@ def parse_summary_document(document_text: str, field_label: str) -> tuple[Teleme
     metadata_values, csv_text = split_metadata_and_csv(document_text)
     metadata = build_metadata(metadata_values)
     warnings = validate_metadata_contract(metadata, expected_file_kind=SUMMARY_FILE_KIND, field_label=field_label)
-    rows = parse_csv_rows(csv_text, SUMMARY_FIELDNAMES, parse_summary_row)
+    rows = parse_csv_rows(csv_text, select_summary_fieldnames(csv_text), parse_summary_row)
 
     if metadata.run_id and any(row.run_id and row.run_id != metadata.run_id for row in rows):
         warnings.append(f"{field_label} summary rows include a run_id that does not match metadata.")
@@ -967,11 +995,12 @@ def validate_metadata_contract(
     field_label: str,
 ) -> list[str]:
     warnings: list[str] = []
-    if not metadata.telemetry_schema_version:
+    schema_version = metadata.telemetry_schema_version.strip()
+    if not schema_version:
         warnings.append(f"{field_label} is missing `telemetry_schema_version`; parsed with v1 compatibility rules.")
-    elif metadata.telemetry_schema_version != "1":
+    elif schema_version not in {"1", "2"}:
         warnings.append(
-            f"{field_label} uses `telemetry_schema_version={metadata.telemetry_schema_version}`; parsed with v1 compatibility rules."
+            f"{field_label} uses `telemetry_schema_version={schema_version}`; parsed with supported compatibility rules."
         )
 
     if not metadata.telemetry_file_kind:
@@ -1025,6 +1054,27 @@ def parse_csv_rows(
     return rows
 
 
+def select_summary_fieldnames(csv_text: str) -> list[str]:
+    header = get_csv_header_line(csv_text)
+    if header == SUMMARY_HEADER_V2:
+        return SUMMARY_FIELDNAMES_V2
+    if header == SUMMARY_HEADER_V1:
+        return SUMMARY_FIELDNAMES_V1
+    raise AutomationError(
+        "Unexpected telemetry CSV header. "
+        f"Expected `{SUMMARY_HEADER_V1}` or `{SUMMARY_HEADER_V2}` but got `{header}`."
+    )
+
+
+def get_csv_header_line(csv_text: str) -> str:
+    for line in csv_text.replace("\r\n", "\n").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("# "):
+            continue
+        return stripped
+    return ""
+
+
 def parse_summary_row(raw_row: dict[str, str]) -> SummaryRow:
     return SummaryRow(
         run_id=(raw_row.get("run_id") or "").strip(),
@@ -1033,6 +1083,9 @@ def parse_summary_row(raw_row: dict[str, str]) -> SummaryRow:
         fps_mean=parse_float(raw_row.get("fps_mean")),
         render_latency_mean_ms=parse_float(raw_row.get("render_latency_mean_ms")),
         render_latency_p95_ms=parse_float(raw_row.get("render_latency_p95_ms")),
+        simulation_update_rate_mean=parse_float(raw_row.get("simulation_update_rate_mean")),
+        simulation_update_interval_mean_ms=parse_float(raw_row.get("simulation_update_interval_mean_ms")),
+        simulation_update_interval_p95_ms=parse_float(raw_row.get("simulation_update_interval_p95_ms")),
         simulation_step_mean_ms=parse_float(raw_row.get("simulation_step_mean_ms")),
         pathfind_update_mean_ms=parse_float(raw_row.get("pathfind_update_mean_ms")),
         mod_update_mean_ms=parse_float(raw_row.get("mod_update_mean_ms")),

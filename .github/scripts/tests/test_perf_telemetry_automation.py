@@ -27,6 +27,7 @@ def make_metadata(
     *,
     run_id: str,
     file_kind: str,
+    schema_version: str = "1",
     save_name: str = "New Seoul",
     scenario_id: str = "map_a",
     game_version: str = "1.5.xf1",
@@ -36,7 +37,7 @@ def make_metadata(
     fix_flags: tuple[bool | None, bool | None, bool | None, bool | None] = (True, True, True, True),
 ) -> str:
     lines = [
-        "# telemetry_schema_version=1",
+        f"# telemetry_schema_version={schema_version}",
         f"# telemetry_file_kind={file_kind}",
         f"# run_id={run_id}",
         "# run_start_utc=2026-03-23T00:00:00.0000000Z",
@@ -59,6 +60,9 @@ def make_metadata(
     return "\n".join(lines)
 
 
+SUMMARY_HEADER_V2 = ",".join(automation.SUMMARY_FIELDNAMES_V2)
+
+
 BASELINE_SUMMARY_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='baseline-run', file_kind='summary')}
@@ -74,6 +78,44 @@ BASELINE_STALLS_CSV = textwrap.dedent(
     {make_metadata(run_id='baseline-run', file_kind='stalls')}
     run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
     baseline-run,1,2,6,4,400,380,120,8,50
+    """
+).strip()
+
+BASELINE_V2_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary', schema_version='2')}
+    {SUMMARY_HEADER_V2}
+    baseline-run,1,100,60,16,18,240,4.0,4.4,3,1,0.20,10,1,1,2,false
+    baseline-run,2,200,58,17,19,238,4.1,4.5,3.2,1.1,0.25,12,0,2,4,false
+    baseline-run,3,300,4,350,400,16,62.5,70.0,20,25,2.0,50,8,80,120,true
+    """
+).strip()
+
+BASELINE_V2_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='stalls', schema_version='2')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    baseline-run,1,2,6,4,400,380,120,8,50
+    """
+).strip()
+
+COMPARISON_V2_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', schema_version='2')}
+    {SUMMARY_HEADER_V2}
+    comparison-run,1,100,55,18,20,236,4.2,4.8,3.5,1.3,0.60,10,1,1,3,false
+    comparison-run,2,200,54,20,22,234,4.3,4.9,3.7,1.6,0.70,12,1,2,6,false
+    comparison-run,3,300,3,500,540,15,66.0,72.0,25,35,4.0,80,15,120,220,true
+    comparison-run,4,400,3,520,560,14,71.0,78.0,28,37,4.3,90,20,150,260,true
+    """
+).strip()
+
+COMPARISON_V2_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='stalls', schema_version='2')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    comparison-run,1,2,8,6,540,520,220,15,80
+    comparison-run,2,9,16,7,560,550,260,20,90
     """
 ).strip()
 
@@ -249,6 +291,13 @@ INLINE_COMPARISON_BUNDLE = (
     "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
 )
 
+INLINE_BASELINE_BUNDLE_V2 = (
+    "```csv\n" + BASELINE_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + BASELINE_V2_STALLS_CSV + "\n```"
+)
+INLINE_COMPARISON_BUNDLE_V2 = (
+    "```csv\n" + COMPARISON_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_V2_STALLS_CSV + "\n```"
+)
+
 PERF_ISSUE_BODY = textwrap.dedent(
     f"""
     <!-- performance-telemetry-report -->
@@ -271,10 +320,10 @@ PERF_ISSUE_BODY = textwrap.dedent(
     none known
 
     ### Baseline telemetry bundle
-    {INLINE_BASELINE_BUNDLE}
+    {INLINE_BASELINE_BUNDLE_V2}
 
     ### Comparison telemetry bundle
-    {INLINE_COMPARISON_BUNDLE}
+    {INLINE_COMPARISON_BUNDLE_V2}
     """
 ).strip()
 
@@ -285,7 +334,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertEqual(parsed["game_version"], "1.5.xf1")
         self.assertEqual(parsed["save_or_city_label"], "New Seoul")
         self.assertIn("experimental buyer-pass optimization", parsed["what_changed"])
-        self.assertIn("telemetry_schema_version=1", parsed["baseline_bundle"])
+        self.assertIn("telemetry_schema_version=2", parsed["baseline_bundle"])
 
     def test_is_performance_telemetry_issue_accepts_issue_form(self) -> None:
         self.assertTrue(automation.is_performance_telemetry_issue(PERF_ISSUE_BODY, "[Performance Telemetry] test"))
@@ -296,6 +345,17 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertIn("run_id,elapsed_sec", documents["summary"])
         self.assertIn("run_id,stall_id", documents["stalls"])
+
+    def test_parse_summary_document_supports_v2_columns(self) -> None:
+        metadata, rows, warnings = automation.parse_summary_document(BASELINE_V2_SUMMARY_CSV, "Baseline telemetry bundle")
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(metadata.telemetry_schema_version, "2")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].simulation_update_rate_mean, 240.0)
+        self.assertEqual(rows[0].simulation_update_interval_mean_ms, 4.0)
+        self.assertEqual(rows[0].simulation_update_interval_p95_ms, 4.4)
+        self.assertEqual(rows[2].fps_mean, 4.0)
 
     def test_build_triage_analysis_supports_baseline_only(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
