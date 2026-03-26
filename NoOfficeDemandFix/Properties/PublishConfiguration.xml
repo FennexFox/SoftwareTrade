@@ -16,6 +16,7 @@ No Office Demand Fix currently ships confirmed office-demand fixes plus a narrow
 - Software import seller fallback: a narrow fallback that appends additional outside connections for office virtual-resource imports when vanilla seller selection is too restrictive.
 - Software import buyer fallback: a narrow corrective pass for zero-weight office inputs that remain below threshold without a buyer, path, trip, or current trading state.
 - Diagnostics: optional logs for office demand, phantom vacancy, and software office state; disabled by default until you turn them on for troubleshooting.
+- Performance telemetry: optional coarse, render-aligned summary and stall CSV output for before/after comparisons; disabled by default until you turn it on.
 
 Current release status:
 
@@ -23,6 +24,7 @@ Current release status:
 - fixes the vanilla office AI chunk-iteration abort on low stock
 - restores the pre-hotfix office-demand baseline for comparability via a direct Harmony patch
 - includes refined experimental software import seller and buyer fallbacks by default, with diagnostics available but disabled by default
+- keeps optional render-aligned performance telemetry available for before/after comparisons
 - keeps broader software-related office stalls under investigation
 - keeps non-signature phantom vacancy under observation
 	</LongDescription>
@@ -33,14 +35,14 @@ Current release status:
 	<!--Link to the forum post where the mod can be discussed-->
 	<ForumLink Value="https://forum.paradoxplaza.com/forum/threads/no-office-demand-fix-discussion-thread.1906822/" />
 	<!--Version of the mod-->
-	<ModVersion Value="0.2.2" />
+	<ModVersion Value="0.2.3" />
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
 <ChangeLog>
-- Improved occupied Signature property market cleanup while keeping the shipped office-demand baseline rollback and software-track release wording aligned with the current release.
-- Refined software diagnostics and troubleshooting output for the current investigation track, including clearer release-facing wording for the experimental seller and buyer fallbacks.
-- Added optional coarse performance telemetry capture and reporting, including more reliable queue sampling and clearer before/after comparison triage.
+- Aligned performance telemetry sampling with rendered-frame cadence so `fps_mean` and render-latency summaries no longer mirror `GameSimulation` cadence.
+- Added telemetry schema v2 summary fields for explicit simulation update rate and interval metrics while keeping telemetry comparison tooling aligned with the new header.
+- Hardened path queue reflection sampling so unsupported internal queue-field shapes no longer zero all queue metrics on affected builds.
 </ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
