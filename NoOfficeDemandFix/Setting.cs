@@ -127,13 +127,13 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.VerboseLogging)), "Takes effect immediately for ongoing diagnostics and phantom-vacancy corrections, forces diagnostics output at the configured cadence, and adds noisier correction and office-trade detail traces. Use it only when you want detailed troubleshooting logs." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnablePerformanceTelemetry)), "Enable performance telemetry" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePerformanceTelemetry)), "Captures coarse in-memory performance summaries and stall events, then writes them to CSV when the current session ends. Keeps observer overhead low by avoiding frequent text logs and raw per-frame traces." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnablePerformanceTelemetry)), "Captures coarse, render-aligned performance summaries and stall events, then writes them to CSV when the current session ends. Keeps observer overhead low by avoiding frequent text logs and raw per-frame traces." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.PerformanceTelemetrySamplingIntervalSec)), "Telemetry sampling interval (sec)" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetrySamplingIntervalSec)), "Controls the coarse wall-clock summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. Default is 1.00 seconds." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetrySamplingIntervalSec)), "Controls the coarse render-aligned summary window for performance telemetry. Lower values produce denser CSV output and slightly more telemetry overhead. Default is 1.00 seconds." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.PerformanceTelemetryStallThresholdMs)), "Stall threshold (ms)" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetryStallThresholdMs)), "Defines the render-latency threshold used to start and end coarse stall-event tracking. Default is 250 ms." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.PerformanceTelemetryStallThresholdMs)), "Defines the render-frame latency threshold used to start and end coarse stall-event tracking. Default is 250 ms." },
             };
         }
 

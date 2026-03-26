@@ -67,7 +67,7 @@ PERF_TELEMETRY_REQUIRED_FIELDS = (
     "baseline_bundle",
 )
 
-SUMMARY_FIELDNAMES = [
+SUMMARY_FIELDNAMES_V1 = [
     "run_id",
     "elapsed_sec",
     "simulation_tick",
@@ -84,6 +84,28 @@ SUMMARY_FIELDNAMES = [
     "is_stall_window",
 ]
 
+SUMMARY_FIELDNAMES_V2 = [
+    "run_id",
+    "elapsed_sec",
+    "simulation_tick",
+    "fps_mean",
+    "render_latency_mean_ms",
+    "render_latency_p95_ms",
+    "simulation_update_rate_mean",
+    "simulation_update_interval_mean_ms",
+    "simulation_update_interval_p95_ms",
+    "simulation_step_mean_ms",
+    "pathfind_update_mean_ms",
+    "mod_update_mean_ms",
+    "mod_entities_inspected_count",
+    "mod_repath_requested_count",
+    "path_requests_pending_count",
+    "path_queue_len_max",
+    "is_stall_window",
+]
+
+SUMMARY_FIELDNAMES = SUMMARY_FIELDNAMES_V2
+
 STALL_FIELDNAMES = [
     "run_id",
     "stall_id",
@@ -97,8 +119,8 @@ STALL_FIELDNAMES = [
     "stall_mod_entities_inspected_count",
 ]
 
-SUMMARY_HEADER = ",".join(SUMMARY_FIELDNAMES)
-STALL_HEADER = ",".join(STALL_FIELDNAMES)
+SUMMARY_HEADER_V1 = ",".join(SUMMARY_FIELDNAMES_V1)
+SUMMARY_HEADER_V2 = ",".join(SUMMARY_FIELDNAMES_V2)
 
 
 @dataclass
@@ -135,6 +157,9 @@ class SummaryRow:
     fps_mean: float
     render_latency_mean_ms: float
     render_latency_p95_ms: float
+    simulation_update_rate_mean: float
+    simulation_update_interval_mean_ms: float
+    simulation_update_interval_p95_ms: float
     simulation_step_mean_ms: float
     pathfind_update_mean_ms: float
     mod_update_mean_ms: float
@@ -821,9 +846,10 @@ def split_csv_fragments(block: str) -> list[str]:
 
 
 def classify_header(line: str) -> str | None:
-    if line == SUMMARY_HEADER:
+    header_tokens = normalize_csv_header_tokens(line)
+    if header_tokens in (SUMMARY_FIELDNAMES_V1, SUMMARY_FIELDNAMES_V2):
         return SUMMARY_FILE_KIND
-    if line == STALL_HEADER:
+    if header_tokens == STALL_FIELDNAMES:
         return STALLS_FILE_KIND
     return None
 
@@ -862,8 +888,21 @@ def merge_documents(
 def parse_summary_document(document_text: str, field_label: str) -> tuple[TelemetryRunMetadata, list[SummaryRow], list[str]]:
     metadata_values, csv_text = split_metadata_and_csv(document_text)
     metadata = build_metadata(metadata_values)
-    warnings = validate_metadata_contract(metadata, expected_file_kind=SUMMARY_FILE_KIND, field_label=field_label)
-    rows = parse_csv_rows(csv_text, SUMMARY_FIELDNAMES, parse_summary_row)
+    summary_fieldnames, detected_schema_version = select_summary_schema(csv_text)
+    warnings = validate_metadata_contract(
+        metadata,
+        expected_file_kind=SUMMARY_FILE_KIND,
+        field_label=field_label,
+        detected_schema_version=detected_schema_version,
+    )
+    metadata_schema_version = metadata.telemetry_schema_version.strip()
+    if metadata_schema_version and metadata_schema_version != detected_schema_version:
+        warnings.append(
+            f"{field_label} metadata says `telemetry_schema_version={metadata_schema_version}` "
+            f"but the summary header matches schema v{detected_schema_version}; using the header-derived schema."
+        )
+    metadata.telemetry_schema_version = detected_schema_version
+    rows = parse_csv_rows(csv_text, summary_fieldnames, parse_summary_row)
 
     if metadata.run_id and any(row.run_id and row.run_id != metadata.run_id for row in rows):
         warnings.append(f"{field_label} summary rows include a run_id that does not match metadata.")
@@ -965,13 +1004,21 @@ def validate_metadata_contract(
     *,
     expected_file_kind: str,
     field_label: str,
+    detected_schema_version: str | None = None,
 ) -> list[str]:
     warnings: list[str] = []
-    if not metadata.telemetry_schema_version:
-        warnings.append(f"{field_label} is missing `telemetry_schema_version`; parsed with v1 compatibility rules.")
-    elif metadata.telemetry_schema_version != "1":
+    schema_version = metadata.telemetry_schema_version.strip()
+    if not schema_version:
+        if detected_schema_version:
+            warnings.append(
+                f"{field_label} is missing `telemetry_schema_version`; inferred schema v{detected_schema_version} "
+                "from the CSV header."
+            )
+        else:
+            warnings.append(f"{field_label} is missing `telemetry_schema_version`; parsed with supported compatibility rules.")
+    elif schema_version not in {"1", "2"}:
         warnings.append(
-            f"{field_label} uses `telemetry_schema_version={metadata.telemetry_schema_version}`; parsed with v1 compatibility rules."
+            f"{field_label} uses `telemetry_schema_version={schema_version}`; parsed with supported compatibility rules."
         )
 
     if not metadata.telemetry_file_kind:
@@ -1007,7 +1054,7 @@ def parse_csv_rows(
     expected_fieldnames: list[str],
     row_parser,
 ) -> list[Any]:
-    reader = csv.DictReader(io.StringIO(csv_text))
+    reader = csv.DictReader(io.StringIO(csv_text), skipinitialspace=True)
     actual_fieldnames = [field.strip() for field in (reader.fieldnames or [])]
     if actual_fieldnames != expected_fieldnames:
         raise AutomationError(
@@ -1021,8 +1068,45 @@ def parse_csv_rows(
             continue
         if not any((value or "").strip() for value in raw_row.values()):
             continue
-        rows.append(row_parser(raw_row))
+        rows.append(row_parser(normalize_csv_row(raw_row)))
     return rows
+
+
+def select_summary_schema(csv_text: str) -> tuple[list[str], str]:
+    header_tokens = get_csv_header_tokens(csv_text)
+    if header_tokens == SUMMARY_FIELDNAMES_V2:
+        return SUMMARY_FIELDNAMES_V2, "2"
+    if header_tokens == SUMMARY_FIELDNAMES_V1:
+        return SUMMARY_FIELDNAMES_V1, "1"
+    raise AutomationError(
+        "Unexpected telemetry CSV header. "
+        f"Expected `{SUMMARY_HEADER_V1}` or `{SUMMARY_HEADER_V2}` but got `{','.join(header_tokens)}`."
+    )
+
+
+def get_csv_header_line(csv_text: str) -> str:
+    for line in csv_text.replace("\r\n", "\n").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("# "):
+            continue
+        return stripped
+    return ""
+
+
+def get_csv_header_tokens(csv_text: str) -> list[str]:
+    return normalize_csv_header_tokens(get_csv_header_line(csv_text))
+
+
+def normalize_csv_header_tokens(line: str) -> list[str]:
+    try:
+        header_row = next(csv.reader([line], skipinitialspace=True), [])
+    except csv.Error:
+        return [line.strip()]
+    return [token.strip() for token in header_row]
+
+
+def normalize_csv_row(raw_row: dict[str | None, str | None]) -> dict[str, str]:
+    return {(key or "").strip(): value or "" for key, value in raw_row.items() if key is not None}
 
 
 def parse_summary_row(raw_row: dict[str, str]) -> SummaryRow:
@@ -1033,6 +1117,9 @@ def parse_summary_row(raw_row: dict[str, str]) -> SummaryRow:
         fps_mean=parse_float(raw_row.get("fps_mean")),
         render_latency_mean_ms=parse_float(raw_row.get("render_latency_mean_ms")),
         render_latency_p95_ms=parse_float(raw_row.get("render_latency_p95_ms")),
+        simulation_update_rate_mean=parse_float(raw_row.get("simulation_update_rate_mean")),
+        simulation_update_interval_mean_ms=parse_float(raw_row.get("simulation_update_interval_mean_ms")),
+        simulation_update_interval_p95_ms=parse_float(raw_row.get("simulation_update_interval_p95_ms")),
         simulation_step_mean_ms=parse_float(raw_row.get("simulation_step_mean_ms")),
         pathfind_update_mean_ms=parse_float(raw_row.get("pathfind_update_mean_ms")),
         mod_update_mean_ms=parse_float(raw_row.get("mod_update_mean_ms")),
@@ -1189,6 +1276,20 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
 
     baseline_metadata = baseline.metadata
     comparison_metadata = comparison.metadata
+    baseline_schema_version = baseline_metadata.telemetry_schema_version.strip() or "unknown"
+    comparison_schema_version = comparison_metadata.telemetry_schema_version.strip() or "unknown"
+
+    if (
+        baseline_schema_version != "unknown"
+        and comparison_schema_version != "unknown"
+        and baseline_schema_version != comparison_schema_version
+    ):
+        directly_comparable = False
+        warnings.append(
+            "telemetry_schema_version mismatch: "
+            f"`{baseline_schema_version}` vs `{comparison_schema_version}`; "
+            "direct comparison is not allowed across schema versions."
+        )
 
     save_names_known = is_known_save_name(baseline_metadata.save_name) and is_known_save_name(comparison_metadata.save_name)
     scenario_ids_known = is_known_scenario_id(baseline_metadata.scenario_id) and is_known_scenario_id(comparison_metadata.scenario_id)

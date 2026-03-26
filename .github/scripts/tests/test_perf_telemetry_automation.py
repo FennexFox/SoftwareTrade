@@ -27,6 +27,7 @@ def make_metadata(
     *,
     run_id: str,
     file_kind: str,
+    schema_version: str = "1",
     save_name: str = "New Seoul",
     scenario_id: str = "map_a",
     game_version: str = "1.5.xf1",
@@ -36,7 +37,7 @@ def make_metadata(
     fix_flags: tuple[bool | None, bool | None, bool | None, bool | None] = (True, True, True, True),
 ) -> str:
     lines = [
-        "# telemetry_schema_version=1",
+        f"# telemetry_schema_version={schema_version}",
         f"# telemetry_file_kind={file_kind}",
         f"# run_id={run_id}",
         "# run_start_utc=2026-03-23T00:00:00.0000000Z",
@@ -59,6 +60,10 @@ def make_metadata(
     return "\n".join(lines)
 
 
+SUMMARY_HEADER_V2 = ",".join(automation.SUMMARY_FIELDNAMES_V2)
+SUMMARY_HEADER_V2_WITH_WHITESPACE = " , ".join(automation.SUMMARY_FIELDNAMES_V2)
+
+
 BASELINE_SUMMARY_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='baseline-run', file_kind='summary')}
@@ -76,6 +81,98 @@ BASELINE_STALLS_CSV = textwrap.dedent(
     baseline-run,1,2,6,4,400,380,120,8,50
     """
 ).strip()
+
+BASELINE_V2_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary', schema_version='2')}
+    {SUMMARY_HEADER_V2}
+    baseline-run,1,100,60,16,18,240,4.0,4.4,3,1,0.20,10,1,1,2,false
+    baseline-run,2,200,58,17,19,238,4.1,4.5,3.2,1.1,0.25,12,0,2,4,false
+    baseline-run,3,300,4,350,400,16,62.5,70.0,20,25,2.0,50,8,80,120,true
+    """
+).strip()
+
+BASELINE_V2_SUMMARY_WITH_SPACED_HEADER_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='summary', schema_version='2')}
+    {SUMMARY_HEADER_V2_WITH_WHITESPACE}
+    baseline-run,1,100,60,16,18,240,4.0,4.4,3,1,0.20,10,1,1,2,false
+    baseline-run,2,200,58,17,19,238,4.1,4.5,3.2,1.1,0.25,12,0,2,4,false
+    baseline-run,3,300,4,350,400,16,62.5,70.0,20,25,2.0,50,8,80,120,true
+    """
+).strip()
+
+BASELINE_V2_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='baseline-run', file_kind='stalls', schema_version='2')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    baseline-run,1,2,6,4,400,380,120,8,50
+    """
+).strip()
+
+COMPARISON_V2_SUMMARY_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='summary', schema_version='2')}
+    {SUMMARY_HEADER_V2}
+    comparison-run,1,100,55,18,20,236,4.2,4.8,3.5,1.3,0.60,10,1,1,3,false
+    comparison-run,2,200,54,20,22,234,4.3,4.9,3.7,1.6,0.70,12,1,2,6,false
+    comparison-run,3,300,3,500,540,15,66.0,72.0,25,35,4.0,80,15,120,220,true
+    comparison-run,4,400,3,520,560,14,71.0,78.0,28,37,4.3,90,20,150,260,true
+    """
+).strip()
+
+COMPARISON_V2_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='comparison-run', file_kind='stalls', schema_version='2')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    comparison-run,1,2,8,6,540,520,220,15,80
+    comparison-run,2,9,16,7,560,550,260,20,90
+    """
+).strip()
+
+SINGLE_TOGGLE_COMPARISON_V2_SUMMARY_CSV = COMPARISON_V2_SUMMARY_CSV.replace(
+    "# enable_virtual_office_resource_buyer_fix=true",
+    "# enable_virtual_office_resource_buyer_fix=false",
+    1,
+)
+SINGLE_TOGGLE_COMPARISON_V2_STALLS_CSV = COMPARISON_V2_STALLS_CSV.replace(
+    "# enable_virtual_office_resource_buyer_fix=true",
+    "# enable_virtual_office_resource_buyer_fix=false",
+    1,
+)
+MULTI_TOGGLE_COMPARISON_V2_SUMMARY_CSV = (
+    COMPARISON_V2_SUMMARY_CSV.replace("# enable_phantom_vacancy_fix=true", "# enable_phantom_vacancy_fix=false", 1)
+    .replace(
+        "# enable_virtual_office_resource_buyer_fix=true",
+        "# enable_virtual_office_resource_buyer_fix=false",
+        1,
+    )
+)
+MULTI_TOGGLE_COMPARISON_V2_STALLS_CSV = (
+    COMPARISON_V2_STALLS_CSV.replace("# enable_phantom_vacancy_fix=true", "# enable_phantom_vacancy_fix=false", 1)
+    .replace(
+        "# enable_virtual_office_resource_buyer_fix=true",
+        "# enable_virtual_office_resource_buyer_fix=false",
+        1,
+    )
+)
+UNKNOWN_TOGGLE_COMPARISON_V2_SUMMARY_CSV = COMPARISON_V2_SUMMARY_CSV.replace(
+    "# enable_virtual_office_resource_buyer_fix=true\n",
+    "",
+    1,
+)
+UNKNOWN_TOGGLE_COMPARISON_V2_STALLS_CSV = COMPARISON_V2_STALLS_CSV.replace(
+    "# enable_virtual_office_resource_buyer_fix=true\n",
+    "",
+    1,
+)
+SAVE_NAME_MISMATCH_V2_SUMMARY_CSV = COMPARISON_V2_SUMMARY_CSV.replace("# save_name=New Seoul", "# save_name=Other City", 1)
+SCENARIO_ID_MISMATCH_V2_SUMMARY_CSV = COMPARISON_V2_SUMMARY_CSV.replace("# scenario_id=map_a", "# scenario_id=map_b", 1)
+BOTH_IDENTITY_MISMATCH_V2_SUMMARY_CSV = SAVE_NAME_MISMATCH_V2_SUMMARY_CSV.replace(
+    "# scenario_id=map_a",
+    "# scenario_id=map_b",
+    1,
+)
 
 COMPARISON_SUMMARY_CSV = textwrap.dedent(
     f"""
@@ -215,6 +312,14 @@ MISMATCHED_STALLS_CSV = textwrap.dedent(
     """
 ).strip()
 
+MISMATCHED_V2_STALLS_CSV = textwrap.dedent(
+    f"""
+    {make_metadata(run_id='wrong-run', file_kind='stalls', schema_version='2', save_name='Wrong City', scenario_id='map_z')}
+    run_id,stall_id,stall_start_sec,stall_end_sec,stall_duration_sec,stall_peak_render_latency_ms,stall_p95_render_latency_ms,stall_peak_path_queue_len,stall_mod_repath_requested_count,stall_mod_entities_inspected_count
+    wrong-run,1,2,8,6,540,520,220,15,80
+    """
+).strip()
+
 ZERO_QUEUE_PRESSURE_SUMMARY_CSV = textwrap.dedent(
     f"""
     {make_metadata(run_id='baseline-run', file_kind='summary')}
@@ -249,6 +354,13 @@ INLINE_COMPARISON_BUNDLE = (
     "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
 )
 
+INLINE_BASELINE_BUNDLE_V2 = (
+    "```csv\n" + BASELINE_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + BASELINE_V2_STALLS_CSV + "\n```"
+)
+INLINE_COMPARISON_BUNDLE_V2 = (
+    "```csv\n" + COMPARISON_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_V2_STALLS_CSV + "\n```"
+)
+
 PERF_ISSUE_BODY = textwrap.dedent(
     f"""
     <!-- performance-telemetry-report -->
@@ -271,10 +383,10 @@ PERF_ISSUE_BODY = textwrap.dedent(
     none known
 
     ### Baseline telemetry bundle
-    {INLINE_BASELINE_BUNDLE}
+    {INLINE_BASELINE_BUNDLE_V2}
 
     ### Comparison telemetry bundle
-    {INLINE_COMPARISON_BUNDLE}
+    {INLINE_COMPARISON_BUNDLE_V2}
     """
 ).strip()
 
@@ -285,7 +397,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertEqual(parsed["game_version"], "1.5.xf1")
         self.assertEqual(parsed["save_or_city_label"], "New Seoul")
         self.assertIn("experimental buyer-pass optimization", parsed["what_changed"])
-        self.assertIn("telemetry_schema_version=1", parsed["baseline_bundle"])
+        self.assertIn("telemetry_schema_version=2", parsed["baseline_bundle"])
 
     def test_is_performance_telemetry_issue_accepts_issue_form(self) -> None:
         self.assertTrue(automation.is_performance_telemetry_issue(PERF_ISSUE_BODY, "[Performance Telemetry] test"))
@@ -296,6 +408,42 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertIn("run_id,elapsed_sec", documents["summary"])
         self.assertIn("run_id,stall_id", documents["stalls"])
+
+    def test_parse_summary_document_supports_v2_columns(self) -> None:
+        metadata, rows, warnings = automation.parse_summary_document(BASELINE_V2_SUMMARY_CSV, "Baseline telemetry bundle")
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(metadata.telemetry_schema_version, "2")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].simulation_update_rate_mean, 240.0)
+        self.assertEqual(rows[0].simulation_update_interval_mean_ms, 4.0)
+        self.assertEqual(rows[0].simulation_update_interval_p95_ms, 4.4)
+        self.assertEqual(rows[2].fps_mean, 4.0)
+
+    def test_parse_summary_document_accepts_whitespace_only_header_variation(self) -> None:
+        metadata, rows, warnings = automation.parse_summary_document(
+            BASELINE_V2_SUMMARY_WITH_SPACED_HEADER_CSV,
+            "Baseline telemetry bundle",
+        )
+
+        self.assertEqual(warnings, [])
+        self.assertEqual(metadata.telemetry_schema_version, "2")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0].simulation_update_rate_mean, 240.0)
+        self.assertEqual(rows[1].path_requests_pending_count, 2)
+
+    def test_parse_summary_document_prefers_header_schema_over_mislabelled_metadata(self) -> None:
+        mislabelled_summary = BASELINE_V2_SUMMARY_CSV.replace(
+            "# telemetry_schema_version=2",
+            "# telemetry_schema_version=1",
+            1,
+        )
+
+        metadata, rows, warnings = automation.parse_summary_document(mislabelled_summary, "Baseline telemetry bundle")
+
+        self.assertEqual(metadata.telemetry_schema_version, "2")
+        self.assertEqual(len(rows), 3)
+        self.assertIn("metadata says `telemetry_schema_version=1`", " ".join(warnings))
 
     def test_build_triage_analysis_supports_baseline_only(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
@@ -346,10 +494,28 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         self.assertIn("stall_frequency_elevated", triage.anomaly_flags)
         self.assertIn("queue_pressure_during_stalls", triage.anomaly_flags)
 
+    def test_build_triage_analysis_blocks_direct_comparison_across_schema_versions(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
+        issue_fields["comparison_bundle"] = (
+            "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+        )
+
+        triage = automation.build_triage_analysis(21, issue_fields)
+        comparison = require_not_none(triage.comparison)
+        comparison_analysis = require_not_none(triage.comparison_analysis)
+
+        self.assertEqual(comparison.metadata.telemetry_schema_version, "1")
+        self.assertFalse(comparison_analysis.directly_comparable)
+        self.assertIsNone(comparison_analysis.steady_state_mod_update_delta_ms)
+        self.assertIn("telemetry_schema_version mismatch", " ".join(comparison_analysis.warnings))
+        self.assertIn("across schema versions", " ".join(comparison_analysis.warnings))
+        self.assertIn("capture a paired comparison with matching save/settings/threshold", triage.follow_up_suggestions)
+        self.assertNotIn("steady_state_mod_overhead_elevated", triage.anomaly_flags)
+
     def test_build_triage_analysis_allows_same_scenario_when_save_names_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
-            "```csv\n" + SAVE_NAME_MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+            "```csv\n" + SAVE_NAME_MISMATCH_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_V2_STALLS_CSV + "\n```"
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
@@ -362,7 +528,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
     def test_build_triage_analysis_allows_same_save_when_scenario_ids_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
-            "```csv\n" + SCENARIO_ID_MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+            "```csv\n" + SCENARIO_ID_MISMATCH_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_V2_STALLS_CSV + "\n```"
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
@@ -376,9 +542,9 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
             "```csv\n"
-            + SINGLE_TOGGLE_COMPARISON_SUMMARY_CSV
+            + SINGLE_TOGGLE_COMPARISON_V2_SUMMARY_CSV
             + "\n```\n\n```csv\n"
-            + SINGLE_TOGGLE_COMPARISON_STALLS_CSV
+            + SINGLE_TOGGLE_COMPARISON_V2_STALLS_CSV
             + "\n```"
         )
 
@@ -401,9 +567,9 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
             "```csv\n"
-            + MULTI_TOGGLE_COMPARISON_SUMMARY_CSV
+            + MULTI_TOGGLE_COMPARISON_V2_SUMMARY_CSV
             + "\n```\n\n```csv\n"
-            + MULTI_TOGGLE_COMPARISON_STALLS_CSV
+            + MULTI_TOGGLE_COMPARISON_V2_STALLS_CSV
             + "\n```"
         )
 
@@ -419,9 +585,9 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
             "```csv\n"
-            + UNKNOWN_TOGGLE_COMPARISON_SUMMARY_CSV
+            + UNKNOWN_TOGGLE_COMPARISON_V2_SUMMARY_CSV
             + "\n```\n\n```csv\n"
-            + UNKNOWN_TOGGLE_COMPARISON_STALLS_CSV
+            + UNKNOWN_TOGGLE_COMPARISON_V2_STALLS_CSV
             + "\n```"
         )
 
@@ -435,7 +601,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
     def test_build_triage_analysis_rejects_runs_when_save_and_scenario_both_differ(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
-            "```csv\n" + BOTH_IDENTITY_MISMATCH_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_STALLS_CSV + "\n```"
+            "```csv\n" + BOTH_IDENTITY_MISMATCH_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + COMPARISON_V2_STALLS_CSV + "\n```"
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
@@ -489,7 +655,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
     def test_mismatched_stall_file_is_ignored_for_run_summary(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
         issue_fields["comparison_bundle"] = (
-            "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```\n\n```csv\n" + MISMATCHED_STALLS_CSV + "\n```"
+            "```csv\n" + COMPARISON_V2_SUMMARY_CSV + "\n```\n\n```csv\n" + MISMATCHED_V2_STALLS_CSV + "\n```"
         )
 
         triage = automation.build_triage_analysis(21, issue_fields)
@@ -504,7 +670,7 @@ class PerfTelemetryAutomationTests(unittest.TestCase):
 
     def test_missing_comparison_stall_file_suppresses_stall_deltas(self) -> None:
         issue_fields = automation.parse_issue_form_sections(PERF_ISSUE_BODY)
-        issue_fields["comparison_bundle"] = "```csv\n" + COMPARISON_SUMMARY_CSV + "\n```"
+        issue_fields["comparison_bundle"] = "```csv\n" + COMPARISON_V2_SUMMARY_CSV + "\n```"
 
         triage = automation.build_triage_analysis(21, issue_fields)
         comparison = require_not_none(triage.comparison)

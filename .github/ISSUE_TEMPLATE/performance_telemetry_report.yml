@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         <!-- performance-telemetry-report -->
-        Use this form when you want to share coarse performance telemetry and let automation summarize steady-state overhead, stall behavior, and direct-comparison validity.
+        Use this form when you want to share coarse, render-aligned performance telemetry and let automation summarize steady-state overhead, stall behavior, and direct-comparison validity.
         This intake is for performance regression or before/after optimization comparison, not for semantic game-state diagnosis.
         Preferred upload is one `.zip` bundle per run containing `perf_summary.csv` and `perf_stalls.csv`. You can also attach the two CSV files directly or paste both CSV texts inline.
   - type: input
@@ -64,14 +64,14 @@ body:
 
         Inline fallback:
         ```csv
-        # telemetry_schema_version=1
+        # telemetry_schema_version=2
         # telemetry_file_kind=summary
         ...
         run_id,elapsed_sec,...
         ```
 
         ```csv
-        # telemetry_schema_version=1
+        # telemetry_schema_version=2
         # telemetry_file_kind=stalls
         ...
         run_id,stall_id,...
