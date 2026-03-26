@@ -30,6 +30,7 @@ namespace NoOfficeDemandFix.Systems
     [Preserve]
     public partial class VirtualOfficeResourceBuyerFixSystem : GameSystemBase
     {
+        private PrefabSystem m_PrefabSystem;
         private const int kResourceLowStockAmount = 4000;
         private const int kResourceMinimumRequestAmount = 2000;
         private const int kMaxProbeSampleLogs = 3;
@@ -58,6 +59,11 @@ namespace NoOfficeDemandFix.Systems
         private struct BuyerOverrideProbeRecord
         {
             public Entity Company;
+            public Entity Prefab;
+            public Entity Property;
+            public Entity ParentBuilding;
+            public bool IsOfficeProperty;
+            public bool IsIndustrialProperty;
             public Resource Resource;
             public int Stock;
             public int BuyingLoad;
@@ -108,6 +114,15 @@ namespace NoOfficeDemandFix.Systems
 
             [ReadOnly]
             public ResourcePrefabs ResourcePrefabs;
+
+            [ReadOnly]
+            public ComponentLookup<Attached> Attacheds;
+
+            [ReadOnly]
+            public ComponentLookup<OfficeProperty> OfficeProperties;
+
+            [ReadOnly]
+            public ComponentLookup<IndustrialProperty> IndustrialProperties;
 
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
             public NativeQueue<BuyerOverrideProbeRecord>.ParallelWriter ProbeResults;
@@ -215,6 +230,11 @@ namespace NoOfficeDemandFix.Systems
                     ProbeResults.Enqueue(new BuyerOverrideProbeRecord
                     {
                         Company = company,
+                        Prefab = prefab,
+                        Property = property,
+                        ParentBuilding = Attacheds.HasComponent(property) ? Attacheds[property].m_Parent : Entity.Null,
+                        IsOfficeProperty = OfficeProperties.HasComponent(property),
+                        IsIndustrialProperty = IndustrialProperties.HasComponent(property),
                         Resource = selectedResource,
                         Stock = stock,
                         BuyingLoad = buyingLoad,
@@ -415,6 +435,7 @@ namespace NoOfficeDemandFix.Systems
         protected override void OnCreate()
         {
             base.OnCreate();
+            m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
             m_ResourceSystem = World.GetOrCreateSystemManaged<ResourceSystem>();
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_OfficeCompanyQuery = GetEntityQuery(CreateOfficeCompanyQueryDesc());
@@ -515,6 +536,9 @@ namespace NoOfficeDemandFix.Systems
                         DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
                         LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
                         ResourcePrefabs = resourcePrefabs,
+                        Attacheds = GetComponentLookup<Attached>(isReadOnly: true),
+                        OfficeProperties = GetComponentLookup<OfficeProperty>(isReadOnly: true),
+                        IndustrialProperties = GetComponentLookup<IndustrialProperty>(isReadOnly: true),
                         CommandBuffer = commandBuffer.AsParallelWriter(),
                         ProbeResults = probeResults.AsParallelWriter(),
                         ChunkTelemetryResults = chunkTelemetryResults.AsParallelWriter(),
@@ -914,6 +938,11 @@ namespace NoOfficeDemandFix.Systems
 
             TryCaptureTopSample(new BuyerOverrideSample(
                 companyKey,
+                probeRecord.Prefab,
+                probeRecord.Property,
+                probeRecord.ParentBuilding,
+                probeRecord.IsOfficeProperty,
+                probeRecord.IsIndustrialProperty,
                 probeRecord.Resource,
                 probeRecord.Stock,
                 probeRecord.BuyingLoad,
@@ -936,6 +965,10 @@ namespace NoOfficeDemandFix.Systems
                 MachineParsedLogContract.FormatVirtualOfficeBuyerFixProbe(
                     "summary",
                     $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, total_overrides={m_ProbeTotalOverrideCount}, distinct_companies={m_ProbeDistinctCompanies.Count}, clamped_minimum={m_ProbeClampedMinimumOverrideCount}, above_minimum={m_ProbeAboveMinimumOverrideCount}, max_override_amount={m_ProbeMaxOverrideAmount}, max_shortfall={m_ProbeMaxShortfall}, resources=[{FormatResourceSummary()}], sampled_overrides={m_ProbeTopSamples.Count}"));
+            Mod.log.Info(
+                MachineParsedLogContract.FormatCompatibilityProbe(
+                    "corrective_buyer_summary",
+                    $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, total_overrides={m_ProbeTotalOverrideCount}, distinct_companies={m_ProbeDistinctCompanies.Count}, sampled_overrides={m_ProbeTopSamples.Count}"));
 
             if (Mod.Settings.VerboseLogging)
             {
@@ -946,6 +979,10 @@ namespace NoOfficeDemandFix.Systems
                         MachineParsedLogContract.FormatVirtualOfficeBuyerFixProbe(
                             "sample",
                             $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, rank={i + 1}, company={sample.Company}, resource={sample.Resource}, override_amount={sample.OverrideAmount}, shortfall={sample.Shortfall}, stock={sample.Stock}, buying_load={sample.BuyingLoad}, trip_needed_amount={sample.TripNeededAmount}, effective_stock={sample.EffectiveStock}, threshold={sample.Threshold}"));
+                    Mod.log.Info(
+                        MachineParsedLogContract.FormatCompatibilityProbe(
+                            "corrective_buyer_sample",
+                            FormatCompatibilityBuyerSampleValues(sampleDay, sampleIndex, sampleSlot, i + 1, sample)));
                 }
             }
 
@@ -1049,6 +1086,48 @@ namespace NoOfficeDemandFix.Systems
             return builder.ToString();
         }
 
+        private string FormatCompatibilityBuyerSampleValues(int sampleDay, int sampleIndex, int sampleSlot, int rank, BuyerOverrideSample sample)
+        {
+            return
+                $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, rank={rank}, company={sample.Company}, prefab={GetPrefabLabel(sample.Prefab)}, property={FormatEntityOrNone(sample.Property)}, parent_building={FormatEntityOrNone(sample.ParentBuilding)}, property_type={GetPropertyTypeLabel(sample.IsOfficeProperty, sample.IsIndustrialProperty)}, active_renter_present=true, corrective_buyer=true, resource={sample.Resource}, override_amount={sample.OverrideAmount}, shortfall={sample.Shortfall}, stock={sample.Stock}, buying_load={sample.BuyingLoad}, trip_needed_amount={sample.TripNeededAmount}, effective_stock={sample.EffectiveStock}, threshold={sample.Threshold}";
+        }
+
+        private string GetPrefabLabel(Entity prefab)
+        {
+            if (prefab == Entity.Null)
+            {
+                return "none";
+            }
+
+            string prefabName = m_PrefabSystem.GetPrefabName(prefab);
+            if (string.IsNullOrEmpty(prefabName))
+            {
+                return FormatEntity(prefab);
+            }
+
+            return '"' + prefabName + "\" (" + FormatEntity(prefab) + ')';
+        }
+
+        private static string FormatEntityOrNone(Entity entity)
+        {
+            return entity == Entity.Null ? "none" : FormatEntity(entity);
+        }
+
+        private static string GetPropertyTypeLabel(bool isOfficeProperty, bool isIndustrialProperty)
+        {
+            if (isOfficeProperty)
+            {
+                return "office";
+            }
+
+            if (isIndustrialProperty)
+            {
+                return "industrial";
+            }
+
+            return "other";
+        }
+
         private static string FormatEntity(Entity entity)
         {
             return entity.Index.ToString(CultureInfo.InvariantCulture) + ":" + entity.Version.ToString(CultureInfo.InvariantCulture);
@@ -1125,6 +1204,11 @@ namespace NoOfficeDemandFix.Systems
         {
             public BuyerOverrideSample(
                 string company,
+                Entity prefab,
+                Entity property,
+                Entity parentBuilding,
+                bool isOfficeProperty,
+                bool isIndustrialProperty,
                 Resource resource,
                 int stock,
                 int buyingLoad,
@@ -1135,6 +1219,11 @@ namespace NoOfficeDemandFix.Systems
                 int shortfall)
             {
                 Company = company;
+                Prefab = prefab;
+                Property = property;
+                ParentBuilding = parentBuilding;
+                IsOfficeProperty = isOfficeProperty;
+                IsIndustrialProperty = isIndustrialProperty;
                 Resource = resource;
                 Stock = stock;
                 BuyingLoad = buyingLoad;
@@ -1146,6 +1235,11 @@ namespace NoOfficeDemandFix.Systems
             }
 
             public string Company { get; }
+            public Entity Prefab { get; }
+            public Entity Property { get; }
+            public Entity ParentBuilding { get; }
+            public bool IsOfficeProperty { get; }
+            public bool IsIndustrialProperty { get; }
             public Resource Resource { get; }
             public int Stock { get; }
             public int BuyingLoad { get; }

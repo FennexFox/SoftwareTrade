@@ -5,6 +5,7 @@ using Game;
 using Game.Buildings;
 using Game.Common;
 using Game.Companies;
+using Game.Objects;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
@@ -22,6 +23,7 @@ namespace NoOfficeDemandFix.Systems
     public partial class SignaturePropertyMarketGuardSystem : GameSystemBase
     {
         private PrefabSystem m_PrefabSystem;
+        private SimulationSystem m_SimulationSystem;
         private EntityQuery m_SignaturePropertyQuery;
         private int m_CorrectionsSinceLastSample;
 
@@ -123,6 +125,7 @@ namespace NoOfficeDemandFix.Systems
         {
             base.OnCreate();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
+            m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_SignaturePropertyQuery = GetEntityQuery(new EntityQueryDesc
             {
                 All = new ComponentType[]
@@ -268,6 +271,16 @@ namespace NoOfficeDemandFix.Systems
                             FormatEntity(property),
                             GetPrefabLabel(prefabRef.m_Prefab),
                             removedComponents));
+                    Mod.log.Info(
+                        MachineParsedLogContract.FormatCompatibilityProbe(
+                            "signature_property_correction",
+                            FormatCompatibilityCorrectionValues(
+                                property,
+                                prefabRef.m_Prefab,
+                                propertyType,
+                                hasOnMarket,
+                                hasToBeOnMarket,
+                                removedComponents)));
                 }
             }
         }
@@ -332,6 +345,71 @@ namespace NoOfficeDemandFix.Systems
             }
 
             return '"' + prefabName + "\" (" + FormatEntity(prefab) + ')';
+        }
+
+        private string FormatCompatibilityCorrectionValues(
+            Entity property,
+            Entity prefab,
+            string propertyType,
+            List<string> removedComponents)
+        {
+            return FormatCompatibilityCorrectionValues(
+                property,
+                prefab,
+                propertyType,
+                EntityManager.HasComponent<PropertyOnMarket>(property),
+                EntityManager.HasComponent<PropertyToBeOnMarket>(property),
+                removedComponents);
+        }
+
+        private string FormatCompatibilityCorrectionValues(
+            Entity property,
+            Entity prefab,
+            string propertyType,
+            bool hadOnMarket,
+            bool hadToBeOnMarket,
+            List<string> removedComponents)
+        {
+            string parentBuilding = EntityManager.HasComponent<Attached>(property)
+                ? FormatEntity(EntityManager.GetComponentData<Attached>(property).m_Parent)
+                : "none";
+
+            return
+                $"frame={m_SimulationSystem.frameIndex}, property={FormatEntity(property)}, prefab={GetPrefabLabel(prefab)}, property_type={propertyType}, parent_building={parentBuilding}, on_market={hadOnMarket}, to_be_on_market={hadToBeOnMarket}, removed=[{string.Join(", ", removedComponents)}], renters_total={GetRenterCount(property)}, active_company_renters={GetActiveCompanyRenterCount(property)}, active_renter_present={HasActiveCompanyRenter(property)}, signature=true";
+        }
+
+        private int GetRenterCount(Entity property)
+        {
+            return EntityManager.HasBuffer<Renter>(property)
+                ? EntityManager.GetBuffer<Renter>(property, isReadOnly: true).Length
+                : 0;
+        }
+
+        private int GetActiveCompanyRenterCount(Entity property)
+        {
+            if (!EntityManager.HasBuffer<Renter>(property))
+            {
+                return 0;
+            }
+
+            int activeCompanyRenters = 0;
+            DynamicBuffer<Renter> renters = EntityManager.GetBuffer<Renter>(property, isReadOnly: true);
+            for (int i = 0; i < renters.Length; i++)
+            {
+                Entity renter = renters[i].m_Renter;
+                if (!EntityManager.HasComponent<CompanyData>(renter) || !EntityManager.HasComponent<PropertyRenter>(renter))
+                {
+                    continue;
+                }
+
+                PropertyRenter propertyRenter = EntityManager.GetComponentData<PropertyRenter>(renter);
+                if (propertyRenter.m_Property == property)
+                {
+                    activeCompanyRenters++;
+                }
+            }
+
+            return activeCompanyRenters;
         }
 
         private static bool IsFixEnabled()

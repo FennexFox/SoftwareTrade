@@ -16,6 +16,7 @@ namespace NoOfficeDemandFix
         public const string DiagnosticsDetailPrefix = "softwareEvidenceDiagnostics detail(";
         public const string PhantomVacancyCorrectionPrefix = "Signature phantom vacancy guard corrected";
         public const string TradePatchProbePrefix = "outsideConnectionVirtualSellerProbe ";
+        public const string CompatibilityProbePrefix = "noOfficeDemandFixCompatibilityProbe ";
         public const string ScheduledObservationKind = "scheduled";
         public const string RuntimeTimeSystemClockSource = "runtime_time_system";
         public const string DisplayedClockSource = "displayed_clock";
@@ -91,6 +92,13 @@ namespace NoOfficeDemandFix
             string values)
         {
             return $"{VirtualOfficeBuyerFixProbePrefix}{eventType}({values})";
+        }
+
+        public static string FormatCompatibilityProbe(
+            string eventType,
+            string values)
+        {
+            return $"{CompatibilityProbePrefix}{eventType}({values})";
         }
 
     }
