@@ -34,13 +34,30 @@ PERF_TELEMETRY_TITLE_PREFIX = "[Performance Telemetry]"
 PERF_TELEMETRY_MANAGED_COMMENT_MARKER = "<!-- perf-telemetry-triage:managed-comment -->"
 PERF_TELEMETRY_PAYLOAD_START_MARKER = "<!-- perf-telemetry-triage:machine-payload:start -->"
 PERF_TELEMETRY_PAYLOAD_END_MARKER = "<!-- perf-telemetry-triage:machine-payload:end -->"
-AUTOMATION_PARSER_VERSION = "2026-03-25-perf-telemetry-v2"
+AUTOMATION_PARSER_VERSION = "2026-03-27-perf-telemetry-status-contract"
 USER_AGENT = "NoOfficeDemandFixPerfTelemetryAutomation/1.0"
 SUMMARY_FILE_KIND = "summary"
 STALLS_FILE_KIND = "stalls"
 UNKNOWN_SCENARIO_ID = "unknown"
 UNSAVED_NAME = "unsaved"
 COMPARISON_LOAD_ERROR_LIMIT = 500
+QUEUE_SAMPLING_STATE_OK = "ok"
+QUEUE_SAMPLING_STATE_PARTIAL = "partial"
+QUEUE_SAMPLING_STATE_FAILED = "failed"
+QUEUE_SAMPLING_STATE_UNKNOWN = "unknown"
+QUEUE_SAMPLING_REASON_NONE = "none"
+QUEUE_SAMPLING_REASON_UNSUPPORTED_FIELDS = "unsupported_fields"
+QUEUE_SAMPLING_REASON_BIND_FAILED = "bind_failed"
+QUEUE_SAMPLING_REASON_RUNTIME_ERROR = "runtime_error"
+QUEUE_SAMPLING_REASON_UNKNOWN = "unknown"
+COMPARISON_BUNDLE_STATUS_OMITTED = "omitted"
+COMPARISON_BUNDLE_STATUS_LOADED = "loaded"
+COMPARISON_BUNDLE_STATUS_IGNORED = "ignored"
+COMPARISON_STATUS_BASELINE_ONLY = "baseline_only"
+COMPARISON_STATUS_COMPARISON_IGNORED = "comparison_ignored"
+COMPARISON_STATUS_NOT_DIRECTLY_COMPARABLE = "not_directly_comparable"
+COMPARISON_STATUS_COMPARABLE = "comparable"
+COMPARISON_STATUS_COMPARABLE_SINGLE_FIX_TOGGLE = "comparable_single_fix_toggle"
 FIX_TOGGLE_FIELDS = (
     ("enable_phantom_vacancy_fix", "EnablePhantomVacancyFix"),
     ("enable_outside_connection_virtual_seller_fix", "EnableOutsideConnectionVirtualSellerFix"),
@@ -139,6 +156,8 @@ class TelemetryRunMetadata:
     enable_outside_connection_virtual_seller_fix: bool | None = None
     enable_virtual_office_resource_buyer_fix: bool | None = None
     enable_office_demand_direct_patch: bool | None = None
+    path_queue_sampling_state: str = QUEUE_SAMPLING_STATE_UNKNOWN
+    path_queue_sampling_reason: str = QUEUE_SAMPLING_REASON_UNKNOWN
 
     def enabled_fix_state(self) -> tuple[bool | None, bool | None, bool | None, bool | None]:
         return (
@@ -235,6 +254,7 @@ class RunAnalysis:
 @dataclass
 class ComparisonAnalysis:
     directly_comparable: bool
+    status: str = COMPARISON_STATUS_NOT_DIRECTLY_COMPARABLE
     comparability_basis: str = ""
     fix_toggle_differences: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -256,6 +276,7 @@ class TriageAnalysis:
     baseline: RunAnalysis
     comparison: RunAnalysis | None
     comparison_analysis: ComparisonAnalysis | None
+    comparison_bundle_status: str
     comparison_bundle_provided: bool
     comparison_load_error: str | None
     warnings: list[str]
@@ -355,10 +376,24 @@ def build_triage_analysis(issue_number: int, issue_fields: dict[str, str]) -> Tr
         comparison_warnings = [f"Comparison telemetry bundle was ignored: {comparison_load_error}"]
 
     warnings = baseline_warnings + comparison_warnings
-    comparison_analysis: ComparisonAnalysis | None = None
+    comparison_bundle_status = (
+        COMPARISON_BUNDLE_STATUS_IGNORED if comparison_bundle_provided else COMPARISON_BUNDLE_STATUS_OMITTED
+    )
+    comparison_analysis: ComparisonAnalysis | None
     if comparison is not None:
+        comparison_bundle_status = COMPARISON_BUNDLE_STATUS_LOADED
         comparison_analysis = compare_runs(baseline, comparison)
         warnings.extend(comparison_analysis.warnings)
+    elif comparison_bundle_provided:
+        comparison_analysis = ComparisonAnalysis(
+            directly_comparable=False,
+            status=COMPARISON_STATUS_COMPARISON_IGNORED,
+        )
+    else:
+        comparison_analysis = ComparisonAnalysis(
+            directly_comparable=False,
+            status=COMPARISON_STATUS_BASELINE_ONLY,
+        )
 
     anomaly_flags = detect_anomaly_flags(baseline, comparison, comparison_analysis)
     follow_up_suggestions = build_follow_up_suggestions(baseline, comparison, comparison_analysis, anomaly_flags)
@@ -369,6 +404,7 @@ def build_triage_analysis(issue_number: int, issue_fields: dict[str, str]) -> Tr
         baseline=baseline,
         comparison=comparison,
         comparison_analysis=comparison_analysis,
+        comparison_bundle_status=comparison_bundle_status,
         comparison_bundle_provided=comparison_bundle_provided,
         comparison_load_error=comparison_load_error,
         warnings=dedupe_preserve_order(warnings),
@@ -410,52 +446,54 @@ def render_managed_comment(triage: TriageAnalysis) -> str:
     if triage.comparison is not None:
         lines.extend(render_run_summary_block(triage.comparison))
 
-    if triage.comparison is None:
-        comparison_lines = [
-            "",
-            "## Comparison",
-            "- Baseline-only summary is available; direct before/after deltas were not computed.",
-        ]
-        if triage.comparison_bundle_provided:
-            comparison_lines.insert(2, "- A comparison telemetry bundle was provided but could not be used.")
-            if triage.comparison_load_error:
-                comparison_lines.append("- See the warnings above for the comparison bundle failure reason.")
-        else:
-            comparison_lines.insert(2, "- No comparison telemetry bundle was provided.")
-        lines.extend(
-            comparison_lines
-        )
-    elif triage.comparison_analysis and triage.comparison_analysis.directly_comparable:
-        comparison_status = "- Direct comparison status: comparable"
-        comparison_notes: list[str] = []
-        if triage.comparison_analysis.comparability_basis == "single_fix_toggle_delta":
-            comparison_status = "- Direct comparison status: comparable (single fix-toggle delta)"
-            comparison_notes.extend(
-                [
-                    "- Fix-toggle delta: "
-                    + ", ".join(f"`{name}`" for name in triage.comparison_analysis.fix_toggle_differences),
-                    "- Direct deltas reflect the full effect of the toggle under test, not like-for-like same-fix-set overhead.",
-                ]
-            )
-        lines.extend(
+    comparison_analysis = triage.comparison_analysis
+    comparison_status = (
+        comparison_analysis.status if comparison_analysis is not None else COMPARISON_STATUS_BASELINE_ONLY
+    )
+    comparison_lines = [
+        "",
+        "## Comparison status",
+        f"- Status: `{comparison_status}`",
+    ]
+    if comparison_status == COMPARISON_STATUS_BASELINE_ONLY:
+        comparison_lines.extend(
             [
-                "",
-                "## Comparison",
-                comparison_status,
-                *comparison_notes,
-                *render_comparison_metrics(triage.comparison_analysis),
+                "- No comparison telemetry bundle was provided.",
+                "- Direct before/after deltas were not computed.",
+            ]
+        )
+    elif comparison_status == COMPARISON_STATUS_COMPARISON_IGNORED:
+        comparison_lines.extend(
+            [
+                "- A comparison telemetry bundle was provided but could not be used.",
+                "- Direct before/after deltas were not computed.",
+            ]
+        )
+        if triage.comparison_load_error:
+            comparison_lines.append("- See the warnings above for the comparison bundle failure reason.")
+    elif comparison_status == COMPARISON_STATUS_NOT_DIRECTLY_COMPARABLE:
+        comparison_lines.append("- Direct before/after deltas were not computed.")
+        if comparison_analysis is not None:
+            comparison_lines.extend(f"- {warning}" for warning in comparison_analysis.warnings)
+    elif comparison_status == COMPARISON_STATUS_COMPARABLE_SINGLE_FIX_TOGGLE:
+        comparison_lines.extend(
+            [
+                "- Direct before/after deltas are available for a single fix-toggle delta.",
+                "- Fix-toggle delta: "
+                + ", ".join(f"`{name}`" for name in comparison_analysis.fix_toggle_differences),
+                "- Direct deltas reflect the full effect of the toggle under test, not like-for-like same-fix-set overhead.",
             ]
         )
     else:
-        comparison_warnings = (
-            triage.comparison_analysis.warnings if triage.comparison_analysis is not None else ["not directly comparable"]
-        )
+        comparison_lines.append("- Direct before/after deltas are available.")
+    lines.extend(comparison_lines)
+
+    if comparison_analysis is not None and comparison_analysis.directly_comparable:
         lines.extend(
             [
                 "",
-                "## Comparability warning",
-                "- Direct comparison status: not directly comparable",
-                *[f"- {warning}" for warning in comparison_warnings],
+                "## Direct comparison metrics",
+                *render_comparison_metrics(comparison_analysis),
             ]
         )
 
@@ -542,6 +580,7 @@ def build_machine_payload(triage: TriageAnalysis) -> dict[str, Any]:
         },
         "baseline": asdict(triage.baseline),
         "comparison_bundle": {
+            "status": triage.comparison_bundle_status,
             "provided": triage.comparison_bundle_provided,
             "loaded": triage.comparison is not None,
             "load_error": triage.comparison_load_error,
@@ -563,6 +602,7 @@ def render_run_summary_block(run_analysis: RunAnalysis) -> list[str]:
             f"save `{fallback_text(run_analysis.metadata.save_name, UNSAVED_NAME)}`; "
             f"scenario `{fallback_text(run_analysis.metadata.scenario_id, UNKNOWN_SCENARIO_ID)}`"
         ),
+        format_queue_sampling_summary_line(run_analysis),
     ]
 
     if run_analysis.steady_state is None:
@@ -977,6 +1017,7 @@ def parse_metadata_line(line: str) -> tuple[str, str]:
 
 
 def build_metadata(values: dict[str, str]) -> TelemetryRunMetadata:
+    queue_sampling_state = normalize_queue_sampling_state(values.get("path_queue_sampling_state"))
     return TelemetryRunMetadata(
         telemetry_schema_version=values.get("telemetry_schema_version", ""),
         telemetry_file_kind=values.get("telemetry_file_kind", ""),
@@ -996,6 +1037,11 @@ def build_metadata(values: dict[str, str]) -> TelemetryRunMetadata:
             values.get("enable_virtual_office_resource_buyer_fix", "")
         ),
         enable_office_demand_direct_patch=parse_optional_bool(values.get("enable_office_demand_direct_patch", "")),
+        path_queue_sampling_state=queue_sampling_state,
+        path_queue_sampling_reason=normalize_queue_sampling_reason(
+            values.get("path_queue_sampling_reason"),
+            queue_sampling_state,
+        ),
     )
 
 
@@ -1248,6 +1294,20 @@ def rollup_stalls(stall_rows: list[StallRow]) -> StallRollup:
 
 
 def detect_queue_metric_sampling_warnings(run_analysis: RunAnalysis) -> list[str]:
+    queue_sampling_state = run_analysis.metadata.path_queue_sampling_state
+    if queue_sampling_state == QUEUE_SAMPLING_STATE_FAILED:
+        return [
+            "path queue sampling failed for this run; queue-based conclusions are suppressed."
+        ]
+    if queue_sampling_state == QUEUE_SAMPLING_STATE_PARTIAL:
+        return [
+            "path queue sampling is partial for this run; queue-based conclusions are suppressed."
+        ]
+    if queue_sampling_state == QUEUE_SAMPLING_STATE_UNKNOWN:
+        return [
+            "path queue sampling state is unknown for this run; queue-based conclusions are suppressed."
+        ]
+
     steady_state = run_analysis.steady_state
     if steady_state is None:
         return []
@@ -1376,12 +1436,24 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
 
     analysis = ComparisonAnalysis(
         directly_comparable=directly_comparable,
+        status=COMPARISON_STATUS_NOT_DIRECTLY_COMPARABLE,
         comparability_basis=comparability_basis if directly_comparable else "",
         fix_toggle_differences=fix_toggle_differences,
         warnings=dedupe_preserve_order(warnings),
     )
     if not directly_comparable:
         return analysis
+
+    analysis.status = (
+        COMPARISON_STATUS_COMPARABLE_SINGLE_FIX_TOGGLE
+        if comparability_basis == "single_fix_toggle_delta"
+        else COMPARISON_STATUS_COMPARABLE
+    )
+    queue_metrics_usable = queue_sampling_is_usable(baseline.metadata) and queue_sampling_is_usable(comparison.metadata)
+    if not queue_metrics_usable:
+        analysis.warnings.append(
+            "queue metrics were excluded from direct comparison because path queue sampling was not `ok` for one or both runs."
+        )
 
     if baseline.steady_state is not None and comparison.steady_state is not None:
         analysis.steady_state_fps_delta = comparison.steady_state.fps_mean - baseline.steady_state.fps_mean
@@ -1394,9 +1466,10 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
         analysis.steady_state_mod_update_delta_ms = (
             comparison.steady_state.mod_update_mean_ms - baseline.steady_state.mod_update_mean_ms
         )
-        analysis.steady_state_path_queue_p95_delta = (
-            comparison.steady_state.path_queue_len_p95 - baseline.steady_state.path_queue_len_p95
-        )
+        if queue_metrics_usable:
+            analysis.steady_state_path_queue_p95_delta = (
+                comparison.steady_state.path_queue_len_p95 - baseline.steady_state.path_queue_len_p95
+            )
     else:
         analysis.warnings.append("steady-state deltas are unavailable because one run has no non-stall summary windows.")
 
@@ -1404,7 +1477,8 @@ def compare_runs(baseline: RunAnalysis, comparison: RunAnalysis) -> ComparisonAn
         analysis.stall_count_delta = comparison.stalls.count - baseline.stalls.count
         analysis.total_stall_duration_sec_delta = comparison.stalls.total_duration_sec - baseline.stalls.total_duration_sec
         analysis.max_stall_duration_sec_delta = comparison.stalls.max_duration_sec - baseline.stalls.max_duration_sec
-        analysis.stall_peak_path_queue_delta = comparison.stalls.peak_path_queue_len - baseline.stalls.peak_path_queue_len
+        if queue_metrics_usable:
+            analysis.stall_peak_path_queue_delta = comparison.stalls.peak_path_queue_len - baseline.stalls.peak_path_queue_len
     else:
         analysis.warnings.append("stall deltas are unavailable because one run has no valid `perf_stalls.csv` data.")
 
@@ -1480,7 +1554,7 @@ def detect_anomaly_flags(
                 flags.append("stall_frequency_elevated")
             if baseline.stalls.max_duration_sec >= 5.0:
                 flags.append("stall_duration_elevated")
-            if baseline.stalls.peak_path_queue_len >= 100:
+            if queue_sampling_is_usable(baseline.metadata) and baseline.stalls.peak_path_queue_len >= 100:
                 flags.append("queue_pressure_during_stalls")
             if baseline.steady_state is not None:
                 baseline_non_stall_rate = baseline.steady_state.mod_repath_requested_per_sec
@@ -1521,7 +1595,58 @@ def build_follow_up_suggestions(
     if baseline.stalls is None:
         suggestions.append("include perf_stalls.csv in the next capture")
 
+    if not queue_sampling_is_usable(baseline.metadata) or (
+        comparison is not None and not queue_sampling_is_usable(comparison.metadata)
+    ):
+        suggestions.append("verify queue sampling health before using queue metrics")
+
     return dedupe_preserve_order(suggestions)
+
+
+def normalize_queue_sampling_state(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {
+        QUEUE_SAMPLING_STATE_OK,
+        QUEUE_SAMPLING_STATE_PARTIAL,
+        QUEUE_SAMPLING_STATE_FAILED,
+    }:
+        return normalized
+    return QUEUE_SAMPLING_STATE_UNKNOWN
+
+
+def normalize_queue_sampling_reason(value: str | None, sampling_state: str) -> str:
+    normalized = (value or "").strip().lower()
+    if normalized in {
+        QUEUE_SAMPLING_REASON_NONE,
+        QUEUE_SAMPLING_REASON_UNSUPPORTED_FIELDS,
+        QUEUE_SAMPLING_REASON_BIND_FAILED,
+        QUEUE_SAMPLING_REASON_RUNTIME_ERROR,
+    }:
+        return normalized
+    if sampling_state == QUEUE_SAMPLING_STATE_PARTIAL:
+        return QUEUE_SAMPLING_REASON_UNSUPPORTED_FIELDS
+    if sampling_state == QUEUE_SAMPLING_STATE_OK:
+        return QUEUE_SAMPLING_REASON_NONE
+    return QUEUE_SAMPLING_REASON_UNKNOWN
+
+
+def queue_sampling_is_usable(metadata: TelemetryRunMetadata) -> bool:
+    return metadata.path_queue_sampling_state == QUEUE_SAMPLING_STATE_OK
+
+
+def format_queue_sampling_summary_line(run_analysis: RunAnalysis) -> str:
+    queue_sampling_state = run_analysis.metadata.path_queue_sampling_state
+    queue_sampling_reason = run_analysis.metadata.path_queue_sampling_reason
+    if queue_sampling_state == QUEUE_SAMPLING_STATE_OK:
+        return f"- {run_analysis.label} queue sampling: ok"
+    if queue_sampling_state == QUEUE_SAMPLING_STATE_UNKNOWN:
+        return (
+            f"- {run_analysis.label} queue sampling: unknown; queue-based conclusions are suppressed for this run"
+        )
+    return (
+        f"- {run_analysis.label} queue sampling: {queue_sampling_state} (`{queue_sampling_reason}`); "
+        "queue-based conclusions are suppressed for this run"
+    )
 
 
 def download_attachment_bytes(url: str) -> bytes:
