@@ -17,6 +17,13 @@ namespace NoOfficeDemandFix.Telemetry
         private const string kTelemetrySchemaVersion = "2";
         private const string kUnknownScenarioId = "unknown";
         private const string kUnsavedName = "unsaved";
+        private const string kPathQueueSamplingStateOk = "ok";
+        private const string kPathQueueSamplingStatePartial = "partial";
+        private const string kPathQueueSamplingStateFailed = "failed";
+        private const string kPathQueueSamplingReasonNone = "none";
+        private const string kPathQueueSamplingReasonUnsupportedFields = "unsupported_fields";
+        private const string kPathQueueSamplingReasonBindFailed = "bind_failed";
+        private const string kPathQueueSamplingReasonRuntimeError = "runtime_error";
 
         private static readonly double s_TicksToMilliseconds = 1000d / Stopwatch.Frequency;
         private static readonly string[] s_PathfindActionFieldNames =
@@ -68,6 +75,8 @@ namespace NoOfficeDemandFix.Telemetry
         private static PropertyInfo[] s_PathfindActionCountProperties;
         private static bool s_PathfindReflectionInitialized;
         private static bool s_PathfindReflectionUnavailableLogged;
+        private static string s_PathQueueSamplingState = kPathQueueSamplingStateOk;
+        private static string s_PathQueueSamplingReason = kPathQueueSamplingReasonNone;
 
         public static bool IsCollecting => s_RunActive && !s_RunFlushed;
 
@@ -277,7 +286,7 @@ namespace NoOfficeDemandFix.Telemetry
             }
             catch (Exception ex)
             {
-                DisablePathfindReflectionSampling();
+                DisablePathfindReflectionSampling(kPathQueueSamplingReasonRuntimeError);
                 if (!s_PathfindReflectionUnavailableLogged)
                 {
                     Mod.log.Error($"Performance telemetry could not read PathfindQueueSystem internals. Path queue metrics will stay at 0. {ex}");
@@ -643,6 +652,8 @@ namespace NoOfficeDemandFix.Telemetry
             WriteMetadataLine(writer, "scenario_id", SanitizeMetadataValue(s_RunMetadata.ScenarioId));
             WriteMetadataLine(writer, "sampling_interval_sec", FormatDouble(s_RunMetadata.SamplingIntervalSec));
             WriteMetadataLine(writer, "stall_threshold_ms", s_RunMetadata.StallThresholdMs.ToString(CultureInfo.InvariantCulture));
+            WriteMetadataLine(writer, "path_queue_sampling_state", s_PathQueueSamplingState);
+            WriteMetadataLine(writer, "path_queue_sampling_reason", s_PathQueueSamplingReason);
             WriteMetadataLine(writer, "enable_phantom_vacancy_fix", s_RunMetadata.EnablePhantomVacancyFix ? "true" : "false");
             WriteMetadataLine(writer, "enable_outside_connection_virtual_seller_fix", s_RunMetadata.EnableOutsideConnectionVirtualSellerFix ? "true" : "false");
             WriteMetadataLine(writer, "enable_virtual_office_resource_buyer_fix", s_RunMetadata.EnableVirtualOfficeResourceBuyerFix ? "true" : "false");
@@ -705,7 +716,7 @@ namespace NoOfficeDemandFix.Telemetry
 
             if (boundFieldCount <= 0)
             {
-                DisablePathfindReflectionSampling();
+                DisablePathfindReflectionSampling(kPathQueueSamplingReasonBindFailed);
                 if (!s_PathfindReflectionUnavailableLogged)
                 {
                     Mod.log.Error("Performance telemetry could not bind PathfindQueueSystem fields. Path queue metrics will stay at 0.");
@@ -717,19 +728,48 @@ namespace NoOfficeDemandFix.Telemetry
 
             if (unsupportedFieldNames != null && unsupportedFieldNames.Count > 0)
             {
+                SetPathQueueSamplingStatus(kPathQueueSamplingStatePartial, kPathQueueSamplingReasonUnsupportedFields);
                 Mod.log.Info($"Performance telemetry will skip unsupported PathfindQueueSystem fields: {string.Join(", ", unsupportedFieldNames)}.");
             }
 
             return true;
         }
 
-        private static void DisablePathfindReflectionSampling()
+        private static void DisablePathfindReflectionSampling(string failureReason)
         {
+            SetPathQueueSamplingStatus(kPathQueueSamplingStateFailed, failureReason);
             s_PathfindActionFields = null;
             s_PathfindActionItemsFields = null;
             s_PathfindActionNextIndexFields = null;
             s_PathfindActionCountProperties = null;
             s_PathfindReflectionInitialized = true;
+        }
+
+        private static void SetPathQueueSamplingStatus(string state, string reason)
+        {
+            if (GetPathQueueSamplingSeverity(state) < GetPathQueueSamplingSeverity(s_PathQueueSamplingState))
+            {
+                return;
+            }
+
+            s_PathQueueSamplingState = state;
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                s_PathQueueSamplingReason = reason;
+            }
+        }
+
+        private static int GetPathQueueSamplingSeverity(string state)
+        {
+            switch (state)
+            {
+                case kPathQueueSamplingStateFailed:
+                    return 2;
+                case kPathQueueSamplingStatePartial:
+                    return 1;
+                default:
+                    return 0;
+            }
         }
 
         private static int GetActionListDepth(object actionList, int index)
@@ -801,6 +841,8 @@ namespace NoOfficeDemandFix.Telemetry
             s_ConsecutiveBelowThreshold = 0;
             s_HasSimulationUpdateTimestamp = false;
             s_LastSimulationUpdateTimestamp = 0L;
+            s_PathQueueSamplingState = kPathQueueSamplingStateOk;
+            s_PathQueueSamplingReason = kPathQueueSamplingReasonNone;
             ResetFrameInstrumentation();
         }
 
