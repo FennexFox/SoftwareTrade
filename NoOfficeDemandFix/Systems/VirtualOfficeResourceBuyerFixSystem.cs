@@ -1088,8 +1088,58 @@ namespace NoOfficeDemandFix.Systems
 
         private string FormatCompatibilityBuyerSampleValues(int sampleDay, int sampleIndex, int sampleSlot, int rank, BuyerOverrideSample sample)
         {
+            CompatibilityPropertySnapshot propertySnapshot = CaptureCompatibilityPropertySnapshot(sample.Property, sample.ParentBuilding);
+
             return
-                $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, rank={rank}, company={sample.Company}, prefab={GetPrefabLabel(sample.Prefab)}, property={FormatEntityOrNone(sample.Property)}, parent_building={FormatEntityOrNone(sample.ParentBuilding)}, property_type={GetPropertyTypeLabel(sample.IsOfficeProperty, sample.IsIndustrialProperty)}, active_renter_present=true, corrective_buyer=true, resource={sample.Resource}, override_amount={sample.OverrideAmount}, shortfall={sample.Shortfall}, stock={sample.Stock}, buying_load={sample.BuyingLoad}, trip_needed_amount={sample.TripNeededAmount}, effective_stock={sample.EffectiveStock}, threshold={sample.Threshold}";
+                $"sample_day={sampleDay}, sample_index={sampleIndex}, sample_slot={sampleSlot}, rank={rank}, company={sample.Company}, prefab={GetPrefabLabel(sample.Prefab)}, property={FormatEntityOrNone(sample.Property)}, parent_building={FormatEntityOrNone(sample.ParentBuilding)}, observed_building={FormatEntityOrNone(propertySnapshot.ObservedBuilding)}, building_prefab={GetPrefabLabel(propertySnapshot.Prefab)}, current_level={propertySnapshot.CurrentLevelLabel}, property_type={GetPropertyTypeLabel(sample.IsOfficeProperty, sample.IsIndustrialProperty)}, active_renter_present=true, corrective_buyer=true, renters_total={propertySnapshot.RenterCount}, property_on_market={propertySnapshot.PropertyOnMarketLabel}, property_to_be_on_market={propertySnapshot.PropertyToBeOnMarketLabel}, under_construction={propertySnapshot.UnderConstructionLabel}, abandoned={propertySnapshot.AbandonedLabel}, resource={sample.Resource}, override_amount={sample.OverrideAmount}, shortfall={sample.Shortfall}, stock={sample.Stock}, buying_load={sample.BuyingLoad}, trip_needed_amount={sample.TripNeededAmount}, effective_stock={sample.EffectiveStock}, threshold={sample.Threshold}";
+        }
+
+        private CompatibilityPropertySnapshot CaptureCompatibilityPropertySnapshot(Entity property, Entity parentBuilding)
+        {
+            Entity observedBuilding = ResolveCompatibilityObservedBuilding(property, parentBuilding);
+            Entity buildingPrefab = Entity.Null;
+            if (observedBuilding != Entity.Null && EntityManager.HasComponent<PrefabRef>(observedBuilding))
+            {
+                buildingPrefab = EntityManager.GetComponentData<PrefabRef>(observedBuilding).m_Prefab;
+            }
+
+            string currentLevelLabel = "n/a";
+            if (buildingPrefab != Entity.Null && EntityManager.HasComponent<SpawnableBuildingData>(buildingPrefab))
+            {
+                currentLevelLabel = EntityManager.GetComponentData<SpawnableBuildingData>(buildingPrefab).m_Level.ToString(CultureInfo.InvariantCulture);
+            }
+
+            return new CompatibilityPropertySnapshot(
+                observedBuilding,
+                buildingPrefab,
+                currentLevelLabel,
+                GetRenterCount(observedBuilding),
+                FormatBoolOrNotApplicable(observedBuilding != Entity.Null && EntityManager.HasComponent<PropertyOnMarket>(observedBuilding), observedBuilding),
+                FormatBoolOrNotApplicable(observedBuilding != Entity.Null && EntityManager.HasComponent<PropertyToBeOnMarket>(observedBuilding), observedBuilding),
+                FormatBoolOrNotApplicable(observedBuilding != Entity.Null && EntityManager.HasComponent<UnderConstruction>(observedBuilding), observedBuilding),
+                FormatBoolOrNotApplicable(observedBuilding != Entity.Null && EntityManager.HasComponent<Abandoned>(observedBuilding), observedBuilding));
+        }
+
+        private Entity ResolveCompatibilityObservedBuilding(Entity property, Entity parentBuilding)
+        {
+            if (property != Entity.Null && EntityManager.HasComponent<PrefabRef>(property))
+            {
+                return property;
+            }
+
+            return parentBuilding != Entity.Null ? parentBuilding : property;
+        }
+
+        private int GetRenterCount(Entity property)
+        {
+            return property != Entity.Null && EntityManager.HasBuffer<Renter>(property)
+                ? EntityManager.GetBuffer<Renter>(property, isReadOnly: true).Length
+                : 0;
+        }
+
+        private static string FormatBoolOrNotApplicable(bool value, Entity entity)
+        {
+            return entity == Entity.Null ? "n/a" : value ? "true" : "false";
         }
 
         private string GetPrefabLabel(Entity prefab)
@@ -1200,6 +1250,38 @@ namespace NoOfficeDemandFix.Systems
             public bool HasEligibleVirtualInput => Input1 != Resource.NoResource || Input2 != Resource.NoResource;
         }
 
+        private readonly struct CompatibilityPropertySnapshot
+        {
+            public CompatibilityPropertySnapshot(
+                Entity observedBuilding,
+                Entity prefab,
+                string currentLevelLabel,
+                int renterCount,
+                string propertyOnMarketLabel,
+                string propertyToBeOnMarketLabel,
+                string underConstructionLabel,
+                string abandonedLabel)
+            {
+                ObservedBuilding = observedBuilding;
+                Prefab = prefab;
+                CurrentLevelLabel = currentLevelLabel;
+                RenterCount = renterCount;
+                PropertyOnMarketLabel = propertyOnMarketLabel;
+                PropertyToBeOnMarketLabel = propertyToBeOnMarketLabel;
+                UnderConstructionLabel = underConstructionLabel;
+                AbandonedLabel = abandonedLabel;
+            }
+
+            public Entity ObservedBuilding { get; }
+            public Entity Prefab { get; }
+            public string CurrentLevelLabel { get; }
+            public int RenterCount { get; }
+            public string PropertyOnMarketLabel { get; }
+            public string PropertyToBeOnMarketLabel { get; }
+            public string UnderConstructionLabel { get; }
+            public string AbandonedLabel { get; }
+        }
+
         private readonly struct BuyerOverrideSample
         {
             public BuyerOverrideSample(
@@ -1252,3 +1334,4 @@ namespace NoOfficeDemandFix.Systems
 
     }
 }
+
