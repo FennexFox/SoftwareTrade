@@ -191,15 +191,17 @@ This keeps instrumentation work and fix work separate, which makes later compari
 
 Use day count as the primary rule for reusable windows:
 
-- `3 days`: minimum reusable bounded window for a promoted evidence entry
-- `5 days`: preferred for long-window same-lineage acquisition-state or persistence comparison
-- `7 days`: preferred when outside-connection state, persistence, or recovery is under review
+- `1 day`: screening or mechanism-check capture; keep it raw unless the hypothesis is intentionally about an in-window transition only
+- `2 days`: minimum reusable bounded window for a promoted evidence entry when the main question is short-horizon virtual-resource behavior on a tightly matched save lineage
+- `3 days`: default release-gate or comparison-grade bounded window
+- `5 days`: preferred only when same-lineage buyer-lifecycle or persistence interpretation is still materially ambiguous after the shorter window
 
 At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with no skipped slots usually yield roughly:
 
+- `1 day`: about `2` emitted observation windows
+- `2 days`: about `4` emitted observation windows
 - `3 days`: about `6` emitted observation windows
 - `5 days`: about `10` emitted observation windows
-- `7 days`: about `14` emitted observation windows
 
 ### Reading Observation-Window Fields
 
