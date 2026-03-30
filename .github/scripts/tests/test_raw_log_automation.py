@@ -1222,6 +1222,51 @@ class RawLogAutomationTests(unittest.TestCase):
             automation.AGGRESSIVE_DRAFT_FIELD_LIMITS["log_excerpt"],
         )
 
+    def test_preview_artifacts_compaction_drops_fenced_blocks_before_render(self) -> None:
+        issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
+        log_source = {
+            "mode": "attachment",
+            "url": "https://github.com/user-attachments/files/26229545/NoOfficeDemandFix.Mod.log",
+            "attachment_urls": ["https://github.com/user-attachments/files/26229545/NoOfficeDemandFix.Mod.log"],
+            "text": TRADE_LIFECYCLE_LOG,
+        }
+        parsed_log = automation.parse_log(TRADE_LIFECYCLE_LOG)
+        deterministic = automation.build_deterministic_draft(21, issue_fields, parsed_log, log_source, [])
+        reply_fields = {
+            "title": deterministic["title"],
+            "scenario_label": "New Seoul",
+            "scenario_type": "existing save",
+            "reproduction_conditions": "Loaded save and let the game run for 3 in-game days.",
+            "mod_ref": "",
+            "symptom_classification": deterministic["symptom_classification"],
+            "evidence_summary": deterministic["evidence_summary"],
+            "confounders": deterministic["confounders"],
+            "notes": deterministic["notes"],
+        }
+
+        preview_fields = automation.build_preview_evidence_fields(
+            21,
+            issue_fields,
+            log_source,
+            parsed_log,
+            deterministic,
+            None,
+            reply_fields,
+        )
+        compact_preview = automation.compact_preview_evidence_fields(preview_fields)
+        minimal_preview = automation.build_minimal_preview_evidence_fields(preview_fields)
+        compact_body = automation.render_evidence_issue_body(21, 0, compact_preview)
+        artifacts_start = compact_body.index("## Artifacts")
+        notes_start = compact_body.index("## Notes")
+        artifacts_section = compact_body[artifacts_start:notes_start]
+
+        self.assertIn("```text", preview_fields["artifacts"])
+        self.assertIn("- supplemental detail: softwareTradeLifecycle", compact_preview["artifacts"])
+        self.assertNotIn("```text", compact_preview["artifacts"])
+        self.assertNotIn("```text", minimal_preview["artifacts"])
+        self.assertIn("- supplemental detail: softwareTradeLifecycle", artifacts_section)
+        self.assertNotIn("```text", artifacts_section)
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}

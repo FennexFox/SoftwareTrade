@@ -3850,6 +3850,32 @@ def truncate_dict_text_fields(values: dict[str, Any], limits: dict[str, int]) ->
     return compact
 
 
+def compact_artifacts_preview_text(value: str, limit: int) -> str:
+    if not value.strip():
+        return ""
+
+    lines: list[str] = []
+    in_fenced_block = False
+    previous_blank = False
+    for raw_line in value.replace("\r\n", "\n").split("\n"):
+        stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            in_fenced_block = not in_fenced_block
+            continue
+        if in_fenced_block:
+            continue
+        if not stripped:
+            if previous_blank:
+                continue
+            previous_blank = True
+            lines.append("")
+            continue
+        previous_blank = False
+        lines.append(raw_line)
+
+    return truncate_text("\n".join(lines).strip(), limit)
+
+
 def compact_latest_observation_for_managed_comment(observation: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(observation, dict):
         return observation
@@ -4098,6 +4124,10 @@ def build_minimal_managed_comment_payload(payload: dict[str, Any]) -> dict[str, 
 def compact_preview_evidence_fields(preview_fields: dict[str, str], *, aggressive: bool = False) -> dict[str, str]:
     limits = AGGRESSIVE_PREVIEW_FIELD_LIMITS if aggressive else COMPACT_PREVIEW_FIELD_LIMITS
     compact = truncate_dict_text_fields(preview_fields, limits)
+    compact["artifacts"] = compact_artifacts_preview_text(
+        str(preview_fields.get("artifacts", "")),
+        limits["artifacts"],
+    )
     compact["log-excerpt"] = ""
     return compact
 
@@ -4106,7 +4136,7 @@ def build_minimal_preview_evidence_fields(preview_fields: dict[str, str]) -> dic
     compact = compact_preview_evidence_fields(preview_fields, aggressive=True)
     compact["analysis-basis"] = ""
     compact["notes"] = ""
-    compact["artifacts"] = truncate_text(compact.get("artifacts", ""), 240)
+    compact["artifacts"] = compact_artifacts_preview_text(str(preview_fields.get("artifacts", "")), 240)
     compact["other-mods"] = truncate_text(compact.get("other-mods", ""), 240)
     return compact
 
