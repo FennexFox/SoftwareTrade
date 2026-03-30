@@ -36,6 +36,8 @@ namespace NoOfficeDemandFix.Systems
         private const int kMaxDiagnosticsSamplesPerDay = 8;
         private const int kDiagnosticsDisabledPollInterval = 8;
         private const float kNotificationCostLimit = 5f;
+        private const uint kVanillaBuyerUpdateInterval = 256u;
+        private const int kVanillaBuyerUpdateGroupCount = 16;
         private const int kResourceLowStockAmount = 4000;
         private const int kResourceMinimumRequestAmount = 2000;
         private const string kTraceNeedNotSelected = "need_not_selected";
@@ -187,6 +189,9 @@ namespace NoOfficeDemandFix.Systems
             public int SoftwareConsumerCurrentTradingPresent;
             public int SoftwareConsumerSelectedNoBuyerShortGap;
             public int SoftwareConsumerSelectedNoBuyerPersistent;
+            public int SoftwareConsumerSelectedNoBuyerMissedVanillaPass;
+            public int SoftwareConsumerSelectedNoBuyerMissedMultipleVanillaPasses;
+            public int SoftwareConsumerSelectedNoBuyerMaxMissedVanillaPasses;
             public int SoftwareConsumerSelectedRequestNoPathShortGap;
             public int SoftwareConsumerSelectedRequestNoPathPersistent;
             public int SoftwareConsumerVirtualResolvedThisWindow;
@@ -267,6 +272,10 @@ namespace NoOfficeDemandFix.Systems
             public bool BuyerSeenThisWindow;
             public int LastBuyerSeenSampleAge;
             public string NoBuyerReason;
+            public int CompanyUpdateFrame;
+            public int CurrentVanillaBuyerUpdateFrame;
+            public int FramesUntilNextVanillaBuyerPass;
+            public int EstimatedMissedVanillaBuyerPasses;
             public int SelectedNoBuyerConsecutiveWindows;
             public int SelectedRequestNoPathConsecutiveWindows;
             public int BelowThresholdConsecutiveWindows;
@@ -302,7 +311,10 @@ namespace NoOfficeDemandFix.Systems
             public bool HasLastPathSeenSampleIndex;
             public int LastVirtualResolutionSampleIndex;
             public bool HasLastVirtualResolutionSampleIndex;
+            public uint LastObservedSimulationFrame;
+            public bool HasLastObservedSimulationFrame;
             public int SelectedNoBuyerConsecutiveWindows;
+            public int SelectedNoBuyerEstimatedMissedVanillaPasses;
             public int SelectedRequestNoPathConsecutiveWindows;
             public int BelowThresholdConsecutiveWindows;
         }
@@ -1315,6 +1327,20 @@ namespace NoOfficeDemandFix.Systems
                         {
                             snapshot.SoftwareConsumerSelectedNoBuyerShortGap++;
                         }
+
+                        if (softwareConsumerState.Acquisition.EstimatedMissedVanillaBuyerPasses >= 1)
+                        {
+                            snapshot.SoftwareConsumerSelectedNoBuyerMissedVanillaPass++;
+                        }
+
+                        if (softwareConsumerState.Acquisition.EstimatedMissedVanillaBuyerPasses >= 2)
+                        {
+                            snapshot.SoftwareConsumerSelectedNoBuyerMissedMultipleVanillaPasses++;
+                        }
+
+                        snapshot.SoftwareConsumerSelectedNoBuyerMaxMissedVanillaPasses = Math.Max(
+                            snapshot.SoftwareConsumerSelectedNoBuyerMaxMissedVanillaPasses,
+                            softwareConsumerState.Acquisition.EstimatedMissedVanillaBuyerPasses);
                     }
 
                     if (string.Equals(softwareConsumerState.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal))
@@ -1982,6 +2008,13 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(", lastBuyerSeenSampleAge=");
             builder.Append(state.LastBuyerSeenSampleAge >= 0 ? state.LastBuyerSeenSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
             builder.Append(", noBuyerReason=").Append(string.IsNullOrEmpty(state.NoBuyerReason) ? "none" : state.NoBuyerReason);
+            builder.Append(", companyUpdateFrame=");
+            builder.Append(state.CompanyUpdateFrame >= 0 ? state.CompanyUpdateFrame.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", currentVanillaBuyerUpdateFrame=");
+            builder.Append(state.CurrentVanillaBuyerUpdateFrame >= 0 ? state.CurrentVanillaBuyerUpdateFrame.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", framesUntilNextVanillaBuyerPass=");
+            builder.Append(state.FramesUntilNextVanillaBuyerPass >= 0 ? state.FramesUntilNextVanillaBuyerPass.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", estimatedMissedVanillaBuyerPasses=").Append(state.EstimatedMissedVanillaBuyerPasses);
             builder.Append(", selectedNoBuyerConsecutiveWindows=").Append(state.SelectedNoBuyerConsecutiveWindows);
             builder.Append(", selectedRequestNoPathConsecutiveWindows=").Append(state.SelectedRequestNoPathConsecutiveWindows);
             builder.Append(", belowThresholdConsecutiveWindows=").Append(state.BelowThresholdConsecutiveWindows);
@@ -2433,12 +2466,26 @@ namespace NoOfficeDemandFix.Systems
         private SoftwareAcquisitionState GetSoftwareAcquisitionState(Entity company)
         {
             SoftwareAcquisitionState state = default;
+            uint currentSimulationFrame = m_SimulationSystem.frameIndex;
             state.ResourceWeight = GetResourceWeight(Resource.Software);
             state.VirtualGood = state.ResourceWeight <= 0f;
             state.TripTrackingExpected = !state.VirtualGood;
             state.CurrentTradingExpected = !state.VirtualGood;
             state.PathExpected = true;
             state.CorrectiveBuyerTagged = EntityManager.HasComponent<CorrectiveSoftwareBuyerTag>(company);
+            if (TryGetCompanyUpdateFrame(company, out int companyUpdateFrame))
+            {
+                state.CompanyUpdateFrame = companyUpdateFrame;
+                state.CurrentVanillaBuyerUpdateFrame = (int)SimulationUtils.GetUpdateFrameWithInterval(currentSimulationFrame, kVanillaBuyerUpdateInterval, kVanillaBuyerUpdateGroupCount);
+                state.FramesUntilNextVanillaBuyerPass = GetFramesUntilNextVanillaBuyerPass(currentSimulationFrame, companyUpdateFrame);
+            }
+            else
+            {
+                state.CompanyUpdateFrame = -1;
+                state.CurrentVanillaBuyerUpdateFrame = -1;
+                state.FramesUntilNextVanillaBuyerPass = -1;
+            }
+
             if (TryGetResourceBuyer(company, Resource.Software, out ResourceBuyer buyer))
             {
                 state.ResourceBuyerPresent = true;
@@ -2474,6 +2521,7 @@ namespace NoOfficeDemandFix.Systems
         private SoftwareConsumerTraceState UpdateSoftwareConsumerTrace(Entity company, SoftwareNeedState needState, SoftwareAcquisitionState acquisitionState, int day, int sampleIndex, Entity currentLastTradePartner, bool hasCurrentLastTradePartnerObservation)
         {
             m_SoftwareConsumerTrace.TryGetValue(company, out SoftwareConsumerTraceState traceState);
+            uint currentSimulationFrame = m_SimulationSystem.frameIndex;
             if (traceState.HasObservedSoftwareStock)
             {
                 traceState.PreviousSoftwareStock = traceState.LastObservedSoftwareStock;
@@ -2522,9 +2570,17 @@ namespace NoOfficeDemandFix.Systems
             }
 
             string currentClassification = ClassifySoftwareConsumerState(needState, acquisitionState, traceState);
+            bool stayedSelectedNoBuyer = string.Equals(traceState.CurrentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal) &&
+                                         string.Equals(currentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal);
             traceState.BelowThresholdConsecutiveWindows = needState.Selected ? traceState.BelowThresholdConsecutiveWindows + 1 : 0;
             traceState.SelectedNoBuyerConsecutiveWindows = string.Equals(currentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal)
                 ? traceState.SelectedNoBuyerConsecutiveWindows + 1
+                : 0;
+            // Estimate missed vanilla buyer opportunities only across observed sample-to-sample no-buyer streaks.
+            traceState.SelectedNoBuyerEstimatedMissedVanillaPasses = string.Equals(currentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal)
+                ? stayedSelectedNoBuyer && traceState.HasLastObservedSimulationFrame
+                    ? traceState.SelectedNoBuyerEstimatedMissedVanillaPasses + CountVanillaBuyerPassesBetweenFrames(traceState.LastObservedSimulationFrame, currentSimulationFrame, acquisitionState.CompanyUpdateFrame)
+                    : 0
                 : 0;
             traceState.SelectedRequestNoPathConsecutiveWindows = string.Equals(currentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal)
                 ? traceState.SelectedRequestNoPathConsecutiveWindows + 1
@@ -2538,6 +2594,8 @@ namespace NoOfficeDemandFix.Systems
             }
 
             traceState.CurrentClassification = currentClassification;
+            traceState.LastObservedSimulationFrame = currentSimulationFrame;
+            traceState.HasLastObservedSimulationFrame = true;
             m_SoftwareConsumerTrace[company] = traceState;
             return traceState;
         }
@@ -2560,6 +2618,9 @@ namespace NoOfficeDemandFix.Systems
             state.BuyerSeenThisWindow = state.ResourceBuyerPresent;
             state.BuyerOrigin = GetBuyerOriginLabel(state);
             state.LastBuyerSeenSampleAge = GetSampleAge(traceState.HasLastBuyerSeenSampleIndex, traceState.LastBuyerSeenSampleIndex, sampleIndex);
+            state.EstimatedMissedVanillaBuyerPasses = string.Equals(traceState.CurrentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal)
+                ? traceState.SelectedNoBuyerEstimatedMissedVanillaPasses
+                : 0;
             state.SelectedNoBuyerConsecutiveWindows = traceState.SelectedNoBuyerConsecutiveWindows;
             state.SelectedRequestNoPathConsecutiveWindows = traceState.SelectedRequestNoPathConsecutiveWindows;
             state.BelowThresholdConsecutiveWindows = traceState.BelowThresholdConsecutiveWindows;
@@ -2584,6 +2645,13 @@ namespace NoOfficeDemandFix.Systems
                 return "none";
             }
 
+            if (state.EstimatedMissedVanillaBuyerPasses > 0)
+            {
+                return state.VirtualGood && Mod.Settings != null && Mod.Settings.EnableVirtualOfficeResourceBuyerFix
+                    ? "missed_vanilla_buyer_pass_awaiting_corrective_pass"
+                    : "missed_vanilla_buyer_pass";
+            }
+
             if (state.VirtualGood && state.LastVirtualResolutionSampleAge >= 0 && state.LastVirtualResolutionSampleAge <= 1)
             {
                 return "buyer_recently_resolved_virtual";
@@ -2600,6 +2668,84 @@ namespace NoOfficeDemandFix.Systems
         private static int GetSampleAge(bool hasValue, int lastSampleIndex, int currentSampleIndex)
         {
             return hasValue ? Math.Max(0, currentSampleIndex - lastSampleIndex) : -1;
+        }
+
+        private bool TryGetCompanyUpdateFrame(Entity company, out int updateFrameIndex)
+        {
+            if (EntityManager.HasComponent<UpdateFrame>(company))
+            {
+                updateFrameIndex = (int)EntityManager.GetSharedComponent<UpdateFrame>(company).m_Index;
+                return true;
+            }
+
+            updateFrameIndex = -1;
+            return false;
+        }
+
+        private static int GetFramesUntilNextVanillaBuyerPass(uint currentFrame, int companyUpdateFrame)
+        {
+            if (companyUpdateFrame < 0)
+            {
+                return -1;
+            }
+
+            uint currentBucket = currentFrame / kVanillaBuyerUpdateInterval;
+            uint currentGroup = currentBucket % (uint)kVanillaBuyerUpdateGroupCount;
+            uint targetGroup = (uint)companyUpdateFrame;
+            uint bucketDelta = targetGroup > currentGroup
+                ? targetGroup - currentGroup
+                : (uint)kVanillaBuyerUpdateGroupCount - (currentGroup - targetGroup);
+            if (bucketDelta == 0u)
+            {
+                bucketDelta = (uint)kVanillaBuyerUpdateGroupCount;
+            }
+
+            uint nextBuyerBucket = currentBucket + bucketDelta;
+            uint nextBuyerFrame = nextBuyerBucket * kVanillaBuyerUpdateInterval;
+            return nextBuyerFrame > currentFrame ? (int)(nextBuyerFrame - currentFrame) : 0;
+        }
+
+        private static int CountVanillaBuyerPassesBetweenFrames(uint startFrame, uint endFrame, int companyUpdateFrame)
+        {
+            if (companyUpdateFrame < 0 || endFrame <= startFrame)
+            {
+                return 0;
+            }
+
+            uint startBucket = startFrame / kVanillaBuyerUpdateInterval;
+            uint endBucket = endFrame / kVanillaBuyerUpdateInterval;
+            if (endBucket <= startBucket)
+            {
+                return 0;
+            }
+
+            return CountCongruentValuesInInclusiveRange(
+                startBucket + 1u,
+                endBucket,
+                (uint)companyUpdateFrame,
+                (uint)kVanillaBuyerUpdateGroupCount);
+        }
+
+        private static int CountCongruentValuesInInclusiveRange(uint startValue, uint endValue, uint targetRemainder, uint modulus)
+        {
+            if (startValue > endValue || modulus == 0u)
+            {
+                return 0;
+            }
+
+            uint first = startValue;
+            uint currentRemainder = first % modulus;
+            if (currentRemainder != targetRemainder)
+            {
+                first += (targetRemainder + modulus - currentRemainder) % modulus;
+            }
+
+            if (first > endValue)
+            {
+                return 0;
+            }
+
+            return 1 + (int)((endValue - first) / modulus);
         }
 
         private static string GetBuyerOriginLabel(SoftwareAcquisitionState state)
@@ -3106,7 +3252,7 @@ namespace NoOfficeDemandFix.Systems
                 $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
                 $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
                 $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero}); " +
-                $"softwareConsumerBuyerState(needSelected={snapshot.SoftwareConsumerNeedSelected}, resourceBuyerPresent={snapshot.SoftwareConsumerResourceBuyerPresent}, correctiveBuyerPresent={snapshot.SoftwareConsumerCorrectiveBuyerPresent}, vanillaBuyerPresent={snapshot.SoftwareConsumerVanillaBuyerPresent}, trackingExpectedSelected={snapshot.SoftwareConsumerTrackingExpectedSelected}, selectedNoResourceBuyer={snapshot.SoftwareConsumerSelectedNoResourceBuyer}, selectedNoBuyerShortGap={snapshot.SoftwareConsumerSelectedNoBuyerShortGap}, selectedNoBuyerPersistent={snapshot.SoftwareConsumerSelectedNoBuyerPersistent}, selectedRequestNoPath={snapshot.SoftwareConsumerSelectedRequestNoPath}, selectedRequestNoPathShortGap={snapshot.SoftwareConsumerSelectedRequestNoPathShortGap}, selectedRequestNoPathPersistent={snapshot.SoftwareConsumerSelectedRequestNoPathPersistent}, pathPending={snapshot.SoftwareConsumerPathPending}, resolvedVirtualNoTrackingExpected={snapshot.SoftwareConsumerResolvedVirtualNoTrackingExpected}, resolvedNoTrackingUnexpected={snapshot.SoftwareConsumerResolvedNoTrackingUnexpected}, tripPresent={snapshot.SoftwareConsumerTripPresent}, currentTradingPresent={snapshot.SoftwareConsumerCurrentTradingPresent}, virtualResolvedThisWindow={snapshot.SoftwareConsumerVirtualResolvedThisWindow}, virtualResolvedAmount={snapshot.SoftwareConsumerVirtualResolvedAmount})";
+                $"softwareConsumerBuyerState(needSelected={snapshot.SoftwareConsumerNeedSelected}, resourceBuyerPresent={snapshot.SoftwareConsumerResourceBuyerPresent}, correctiveBuyerPresent={snapshot.SoftwareConsumerCorrectiveBuyerPresent}, vanillaBuyerPresent={snapshot.SoftwareConsumerVanillaBuyerPresent}, trackingExpectedSelected={snapshot.SoftwareConsumerTrackingExpectedSelected}, selectedNoResourceBuyer={snapshot.SoftwareConsumerSelectedNoResourceBuyer}, selectedNoBuyerShortGap={snapshot.SoftwareConsumerSelectedNoBuyerShortGap}, selectedNoBuyerPersistent={snapshot.SoftwareConsumerSelectedNoBuyerPersistent}, selectedNoBuyerMissedVanillaPass={snapshot.SoftwareConsumerSelectedNoBuyerMissedVanillaPass}, selectedNoBuyerMissedMultipleVanillaPasses={snapshot.SoftwareConsumerSelectedNoBuyerMissedMultipleVanillaPasses}, selectedNoBuyerMaxMissedVanillaPasses={snapshot.SoftwareConsumerSelectedNoBuyerMaxMissedVanillaPasses}, selectedRequestNoPath={snapshot.SoftwareConsumerSelectedRequestNoPath}, selectedRequestNoPathShortGap={snapshot.SoftwareConsumerSelectedRequestNoPathShortGap}, selectedRequestNoPathPersistent={snapshot.SoftwareConsumerSelectedRequestNoPathPersistent}, pathPending={snapshot.SoftwareConsumerPathPending}, resolvedVirtualNoTrackingExpected={snapshot.SoftwareConsumerResolvedVirtualNoTrackingExpected}, resolvedNoTrackingUnexpected={snapshot.SoftwareConsumerResolvedNoTrackingUnexpected}, tripPresent={snapshot.SoftwareConsumerTripPresent}, currentTradingPresent={snapshot.SoftwareConsumerCurrentTradingPresent}, virtualResolvedThisWindow={snapshot.SoftwareConsumerVirtualResolvedThisWindow}, virtualResolvedAmount={snapshot.SoftwareConsumerVirtualResolvedAmount})";
         }
 
         private static bool TryGetObservationTrigger(
