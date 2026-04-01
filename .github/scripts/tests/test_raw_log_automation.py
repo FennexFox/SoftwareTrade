@@ -1222,7 +1222,7 @@ class RawLogAutomationTests(unittest.TestCase):
             automation.AGGRESSIVE_DRAFT_FIELD_LIMITS["log_excerpt"],
         )
 
-    def test_preview_artifacts_compaction_drops_fenced_blocks_before_render(self) -> None:
+    def test_preview_artifacts_compaction_intentionally_drops_fenced_detail_blocks_before_render(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {
             "mode": "attachment",
@@ -1261,11 +1261,15 @@ class RawLogAutomationTests(unittest.TestCase):
         artifacts_section = compact_body[artifacts_start:notes_start]
 
         self.assertIn("```text", preview_fields["artifacts"])
+        self.assertIn("detail_type=softwareTradeLifecycle", preview_fields["artifacts"])
         self.assertIn("- supplemental detail: softwareTradeLifecycle", compact_preview["artifacts"])
         self.assertNotIn("```text", compact_preview["artifacts"])
+        self.assertNotIn("detail_type=softwareTradeLifecycle", compact_preview["artifacts"])
         self.assertNotIn("```text", minimal_preview["artifacts"])
+        self.assertNotIn("detail_type=softwareTradeLifecycle", minimal_preview["artifacts"])
         self.assertIn("- supplemental detail: softwareTradeLifecycle", artifacts_section)
         self.assertNotIn("```text", artifacts_section)
+        self.assertNotIn("detail_type=softwareTradeLifecycle", artifacts_section)
 
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)

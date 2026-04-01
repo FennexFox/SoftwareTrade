@@ -3851,6 +3851,11 @@ def truncate_dict_text_fields(values: dict[str, Any], limits: dict[str, int]) ->
 
 
 def compact_artifacts_preview_text(value: str, limit: int) -> str:
+    """Keep preview artifacts scannable by dropping fenced raw-detail blocks.
+
+    The detailed lines still live in the machine payload, so the compact preview
+    intentionally keeps only the surrounding summary bullets before rendering.
+    """
     if not value.strip():
         return ""
 
