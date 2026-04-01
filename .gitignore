@@ -13,6 +13,7 @@
 # Ignore the scripts folder, which contains local development scripts that should not be shared
 /scripts/
 .vscode/
+.codex/tmp/
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
