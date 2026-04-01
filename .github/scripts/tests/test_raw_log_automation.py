@@ -1271,6 +1271,59 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertNotIn("```text", artifacts_section)
         self.assertNotIn("detail_type=softwareTradeLifecycle", artifacts_section)
 
+    def test_compact_preview_evidence_fields_excludes_artifacts_from_shared_truncation_pass(self) -> None:
+        preview_fields = {
+            "settings": "settings",
+            "reproduction-conditions": "conditions",
+            "platform-notes": "platform",
+            "other-mods": "mods",
+            "observation-window": "window",
+            "diagnostic-counters": "counters",
+            "comparison-baseline": "baseline",
+            "evidence-summary": "summary",
+            "confounders": "confounders",
+            "analysis-basis": "analysis",
+            "artifacts": "artifact details",
+            "notes": "notes",
+        }
+
+        with mock.patch.object(
+            automation,
+            "truncate_dict_text_fields",
+            wraps=automation.truncate_dict_text_fields,
+        ) as truncate_fields:
+            compact = automation.compact_preview_evidence_fields(preview_fields)
+
+        truncated_values = truncate_fields.call_args.args[0]
+        self.assertNotIn("artifacts", truncated_values)
+        self.assertEqual(compact["artifacts"], automation.compact_artifacts_preview_text("artifact details", 600))
+
+    def test_build_minimal_preview_evidence_fields_only_compacts_artifacts_once(self) -> None:
+        preview_fields = {
+            "settings": "settings",
+            "reproduction-conditions": "conditions",
+            "platform-notes": "platform",
+            "other-mods": "mods",
+            "observation-window": "window",
+            "diagnostic-counters": "counters",
+            "comparison-baseline": "baseline",
+            "evidence-summary": "summary",
+            "confounders": "confounders",
+            "analysis-basis": "analysis",
+            "artifacts": "artifact details",
+            "notes": "notes",
+        }
+
+        with mock.patch.object(
+            automation,
+            "compact_artifacts_preview_text",
+            wraps=automation.compact_artifacts_preview_text,
+        ) as compact_artifacts:
+            automation.build_minimal_preview_evidence_fields(preview_fields)
+
+        self.assertEqual(compact_artifacts.call_count, 1)
+        self.assertEqual(compact_artifacts.call_args.args, ("artifact details", 240))
+
     def test_merge_evidence_fields_and_required_gate(self) -> None:
         issue_fields = automation.parse_issue_form_sections(RAW_ISSUE_BODY)
         log_source = {"mode": "inline", "url": "", "attachment_urls": [], "text": CURRENT_BRANCH_LOG}

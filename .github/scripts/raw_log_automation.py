@@ -4126,19 +4126,28 @@ def build_minimal_managed_comment_payload(payload: dict[str, Any]) -> dict[str, 
     }
 
 
-def compact_preview_evidence_fields(preview_fields: dict[str, str], *, aggressive: bool = False) -> dict[str, str]:
+def compact_preview_evidence_fields(
+    preview_fields: dict[str, str],
+    *,
+    aggressive: bool = False,
+    include_artifacts: bool = True,
+) -> dict[str, str]:
     limits = AGGRESSIVE_PREVIEW_FIELD_LIMITS if aggressive else COMPACT_PREVIEW_FIELD_LIMITS
-    compact = truncate_dict_text_fields(preview_fields, limits)
-    compact["artifacts"] = compact_artifacts_preview_text(
-        str(preview_fields.get("artifacts", "")),
-        limits["artifacts"],
+    compact = truncate_dict_text_fields(
+        {key: value for key, value in preview_fields.items() if key != "artifacts"},
+        limits,
     )
+    if include_artifacts:
+        compact["artifacts"] = compact_artifacts_preview_text(
+            str(preview_fields.get("artifacts", "")),
+            limits["artifacts"],
+        )
     compact["log-excerpt"] = ""
     return compact
 
 
 def build_minimal_preview_evidence_fields(preview_fields: dict[str, str]) -> dict[str, str]:
-    compact = compact_preview_evidence_fields(preview_fields, aggressive=True)
+    compact = compact_preview_evidence_fields(preview_fields, aggressive=True, include_artifacts=False)
     compact["analysis-basis"] = ""
     compact["notes"] = ""
     compact["artifacts"] = compact_artifacts_preview_text(str(preview_fields.get("artifacts", "")), 240)
