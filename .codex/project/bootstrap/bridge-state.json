@@ -1,0 +1,158 @@
+{
+  "kind": "packetflow-foundry-bootstrap-bridge-state",
+  "version": 1,
+  "agents": {
+    "docs-verifier.toml": {
+      "type": "file-copy",
+      "source": ".codex/vendor/packetflow_foundry/.codex/agents/docs-verifier.toml",
+      "sha256": "4fea3678ffe407c5dccd63335272f54792ae6bf4039547bc67e5cdde2cdbc199"
+    },
+    "evidence-summarizer.toml": {
+      "type": "file-copy",
+      "source": ".codex/vendor/packetflow_foundry/.codex/agents/evidence-summarizer.toml",
+      "sha256": "f2be048c5d96f179a54e14d07dacd1fa52c022c246702e6e4a26fa49bc4d2126"
+    },
+    "large-diff-auditor.toml": {
+      "type": "file-copy",
+      "source": ".codex/vendor/packetflow_foundry/.codex/agents/large-diff-auditor.toml",
+      "sha256": "06cf5327dbf180e8c5e20114e83a825079a6455ced8b4045ad6d14b5b9046422"
+    },
+    "log-triager.toml": {
+      "type": "file-copy",
+      "source": ".codex/vendor/packetflow_foundry/.codex/agents/log-triager.toml",
+      "sha256": "2dba8ddfd75a81a792f1e323649e1c5b230be274dd159dbb256a1a4520e9e96a"
+    },
+    "packet-explorer.toml": {
+      "type": "file-copy",
+      "source": ".codex/vendor/packetflow_foundry/.codex/agents/packet-explorer.toml",
+      "sha256": "49a2049806a9b173f7161abeebf1b91f86cf6eef5bf8a2feb8e9f6b902538553"
+    },
+    "repo-mapper.toml": {
+      "type": "file-copy",
+      "source": ".codex/vendor/packetflow_foundry/.codex/agents/repo-mapper.toml",
+      "sha256": "d14bf73f7db3859f3a9ba30768d29ef1fd90da83dfbb162048c00bf2e761879e"
+    }
+  },
+  "skills": {
+    "draft-release-copy": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/draft-release-copy",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "84eb802f94d3af1c9f7c25ba02011ae6d3fa82e2ec297e66ff901bd3ff07462b"
+        },
+        "SKILL.md": {
+          "sha256": "c1dfbd453145faf5911fa0e22bfcbbea4b449f456226e045e622cb16dc0da842"
+        }
+      }
+    },
+    "gh-address-review-threads": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/gh-address-review-threads",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "2e31b5e59faba57b16fe5521e57bf775e1c7de4212f3e531c3cb5bd572a1d657"
+        },
+        "SKILL.md": {
+          "sha256": "07bb593835035c2bce8bfb7f32868aeec3ba867be6cb84334d65f52b15b9dc5b"
+        }
+      }
+    },
+    "gh-create-pr": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/gh-create-pr",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "4e7fb774a7076aa2a77fde52b17c5d851d6b687624094627899736fae6320066"
+        },
+        "SKILL.md": {
+          "sha256": "413aece9fbfd75a2dfaa8ac3b746293cb6a3128011f69e57f960a0cc1ece2e1a"
+        }
+      }
+    },
+    "gh-fix-pr-writeup": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/gh-fix-pr-writeup",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "38006ffef099ed0d8055736f3893edb72dc6f28d2020e5eeeeb6e84514886ba2"
+        },
+        "SKILL.md": {
+          "sha256": "d3fc7ea5a51180ae7bbd35c462d594ee86e6a468d043d5b236c256b3b31d2789"
+        }
+      }
+    },
+    "git-split-and-commit": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/git-split-and-commit",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "75b6a06930d6fd75200dfb85e1e665b912422cefd8c88e1e34088b2c8c8d8d3c"
+        },
+        "SKILL.md": {
+          "sha256": "ada38fa6df8fc8b19823571f55fff91b28469b04496d806eab5715c41b7c8ca4"
+        }
+      }
+    },
+    "packet-workflow-skill-builder": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/packet-workflow-skill-builder",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "82d844ebd7a3159ce3f81e6997f60ace0619f33a8001585a6f73e566d8f1c203"
+        },
+        "SKILL.md": {
+          "sha256": "a8c3e7689e837f70fd467f221447f4efa311ee55a6fd5c8f59a20633ae938921"
+        }
+      }
+    },
+    "public-docs-sync": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/public-docs-sync",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "9349d6ace9a054ddfb348365202d7cd83526b14766a3075d19715dbd26224ef1"
+        },
+        "SKILL.md": {
+          "sha256": "bc3265f625b666a3634964361656af1f7cd069cd50b21425e6a0d1c4302ff530"
+        }
+      }
+    },
+    "reword-head-commit": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/reword-head-commit",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "d64ae0b4ea77c13388f0b56d42b02fef6f530a17679a4bc168f2149cf8dd45e2"
+        },
+        "SKILL.md": {
+          "sha256": "454544c8fb8a97da1c4d906564a51579dc6f68519e256f225d570500946a47c6"
+        }
+      }
+    },
+    "reword-recent-commits": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/reword-recent-commits",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "f4041e5b9ec145ec5e3d32825c9f4ca0e471a58d6cb40dd0c3b848bd4b1391e4"
+        },
+        "SKILL.md": {
+          "sha256": "c63e6ed50a2b6d3c4c89cfc17740720385e534dcb929f2caecfd154c16b1c70d"
+        }
+      }
+    },
+    "weekly-update": {
+      "type": "directory-copy",
+      "source": ".codex/vendor/packetflow_foundry/.agents/skills/weekly-update",
+      "files": {
+        "agents/openai.yaml": {
+          "sha256": "654721a49b6ac528e80808b3d4eaac4795f21137378ae2fa233b6f48f0119a77"
+        },
+        "SKILL.md": {
+          "sha256": "a929ef19430a723fb9fedc8920b62f9b9db531e532af5951a6763897bbf97705"
+        }
+      }
+    }
+  }
+}
