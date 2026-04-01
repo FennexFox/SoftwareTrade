@@ -1,0 +1,88 @@
+{
+  "kind": "project-local-profile",
+  "name": "git-split-and-commit",
+  "profile_path": ".codex/project/profiles/git-split-and-commit/profile.json",
+  "summary": "Project-local git-split-and-commit profile for NoOfficeDemandFix commit planning and repo-specific review guidance.",
+  "repo_match": {
+    "root_markers": [
+      ".git",
+      "README.md"
+    ],
+    "remote_patterns": []
+  },
+  "bindings": {
+    "primary_readme_path": "README.md",
+    "settings_source_path": null,
+    "publish_config_path": null
+  },
+  "packet_defaults": {
+    "review_docs": {
+      "rules": [
+        ".github/instructions/commit-message.instructions.md",
+        ".github/copilot-instructions.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ],
+      "worktree": [
+        "README.md",
+        ".codex/AGENTS.md"
+      ],
+      "candidate-batch": [
+        ".github/instructions/commit-message.instructions.md",
+        "README.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md"
+      ],
+      "split-file": [
+        ".github/instructions/commit-message.instructions.md",
+        ".codex/AGENTS.md",
+        "README.md",
+        "CONTRIBUTING.md"
+      ]
+    },
+    "source_path_globs": {
+      "rules": [
+        ".github/**",
+        ".codex/AGENTS.md",
+        "*.md"
+      ],
+      "worktree": [
+        "NoOfficeDemandFix/**",
+        "scripts/**",
+        ".github/**",
+        "*.md"
+      ],
+      "candidate-batch": [
+        "NoOfficeDemandFix/**",
+        "scripts/**",
+        ".github/**",
+        "*.md"
+      ],
+      "split-file": [
+        "NoOfficeDemandFix/**",
+        "scripts/**",
+        ".github/**",
+        "*.md"
+      ]
+    }
+  },
+  "lint_rules": {
+    "require_readme_settings_table": false,
+    "missing_review_docs_are_errors": false
+  },
+  "notes": [
+    "This file is a project-local skill profile for one consumer repository.",
+    "It is not a reusable foundry overlay and should stay outside the vendor subtree.",
+    "Keep this profile data-only: add repo-specific bindings, review docs, globs, booleans, and notes here.",
+    "Use `.github/instructions/commit-message.instructions.md` as the canonical source for generated commit messages in this repository.",
+    "Do not add executable hooks, prompt fragments, packet routing authority, or validator/apply behavior here."
+  ],
+  "metadata": {
+    "versioning": {
+      "builder_family": "packet-workflow",
+      "builder_semver": "0.1.0",
+      "compatibility_epoch": 1,
+      "repo_profile_schema_version": 1
+    }
+  }
+}
