@@ -1,0 +1,128 @@
+{
+  "kind": "project-local-profile",
+  "name": "public-docs-sync",
+  "profile_path": ".codex/project/profiles/public-docs-sync/profile.json",
+  "summary": "Project-local public-docs-sync profile for NoOfficeDemandFix public documentation drift auditing.",
+  "repo_match": {
+    "root_markers": [
+      ".git",
+      "README.md"
+    ],
+    "remote_patterns": []
+  },
+  "bindings": {
+    "primary_readme_path": "README.md",
+    "settings_source_path": "NoOfficeDemandFix/Setting.cs",
+    "publish_config_path": "NoOfficeDemandFix/Properties/PublishConfiguration.xml"
+  },
+  "packet_defaults": {
+    "review_docs": {
+      "claims_packet": [
+        "README.md",
+        ".github/software-evidence-schema.md",
+        ".github/software-investigation-workflow.md"
+      ],
+      "forms_batch_packet": [
+        ".github/ISSUE_TEMPLATE/bug_report.yml",
+        ".github/ISSUE_TEMPLATE/feature_request.yml",
+        ".github/ISSUE_TEMPLATE/investigation.yml",
+        ".github/ISSUE_TEMPLATE/release_checklist.yml",
+        ".github/ISSUE_TEMPLATE/performance_telemetry_report.yml",
+        ".github/ISSUE_TEMPLATE/raw_log_report.yml",
+        ".github/ISSUE_TEMPLATE/software_evidence.yml",
+        ".github/ISSUE_TEMPLATE/software_investigation.yml"
+      ],
+      "reporting_packet": [
+        "LOG_REPORTING.md",
+        "PERF_REPORTING.md",
+        ".github/software-evidence-schema.md",
+        ".github/software-investigation-workflow.md"
+      ],
+      "workflow_packet": [
+        "CONTRIBUTING.md",
+        "MAINTAINING.md",
+        ".github/pull_request_template.md",
+        ".github/workflows/release.yml"
+      ]
+    },
+    "source_path_globs": {
+      "claims_packet": [
+        "README.md",
+        "NoOfficeDemandFix/Properties/PublishConfiguration.xml",
+        "NoOfficeDemandFix/Setting.cs"
+      ],
+      "forms_batch_packet": [
+        ".github/ISSUE_TEMPLATE/*.yml"
+      ],
+      "reporting_packet": [
+        "LOG_REPORTING.md",
+        "PERF_REPORTING.md",
+        ".github/software-*.md"
+      ],
+      "workflow_packet": [
+        "CONTRIBUTING.md",
+        "MAINTAINING.md",
+        ".github/pull_request_template.md",
+        ".github/workflows/*.yml"
+      ]
+    }
+  },
+  "lint_rules": {
+    "require_readme_settings_table": true,
+    "missing_review_docs_are_errors": false
+  },
+  "extra": {
+    "public_docs_sync": {
+      "audited_public_doc_inventory": [
+        "README.md",
+        "LOG_REPORTING.md",
+        "PERF_REPORTING.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md",
+        ".github/pull_request_template.md",
+        ".github/software-evidence-schema.md",
+        ".github/software-investigation-workflow.md",
+        ".github/workflows/release.yml"
+      ],
+      "issue_template_groups": {
+        "reporting": [
+          "performance_telemetry_report.yml",
+          "raw_log_report.yml",
+          "software_evidence.yml",
+          "software_investigation.yml"
+        ],
+        "workflow": [
+          "bug_report.yml",
+          "feature_request.yml",
+          "investigation.yml",
+          "release_checklist.yml"
+        ]
+      },
+      "public_workflow_doc_paths": [
+        ".github/pull_request_template.md",
+        ".github/software-evidence-schema.md",
+        ".github/software-investigation-workflow.md",
+        ".github/workflows/release.yml"
+      ],
+      "state": {
+        "marker_path": ".codex/state/public-docs-sync-last-success.json",
+        "namespace": "public-docs-sync"
+      }
+    }
+  },
+  "notes": [
+    "This file is a project-local skill profile for one consumer repository.",
+    "It is not a reusable foundry overlay and should stay outside the vendor subtree.",
+    "Keep this profile data-only: add repo-specific bindings, review docs, globs, booleans, and notes here.",
+    "Use the public docs inventory and issue-template grouping in this repository as the canonical public-doc auditing surface.",
+    "Do not add executable hooks, prompt fragments, packet routing authority, or validator/apply behavior here."
+  ],
+  "metadata": {
+    "versioning": {
+      "builder_family": "packet-workflow",
+      "builder_semver": "0.1.0",
+      "compatibility_epoch": 1,
+      "repo_profile_schema_version": 1
+    }
+  }
+}

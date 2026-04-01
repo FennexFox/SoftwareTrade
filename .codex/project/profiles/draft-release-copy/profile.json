@@ -1,0 +1,126 @@
+{
+  "kind": "project-local-profile",
+  "name": "draft-release-copy",
+  "profile_path": ".codex/project/profiles/draft-release-copy/profile.json",
+  "summary": "Project-local draft-release-copy profile for NoOfficeDemandFix release review and checklist generation.",
+  "repo_match": {
+    "root_markers": [
+      ".git",
+      "README.md"
+    ],
+    "remote_patterns": []
+  },
+  "bindings": {
+    "primary_readme_path": "README.md",
+    "settings_source_path": "NoOfficeDemandFix/Setting.cs",
+    "publish_config_path": "NoOfficeDemandFix/Properties/PublishConfiguration.xml"
+  },
+  "packet_defaults": {
+    "review_docs": {
+      "changes_packet": [
+        "README.md",
+        "MAINTAINING.md",
+        "LOG_REPORTING.md",
+        "PERF_REPORTING.md",
+        ".github/workflows/release.yml"
+      ],
+      "checklist_packet": [
+        ".github/ISSUE_TEMPLATE/release_checklist.yml",
+        ".github/workflows/release.yml",
+        "MAINTAINING.md",
+        ".github/pull_request_template.md"
+      ],
+      "evidence_packet": [
+        "README.md",
+        "LOG_REPORTING.md",
+        "PERF_REPORTING.md",
+        ".github/software-evidence-schema.md",
+        ".github/software-investigation-workflow.md"
+      ],
+      "publish_packet": [
+        "NoOfficeDemandFix/Properties/PublishConfiguration.xml",
+        "scripts/release.ps1",
+        ".github/workflows/release.yml"
+      ],
+      "readme_packet": [
+        "README.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md",
+        ".github/ISSUE_TEMPLATE/release_checklist.yml"
+      ]
+    },
+    "source_path_globs": {
+      "changes_packet": [
+        "NoOfficeDemandFix/**",
+        "scripts/**",
+        ".github/workflows/release.yml",
+        "*.md"
+      ],
+      "checklist_packet": [
+        ".github/ISSUE_TEMPLATE/*.yml",
+        ".github/workflows/release.yml",
+        "*.md"
+      ],
+      "evidence_packet": [
+        ".github/**",
+        "*.md",
+        "NoOfficeDemandFix/**",
+        "scripts/**"
+      ],
+      "publish_packet": [
+        "NoOfficeDemandFix/Properties/**",
+        "scripts/release.ps1",
+        ".github/workflows/release.yml"
+      ],
+      "readme_packet": [
+        "README.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md",
+        ".github/ISSUE_TEMPLATE/*.yml"
+      ]
+    }
+  },
+  "lint_rules": {
+    "require_readme_settings_table": false,
+    "missing_review_docs_are_errors": false
+  },
+  "extra": {
+    "release_copy": {
+      "allowed_publish_fields": [
+        "short_description",
+        "long_description",
+        "mod_version",
+        "change_log"
+      ],
+      "allowed_readme_sections": [
+        "Current Release",
+        "Current Status"
+      ],
+      "issue_defaults": {
+        "label_names": [
+          "release"
+        ],
+        "project_mode": "none",
+        "title_prefix": "[Release]"
+      },
+      "maintaining_path": "MAINTAINING.md",
+      "release_checklist_template_path": ".github/ISSUE_TEMPLATE/release_checklist.yml",
+      "release_workflow_path": ".github/workflows/release.yml"
+    }
+  },
+  "notes": [
+    "This file is a project-local skill profile for one consumer repository.",
+    "It is not a reusable foundry overlay and should stay outside the vendor subtree.",
+    "Keep this profile data-only: add repo-specific bindings, review docs, globs, booleans, and notes here.",
+    "Use the release workflow, checklist template, and publish configuration paths in this repository as the canonical release inputs.",
+    "Do not add executable hooks, prompt fragments, packet routing authority, or validator/apply behavior here."
+  ],
+  "metadata": {
+    "versioning": {
+      "builder_family": "packet-workflow",
+      "builder_semver": "0.1.0",
+      "compatibility_epoch": 1,
+      "repo_profile_schema_version": 1
+    }
+  }
+}

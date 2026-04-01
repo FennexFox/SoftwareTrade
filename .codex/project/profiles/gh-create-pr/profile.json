@@ -1,0 +1,86 @@
+{
+  "kind": "project-local-profile",
+  "name": "gh-create-pr",
+  "profile_path": ".codex/project/profiles/gh-create-pr/profile.json",
+  "summary": "Project-local gh-create-pr profile for NoOfficeDemandFix PR drafting and repo-specific PR guidance.",
+  "repo_match": {
+    "root_markers": [
+      ".git",
+      "README.md"
+    ],
+    "remote_patterns": []
+  },
+  "bindings": {
+    "primary_readme_path": "README.md",
+    "settings_source_path": "NoOfficeDemandFix/Setting.cs",
+    "publish_config_path": "NoOfficeDemandFix/Properties/PublishConfiguration.xml"
+  },
+  "packet_defaults": {
+    "review_docs": {
+      "process": [
+        ".github/instructions/pull-request.instructions.md",
+        ".github/pull_request_template.md",
+        ".github/copilot-instructions.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md"
+      ],
+      "rules": [
+        ".github/instructions/pull-request.instructions.md",
+        ".github/pull_request_template.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md"
+      ],
+      "runtime": [
+        "README.md",
+        ".codex/AGENTS.md",
+        "MAINTAINING.md"
+      ],
+      "testing": [
+        ".github/instructions/pull-request.instructions.md",
+        "CONTRIBUTING.md",
+        "README.md"
+      ]
+    },
+    "source_path_globs": {
+      "process": [
+        ".github/**",
+        ".codex/AGENTS.md",
+        "*.md"
+      ],
+      "rules": [
+        ".github/**",
+        ".codex/AGENTS.md",
+        "*.md"
+      ],
+      "runtime": [
+        "NoOfficeDemandFix/**",
+        "scripts/**"
+      ],
+      "testing": [
+        ".github/scripts/**",
+        ".github/workflows/**",
+        "NoOfficeDemandFix/**"
+      ]
+    }
+  },
+  "lint_rules": {
+    "require_readme_settings_table": false,
+    "missing_review_docs_are_errors": false
+  },
+  "extra": {},
+  "notes": [
+    "This file is a project-local skill profile for one consumer repository.",
+    "It is not a reusable foundry overlay and should stay outside the vendor subtree.",
+    "Keep this profile data-only: add repo-specific bindings, review docs, globs, booleans, and notes here.",
+    "Use the repository PR instructions and template as the canonical sources for generated PR titles and descriptions.",
+    "Do not add executable hooks, prompt fragments, packet routing authority, or validator/apply behavior here."
+  ],
+  "metadata": {
+    "versioning": {
+      "builder_family": "packet-workflow",
+      "builder_semver": "0.1.0",
+      "compatibility_epoch": 1,
+      "repo_profile_schema_version": 1
+    }
+  }
+}
