@@ -10,7 +10,7 @@ Thin entry wiring for the foundry's packet-workflow builder.
 This subtree is intentionally minimal:
 - keep only `SKILL.md` and `agents/openai.yaml` here
 - keep authoritative builder logic and tests in `../../../.codex/vendor/packetflow_foundry/builders/packet-workflow/`
-- keep authoritative contracts, templates, and default semantics in `../../../core/`
+- keep authoritative contracts, templates, and default semantics in `../../../.codex/vendor/packetflow_foundry/core/`
 - do not reintroduce local copies of contracts, templates, scripts, or tests under this skill subtree
 
 Use this skill only for repo packet workflows that follow `collect -> optional lint -> build packets -> optional validate -> optional apply`.
@@ -20,18 +20,18 @@ Use this skill only for repo packet workflows that follow `collect -> optional l
 1. Ground the target workflow before scaffolding.
 - Inspect the target repo artifacts and existing workflow entrypoints.
 - Decide whether the new skill is `audit-only`, `audit-and-apply`, or `plan-validate-apply`.
-- Read `../../../core/contracts/packet-workflow/pattern-catalog.md` only when you need help mapping the workflow to the packet pattern.
+- Read `../../../.codex/vendor/packetflow_foundry/core/contracts/packet-workflow/pattern-catalog.md` only when you need help mapping the workflow to the packet pattern.
 
 2. Draft a builder spec before generating files.
 - Use `../../../.codex/vendor/packetflow_foundry/builders/packet-workflow/builder-contract.md` to lock the `builder-spec.json` fields.
 - Keep the workflow narrow: choose only the packets, scripts, and stop conditions the target workflow actually needs.
 - Add `repo_profile` only for repo-specific path bindings, review-doc lists, and lint toggles.
 - Keep repo profiles declarative and data-only: paths, globs, doc lists, booleans, defaults, and notes only.
-- Choose `orchestrator_profile=standard` by default and use `packet-heavy-orchestrator` only when the workflow needs the packet-heavy common path from `../../../core/contracts/packet-workflow/common-path-contract.md`.
+- Choose `orchestrator_profile=standard` by default and use `packet-heavy-orchestrator` only when the workflow needs the packet-heavy common path from `../../../.codex/vendor/packetflow_foundry/core/contracts/packet-workflow/common-path-contract.md`.
 
 3. Generate the scaffold deterministically.
 - Run `python ../../../.codex/vendor/packetflow_foundry/builders/packet-workflow/scripts/init_packet_skill.py --spec <builder-spec.json> --output-dir <foundry-root>`.
-- The generator consumes templates from `../../../core/templates/packet-workflow/` and defaults from `../../../core/defaults/packet-workflow/`.
+- The generator consumes templates from `../../../.codex/vendor/packetflow_foundry/core/templates/packet-workflow/` and defaults from `../../../.codex/vendor/packetflow_foundry/core/defaults/packet-workflow/`.
 - The generator writes the authoritative retained kernel to `../../../.codex/vendor/packetflow_foundry/builders/packet-workflow/retained-skills/<skill-name>/`.
 - The generator writes the thin discovery wrapper to `../../../.agents/skills/<skill-name>/`.
 - Generated skills should treat `../../../.codex/tmp/` as the only repo-local home for temporary, helper, scratch, and ad hoc operator-input files that are not meant for source control.
