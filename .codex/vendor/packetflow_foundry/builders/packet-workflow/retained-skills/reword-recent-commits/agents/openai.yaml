@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reword Recent Commits"
+  short_description: "Reword recent commit ranges with replay safety"
+  default_prompt: "Use $reword-recent-commits to rewrite a recent commit range when replay-style safety or packet evidence is needed."
