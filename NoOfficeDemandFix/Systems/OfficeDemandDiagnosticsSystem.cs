@@ -146,6 +146,8 @@ namespace NoOfficeDemandFix.Systems
             public int OfficeCompanyDemand;
             public int EmptyBuildingsFactor;
             public int BuildingDemandFactor;
+            public int LocalDemandFactor;
+            public bool LocalDemandFactorKnown;
             public int FreeOfficeProperties;
             public int FreeSoftwareOfficeProperties;
             public int FreeOfficePropertiesInOccupiedBuildings;
@@ -1051,6 +1053,7 @@ namespace NoOfficeDemandFix.Systems
 
             int softwareIndex = EconomyUtils.GetResourceIndex(Resource.Software);
             int electronicsIndex = EconomyUtils.GetResourceIndex(Resource.Electronics);
+            bool localDemandFactorKnown = TryGetDemandFactorValue(officeFactors, "LocalDemand", out int localDemandFactor);
             DiagnosticSnapshot snapshot = new DiagnosticSnapshot
             {
                 Day = day,
@@ -1062,6 +1065,8 @@ namespace NoOfficeDemandFix.Systems
                 OfficeCompanyDemand = m_IndustrialDemandSystem.officeCompanyDemand,
                 EmptyBuildingsFactor = officeFactors[(int)DemandFactor.EmptyBuildings],
                 BuildingDemandFactor = officeFactors[(int)DemandFactor.BuildingDemand],
+                LocalDemandFactor = localDemandFactor,
+                LocalDemandFactorKnown = localDemandFactorKnown,
                 SoftwareProduction = industrialCompanyDatas.m_Production[softwareIndex],
                 SoftwareDemand = industrialCompanyDatas.m_Demand[softwareIndex],
                 SoftwareProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[softwareIndex],
@@ -3172,6 +3177,133 @@ namespace NoOfficeDemandFix.Systems
             return builder.ToString();
         }
 
+        private static bool TryGetDemandFactorValue(NativeArray<int> factors, string factorName, out int value)
+        {
+            value = 0;
+            if (!Enum.TryParse(factorName, ignoreCase: false, out DemandFactor factor))
+            {
+                return false;
+            }
+
+            int index = (int)factor;
+            if ((uint)index >= (uint)factors.Length)
+            {
+                return false;
+            }
+
+            value = factors[index];
+            return true;
+        }
+
+        private static int CountOversupplySignals(DiagnosticSnapshot snapshot)
+        {
+            int count = 0;
+            if (snapshot.EmptyBuildingsFactor != 0)
+            {
+                count++;
+            }
+
+            if (snapshot.LocalDemandFactorKnown && snapshot.LocalDemandFactor != 0)
+            {
+                count++;
+            }
+
+            if (snapshot.FreeOfficeProperties > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.OnMarketOfficeProperties > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.ActivelyVacantOfficeProperties > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.StaleRenterOnMarketOfficeProperties > 0)
+            {
+                count++;
+            }
+
+            return count;
+        }
+
+        private static int CountSoftwareTrackSignals(DiagnosticSnapshot snapshot)
+        {
+            int count = 0;
+            if (snapshot.SoftwareProducerOfficeEfficiencyZero > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareProducerOfficeLackResourcesZero > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareConsumerOfficeEfficiencyZero > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareConsumerOfficeLackResourcesZero > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareConsumerOfficeSoftwareInputZero > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareConsumerSelectedNoResourceBuyer > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareConsumerSelectedRequestNoPath > 0)
+            {
+                count++;
+            }
+
+            if (snapshot.SoftwareConsumerPathPending > 0)
+            {
+                count++;
+            }
+
+            return count;
+        }
+
+        private static string FormatDemandSignalPattern(DiagnosticSnapshot snapshot)
+        {
+            int oversupplySignals = CountOversupplySignals(snapshot);
+            int softwareTrackSignals = CountSoftwareTrackSignals(snapshot);
+            if (oversupplySignals > 0 && softwareTrackSignals > 0)
+            {
+                return "mixed_oversupply_and_software_track";
+            }
+
+            if (oversupplySignals > 0)
+            {
+                return "oversupply_candidate";
+            }
+
+            if (softwareTrackSignals > 0)
+            {
+                return "software_track_candidate";
+            }
+
+            return "none_detected";
+        }
+
+        private static string FormatOptionalFactorValue(bool isKnown, int value)
+        {
+            return isKnown ? value.ToString(CultureInfo.InvariantCulture) : "n/a";
+        }
+
         private static bool IsDiagnosticsEnabled()
         {
             return Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
@@ -3243,8 +3375,11 @@ namespace NoOfficeDemandFix.Systems
 
         private static string FormatDiagnosticCounters(DiagnosticSnapshot snapshot)
         {
+            int oversupplySignals = CountOversupplySignals(snapshot);
+            int softwareTrackSignals = CountSoftwareTrackSignals(snapshot);
             return
                 $"officeDemand(building={snapshot.OfficeBuildingDemand}, company={snapshot.OfficeCompanyDemand}, emptyBuildings={snapshot.EmptyBuildingsFactor}, buildingDemand={snapshot.BuildingDemandFactor}); " +
+                $"officeDemandSignals(unoccupiedBuildingsFactor={snapshot.EmptyBuildingsFactor}, localDemandFactorKnown={snapshot.LocalDemandFactorKnown}, localDemandFactor={FormatOptionalFactorValue(snapshot.LocalDemandFactorKnown, snapshot.LocalDemandFactor)}, freeProperties={snapshot.FreeOfficeProperties}, onMarket={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}, oversupplySignalCount={oversupplySignals}, softwareTrackSignalCount={softwareTrackSignals}, pattern={FormatDemandSignalPattern(snapshot)}); " +
                 $"freeOfficeProperties(total={snapshot.FreeOfficeProperties}, software={snapshot.FreeSoftwareOfficeProperties}, inOccupiedBuildings={snapshot.FreeOfficePropertiesInOccupiedBuildings}, softwareInOccupiedBuildings={snapshot.FreeSoftwareOfficePropertiesInOccupiedBuildings}); " +
                 $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
                 $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
