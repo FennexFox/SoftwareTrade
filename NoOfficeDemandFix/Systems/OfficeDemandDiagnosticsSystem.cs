@@ -2153,7 +2153,7 @@ namespace NoOfficeDemandFix.Systems
             AppendSoftwareTradeCostState(builder, softwareConsumerState.TradeCost);
             AppendSoftwareAcquisitionState(builder, softwareConsumerState.Acquisition, softwareConsumerState.Trace.CurrentClassification);
             AppendBuyerFixWindowState(builder, company);
-            AppendBuyerFixQueryEligibilityState(builder, company);
+            AppendBuyerFixQueryEligibilityState(builder, company, Resource.Software);
             AppendResourceTripState(builder, "softwareTripState", softwareConsumerState.Acquisition);
             AppendBuyingCompanyState(builder, company);
             if (TryGetPathSeller(softwareConsumerState, out Entity pathSeller))
@@ -2227,7 +2227,7 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(')');
         }
 
-        private void AppendBuyerFixQueryEligibilityState(StringBuilder builder, Entity company)
+        private void AppendBuyerFixQueryEligibilityState(StringBuilder builder, Entity company, Resource selectedResource)
         {
             bool hasBuyingCompany = EntityManager.HasComponent<BuyingCompany>(company);
             bool hasPropertyRenter = EntityManager.HasComponent<PropertyRenter>(company);
@@ -2245,19 +2245,33 @@ namespace NoOfficeDemandFix.Systems
                 ? EntityManager.GetComponentData<PathInformation>(company)
                 : default;
             bool hasCurrentTradingBuffer = EntityManager.HasBuffer<CurrentTrading>(company);
-            int currentTradingEntryCount = hasCurrentTradingBuffer
-                ? EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true).Length
-                : 0;
+            int currentTradingEntryCount = 0;
+            int selectedResourceCurrentTradingEntryCount = 0;
+            if (hasCurrentTradingBuffer)
+            {
+                DynamicBuffer<CurrentTrading> currentTrading = EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true);
+                currentTradingEntryCount = currentTrading.Length;
+                for (int i = 0; i < currentTrading.Length; i++)
+                {
+                    if (currentTrading[i].m_TradingResource == selectedResource)
+                    {
+                        selectedResourceCurrentTradingEntryCount++;
+                    }
+                }
+            }
+
+            bool hasSelectedResourceCurrentTrading = selectedResourceCurrentTradingEntryCount > 0;
             bool eligibleNow = hasBuyingCompany &&
                                hasPropertyRenter &&
                                hasResourcesBuffer &&
                                hasCitizenTripNeededBuffer &&
                                !hasAnyResourceBuyer &&
                                !hasPathInformation &&
-                               !hasCurrentTradingBuffer;
+                               !hasSelectedResourceCurrentTrading;
 
             builder.Append(", buyerFixQueryEligibility(");
             builder.Append("eligibleNow=").Append(eligibleNow);
+            builder.Append(", selectedResource=").Append(selectedResource);
             builder.Append(", hasBuyingCompany=").Append(hasBuyingCompany);
             builder.Append(", hasPropertyRenter=").Append(hasPropertyRenter);
             builder.Append(", hasResourcesBuffer=").Append(hasResourcesBuffer);
@@ -2273,6 +2287,7 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(hasPathInformation ? pathInformation.m_State.ToString() : "none");
             builder.Append(", hasCurrentTradingBuffer=").Append(hasCurrentTradingBuffer);
             builder.Append(", currentTradingEntryCount=").Append(currentTradingEntryCount);
+            builder.Append(", selectedResourceCurrentTradingEntryCount=").Append(selectedResourceCurrentTradingEntryCount);
             builder.Append(", excludedBy=").Append(GetBuyerFixQueryExclusionReasonLabel(
                 hasBuyingCompany,
                 hasPropertyRenter,
@@ -2280,7 +2295,7 @@ namespace NoOfficeDemandFix.Systems
                 hasCitizenTripNeededBuffer,
                 hasAnyResourceBuyer,
                 hasPathInformation,
-                hasCurrentTradingBuffer));
+                hasSelectedResourceCurrentTrading));
             builder.Append(')');
         }
 
@@ -2291,7 +2306,7 @@ namespace NoOfficeDemandFix.Systems
             bool hasCitizenTripNeededBuffer,
             bool hasAnyResourceBuyer,
             bool hasPathInformation,
-            bool hasCurrentTradingBuffer)
+            bool hasSelectedResourceCurrentTrading)
         {
             if (hasBuyingCompany &&
                 hasPropertyRenter &&
@@ -2299,7 +2314,7 @@ namespace NoOfficeDemandFix.Systems
                 hasCitizenTripNeededBuffer &&
                 !hasAnyResourceBuyer &&
                 !hasPathInformation &&
-                !hasCurrentTradingBuffer)
+                !hasSelectedResourceCurrentTrading)
             {
                 return "none";
             }
@@ -2311,7 +2326,7 @@ namespace NoOfficeDemandFix.Systems
             AppendBuyerFixExclusionReason(builder, !hasCitizenTripNeededBuffer, "missing_trip_needed_buffer");
             AppendBuyerFixExclusionReason(builder, hasAnyResourceBuyer, "resource_buyer_present");
             AppendBuyerFixExclusionReason(builder, hasPathInformation, "path_information_present");
-            AppendBuyerFixExclusionReason(builder, hasCurrentTradingBuffer, "current_trading_present");
+            AppendBuyerFixExclusionReason(builder, hasSelectedResourceCurrentTrading, "same_resource_current_trading_present");
             return builder.Length > 0 ? builder.ToString() : "unknown";
         }
 

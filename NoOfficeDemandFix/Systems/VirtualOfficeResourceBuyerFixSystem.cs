@@ -160,6 +160,9 @@ namespace NoOfficeDemandFix.Systems
             public BufferLookup<LayoutElement> LayoutElements;
 
             [ReadOnly]
+            public BufferLookup<CurrentTrading> CurrentTradings;
+
+            [ReadOnly]
             public ResourcePrefabs ResourcePrefabs;
 
             public EntityCommandBuffer.ParallelWriter CommandBuffer;
@@ -225,6 +228,11 @@ namespace NoOfficeDemandFix.Systems
                     }
 
                     if (HasAnyTripForResource(tripNeededBuffer, selectedResource))
+                    {
+                        continue;
+                    }
+
+                    if (HasCurrentTradingForResource(company, selectedResource))
                     {
                         continue;
                     }
@@ -313,6 +321,16 @@ namespace NoOfficeDemandFix.Systems
                     ? processData.m_Input2.m_Resource
                     : Resource.NoResource;
                 return new PrefabVirtualInputInfo(input1, input2, slotCapacity);
+            }
+
+            private bool HasCurrentTradingForResource(Entity company, Resource resource)
+            {
+                if (!CurrentTradings.HasBuffer(company))
+                {
+                    return false;
+                }
+
+                return VirtualOfficeResourceBuyerFixSystem.HasCurrentTradingForResource(CurrentTradings[company], resource);
             }
 
             private bool TrySelectVirtualOfficeInput(
@@ -575,6 +593,7 @@ namespace NoOfficeDemandFix.Systems
                         OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
                         DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
                         LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
+                        CurrentTradings = GetBufferLookup<CurrentTrading>(isReadOnly: true),
                         ResourcePrefabs = resourcePrefabs,
                         CommandBuffer = commandBuffer.AsParallelWriter(),
                         ProbeResults = probeResults.AsParallelWriter(),
@@ -727,6 +746,11 @@ namespace NoOfficeDemandFix.Systems
                 return false;
             }
 
+            if (HasCurrentTradingForResource(company, selectedResource))
+            {
+                return false;
+            }
+
             int overrideAmount = math.max(kResourceMinimumRequestAmount, threshold - effectiveStock);
             if (overrideAmount <= 0)
             {
@@ -742,6 +766,29 @@ namespace NoOfficeDemandFix.Systems
                 m_ResourceNeeded = selectedResource
             };
             return true;
+        }
+
+        private bool HasCurrentTradingForResource(Entity company, Resource resource)
+        {
+            if (!EntityManager.HasBuffer<CurrentTrading>(company))
+            {
+                return false;
+            }
+
+            return HasCurrentTradingForResource(EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true), resource);
+        }
+
+        private static bool HasCurrentTradingForResource(DynamicBuffer<CurrentTrading> currentTrading, Resource resource)
+        {
+            for (int i = 0; i < currentTrading.Length; i++)
+            {
+                if (currentTrading[i].m_TradingResource == resource)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private PrefabVirtualInputInfo GetPrefabVirtualInputInfo(Entity prefab)
@@ -1216,7 +1263,6 @@ namespace NoOfficeDemandFix.Systems
                 {
                     ComponentType.ReadOnly<ResourceBuyer>(),
                     ComponentType.ReadOnly<PathInformation>(),
-                    ComponentType.ReadOnly<CurrentTrading>(),
                     ComponentType.ReadOnly<Deleted>(),
                     ComponentType.ReadOnly<Temp>()
                 }
