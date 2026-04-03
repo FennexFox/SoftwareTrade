@@ -109,7 +109,7 @@ namespace NoOfficeDemandFix
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableOutsideConnectionVirtualSellerFix)), "Experimental software import seller correction. Takes effect on the next game launch by letting office virtual-resource imports consider outside connections in a narrow fallback case. It does not modify cargo or storage definitions." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Enable software import buyer timing correction" },
-                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Experimental software import buyer timing correction. Adds a narrow fallback ResourceBuyer for zero-weight office inputs when a company is below the vanilla low-stock threshold but no buyer, path, trip, or current trading state exists yet." },
+                { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableVirtualOfficeResourceBuyerFix)), "Experimental software import buyer timing correction. Adds a narrow fallback ResourceBuyer for zero-weight office inputs when a company is below the vanilla low-stock threshold but no buyer, path, trip, or same-resource current trading state exists yet." },
 
                 { m_Setting.GetOptionLabelLocaleID(nameof(Setting.EnableOfficeDemandDirectPatch)), "Restore pre-1.5.6f1 office demand baseline" },
                 { m_Setting.GetOptionDescLocaleID(nameof(Setting.EnableOfficeDemandDirectPatch)), "The 1.5.6f1 hotfix raises office demand by increasing the office resource-demand baseline inside IndustrialDemandSystem. Turn this on before launch when you need the pre-hotfix baseline for like-for-like comparisons, and consistent behavior across runs." },
