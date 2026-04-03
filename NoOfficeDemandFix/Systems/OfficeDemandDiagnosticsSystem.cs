@@ -401,6 +401,71 @@ namespace NoOfficeDemandFix.Systems
             public SoftwareConsumerDiagnosticState SoftwareConsumerState;
         }
 
+        private readonly struct SoftwareOfficeDetailGroupKey : IEquatable<SoftwareOfficeDetailGroupKey>
+        {
+            public SoftwareOfficeDetailGroupKey(
+                Entity prefab,
+                bool isProducer,
+                bool isConsumer,
+                string classification,
+                bool softwareInputZero,
+                bool efficiencyZero,
+                bool lackResourcesZero)
+            {
+                Prefab = prefab;
+                IsProducer = isProducer;
+                IsConsumer = isConsumer;
+                Classification = classification ?? string.Empty;
+                SoftwareInputZero = softwareInputZero;
+                EfficiencyZero = efficiencyZero;
+                LackResourcesZero = lackResourcesZero;
+            }
+
+            public Entity Prefab { get; }
+            public bool IsProducer { get; }
+            public bool IsConsumer { get; }
+            public string Classification { get; }
+            public bool SoftwareInputZero { get; }
+            public bool EfficiencyZero { get; }
+            public bool LackResourcesZero { get; }
+
+            public bool Equals(SoftwareOfficeDetailGroupKey other)
+            {
+                return Prefab.Equals(other.Prefab) &&
+                       IsProducer == other.IsProducer &&
+                       IsConsumer == other.IsConsumer &&
+                       string.Equals(Classification, other.Classification, StringComparison.Ordinal) &&
+                       SoftwareInputZero == other.SoftwareInputZero &&
+                       EfficiencyZero == other.EfficiencyZero &&
+                       LackResourcesZero == other.LackResourcesZero;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is SoftwareOfficeDetailGroupKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                return HashCode.Combine(
+                    Prefab,
+                    IsProducer,
+                    IsConsumer,
+                    Classification,
+                    SoftwareInputZero,
+                    EfficiencyZero,
+                    LackResourcesZero);
+            }
+        }
+
+        private struct SoftwareOfficeDetailGroup
+        {
+            public SoftwareOfficeDetailGroupKey Key;
+            public SoftwareOfficeDetailCandidate Representative;
+            public int Count;
+            public int Priority;
+        }
+
         private struct SoftwareTradeLifecycleDetailCandidate
         {
             public Entity Company;
@@ -436,8 +501,10 @@ namespace NoOfficeDemandFix.Systems
 
         private sealed class ObservationDetailCapture
         {
-            public readonly List<SoftwareOfficeDetailCandidate> SoftwareOfficeDetailCandidates =
-                new List<SoftwareOfficeDetailCandidate>(kMaxDetailEntries);
+            public readonly List<SoftwareOfficeDetailGroup> SoftwareOfficeDetailGroups =
+                new List<SoftwareOfficeDetailGroup>(kMaxDetailEntries);
+            public readonly Dictionary<SoftwareOfficeDetailGroupKey, int> SoftwareOfficeDetailGroupIndices =
+                new Dictionary<SoftwareOfficeDetailGroupKey, int>(kMaxDetailEntries);
             public readonly List<SoftwareTradeLifecycleDetailCandidate> SoftwareTradeLifecycleDetailCandidates =
                 new List<SoftwareTradeLifecycleDetailCandidate>(kMaxDetailEntries);
             public readonly List<SoftwareVirtualResolutionProbeDetailCandidate> SoftwareVirtualResolutionProbeDetailCandidates =
@@ -1425,8 +1492,8 @@ namespace NoOfficeDemandFix.Systems
                     (isConsumer && ShouldCaptureConsumerOfficeDetail(softwareConsumerState)))
                 {
                     EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
-                    TryAddCandidate(
-                        detailCapture.SoftwareOfficeDetailCandidates,
+                    AddSoftwareOfficeDetailCandidate(
+                        detailCapture,
                         new SoftwareOfficeDetailCandidate
                         {
                             Company = company,
@@ -1543,33 +1610,156 @@ namespace NoOfficeDemandFix.Systems
             candidates.Add(candidate);
         }
 
+        private static void AddSoftwareOfficeDetailCandidate(ObservationDetailCapture detailCapture, SoftwareOfficeDetailCandidate candidate)
+        {
+            SoftwareOfficeDetailGroupKey key = BuildSoftwareOfficeDetailGroupKey(candidate);
+            if (detailCapture.SoftwareOfficeDetailGroupIndices.TryGetValue(key, out int existingIndex))
+            {
+                SoftwareOfficeDetailGroup existingGroup = detailCapture.SoftwareOfficeDetailGroups[existingIndex];
+                existingGroup.Count++;
+                detailCapture.SoftwareOfficeDetailGroups[existingIndex] = existingGroup;
+                return;
+            }
+
+            detailCapture.SoftwareOfficeDetailGroupIndices.Add(key, detailCapture.SoftwareOfficeDetailGroups.Count);
+            detailCapture.SoftwareOfficeDetailGroups.Add(new SoftwareOfficeDetailGroup
+            {
+                Key = key,
+                Representative = candidate,
+                Count = 1,
+                Priority = GetSoftwareOfficeDetailPriority(candidate)
+            });
+        }
+
+        private static SoftwareOfficeDetailGroupKey BuildSoftwareOfficeDetailGroupKey(SoftwareOfficeDetailCandidate candidate)
+        {
+            bool efficiencyZero = candidate.HasEfficiency && candidate.Efficiency <= 0f;
+            bool lackResourcesZero = candidate.HasEfficiency && candidate.LackResources <= 0f;
+            string classification = candidate.IsConsumer
+                ? candidate.SoftwareConsumerState.Trace.CurrentClassification
+                : string.Empty;
+            return new SoftwareOfficeDetailGroupKey(
+                candidate.CompanyPrefab,
+                candidate.IsProducer,
+                candidate.IsConsumer,
+                classification,
+                candidate.SoftwareInputZero,
+                efficiencyZero,
+                lackResourcesZero);
+        }
+
+        private static int GetSoftwareOfficeDetailPriority(SoftwareOfficeDetailCandidate candidate)
+        {
+            int priority = 0;
+            if (candidate.HasEfficiency && candidate.Efficiency <= 0f)
+            {
+                priority += 16;
+            }
+
+            if (candidate.HasEfficiency && candidate.LackResources <= 0f)
+            {
+                priority += 8;
+            }
+
+            if (candidate.SoftwareInputZero)
+            {
+                priority += 4;
+            }
+
+            if (candidate.IsConsumer)
+            {
+                if (string.Equals(candidate.SoftwareConsumerState.Trace.CurrentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal))
+                {
+                    priority += 3;
+                }
+                else if (string.Equals(candidate.SoftwareConsumerState.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal))
+                {
+                    priority += 2;
+                }
+                else if (string.Equals(candidate.SoftwareConsumerState.Trace.CurrentClassification, kTraceSelectedPathPending, StringComparison.Ordinal))
+                {
+                    priority += 1;
+                }
+            }
+
+            return priority;
+        }
+
         private string RenderSoftwareOfficeDetails(ObservationDetailCapture detailCapture)
         {
-            if (detailCapture == null || detailCapture.SoftwareOfficeDetailCandidates.Count == 0)
+            if (detailCapture == null || detailCapture.SoftwareOfficeDetailGroups.Count == 0)
             {
                 return string.Empty;
             }
 
+            List<SoftwareOfficeDetailGroup> groups = new List<SoftwareOfficeDetailGroup>(detailCapture.SoftwareOfficeDetailGroups);
+            groups.Sort(static (left, right) =>
+            {
+                int compare = right.Priority.CompareTo(left.Priority);
+                if (compare != 0)
+                {
+                    return compare;
+                }
+
+                compare = right.Count.CompareTo(left.Count);
+                if (compare != 0)
+                {
+                    return compare;
+                }
+
+                compare = left.Representative.CompanyPrefab.Index.CompareTo(right.Representative.CompanyPrefab.Index);
+                if (compare != 0)
+                {
+                    return compare;
+                }
+
+                return left.Representative.Property.Index.CompareTo(right.Representative.Property.Index);
+            });
+
+            int shownGroupCount = groups.Count;
+            if (shownGroupCount > kMaxDetailEntries)
+            {
+                shownGroupCount = Math.Max(1, kMaxDetailEntries - 1);
+            }
+
             StringBuilder details = null;
             int detailCount = 0;
-            for (int i = 0; i < detailCapture.SoftwareOfficeDetailCandidates.Count; i++)
+            for (int i = 0; i < shownGroupCount; i++)
             {
-                SoftwareOfficeDetailCandidate candidate = detailCapture.SoftwareOfficeDetailCandidates[i];
+                SoftwareOfficeDetailGroup group = groups[i];
+                SoftwareOfficeDetailCandidate candidate = group.Representative;
+                string detail = DescribeSoftwareOffice(
+                    candidate.Company,
+                    candidate.CompanyPrefab,
+                    candidate.Property,
+                    candidate.ProcessData,
+                    candidate.IsProducer,
+                    candidate.IsConsumer,
+                    candidate.SoftwareInputZero,
+                    candidate.HasEfficiency,
+                    candidate.Efficiency,
+                    candidate.LackResources,
+                    candidate.SoftwareConsumerState);
+                detail += $", similarKindCount={group.Count}, similarKindOmitted={Math.Max(0, group.Count - 1)}";
                 AppendDetail(
                     ref details,
                     ref detailCount,
-                    DescribeSoftwareOffice(
-                        candidate.Company,
-                        candidate.CompanyPrefab,
-                        candidate.Property,
-                        candidate.ProcessData,
-                        candidate.IsProducer,
-                        candidate.IsConsumer,
-                        candidate.SoftwareInputZero,
-                        candidate.HasEfficiency,
-                        candidate.Efficiency,
-                        candidate.LackResources,
-                        candidate.SoftwareConsumerState));
+                    detail);
+            }
+
+            if (groups.Count > shownGroupCount)
+            {
+                int omittedKinds = groups.Count - shownGroupCount;
+                int omittedCases = 0;
+                for (int i = shownGroupCount; i < groups.Count; i++)
+                {
+                    omittedCases += groups[i].Count;
+                }
+
+                AppendDetail(
+                    ref details,
+                    ref detailCount,
+                    $"detailSummary(grouping=prefab+classification+zero_flags, omittedKinds={omittedKinds}, omittedCases={omittedCases})");
             }
 
             return details == null ? string.Empty : details.ToString();
