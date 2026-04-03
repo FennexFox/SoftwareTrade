@@ -168,6 +168,21 @@ namespace NoOfficeDemandFix.Systems
             public int SoftwareDemand;
             public int SoftwareProductionCompanies;
             public int SoftwarePropertylessCompanies;
+            public int SoftwareTotalSellableInCity;
+            public int SoftwareIndustrialConsumption;
+            public int SoftwareIndustrialConsumptionAccumulator;
+            public int SoftwareLocalSellerCount;
+            public int SoftwareLocalSellerInactiveExcludedCount;
+            public int SoftwareLocalSellerStock;
+            public int SoftwareLocalSellerBuyingLoad;
+            public int SoftwareLocalSellerAvailableStockNet;
+            public int SoftwareLocalSellerPositiveAvailableStock;
+            public int SoftwareLocalSellerPositiveAvailableCount;
+            public int SoftwareLocalSellerNonPositiveAvailableCount;
+            public int SoftwareLocalSellerEligibleCount;
+            public int SoftwareLocalSellerEligibleAtFullRequestCount;
+            public int SoftwareLocalSellerEligibleAvailableStock;
+            public int SoftwareLocalSellerMaxAvailableStock;
             public int ElectronicsProduction;
             public int ElectronicsDemand;
             public int ElectronicsProductionCompanies;
@@ -820,6 +835,7 @@ namespace NoOfficeDemandFix.Systems
         private TimeSystem m_TimeSystem;
         private IndustrialDemandSystem m_IndustrialDemandSystem;
         private CountCompanyDataSystem m_CountCompanyDataSystem;
+        private CityProductionStatisticSystem m_CityProductionStatisticSystem;
         private SignaturePropertyMarketGuardSystem m_SignaturePropertyMarketGuardSystem;
         private PrefabSystem m_PrefabSystem;
         private ResourceSystem m_ResourceSystem;
@@ -854,6 +870,7 @@ namespace NoOfficeDemandFix.Systems
             m_TimeSystem = World.GetOrCreateSystemManaged<TimeSystem>();
             m_IndustrialDemandSystem = World.GetOrCreateSystemManaged<IndustrialDemandSystem>();
             m_CountCompanyDataSystem = World.GetOrCreateSystemManaged<CountCompanyDataSystem>();
+            m_CityProductionStatisticSystem = World.GetOrCreateSystemManaged<CityProductionStatisticSystem>();
             m_SignaturePropertyMarketGuardSystem = World.GetOrCreateSystemManaged<SignaturePropertyMarketGuardSystem>();
             m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
             m_ResourceSystem = World.GetOrCreateSystemManaged<ResourceSystem>();
@@ -1166,7 +1183,14 @@ namespace NoOfficeDemandFix.Systems
 
             JobHandle companyDeps;
             CountCompanyDataSystem.IndustrialCompanyDatas industrialCompanyDatas = m_CountCompanyDataSystem.GetIndustrialCompanyDatas(out companyDeps);
-            companyDeps.Complete();
+            NativeArray<int> totalSellableInCity = m_CountCompanyDataSystem.GetTotalSellableInCity(out JobHandle totalSellableDeps);
+            JobHandle.CombineDependencies(companyDeps, totalSellableDeps).Complete();
+
+            JobHandle cityUsageDeps;
+            NativeArray<int> industrialUsageAccumulator = m_CityProductionStatisticSystem.GetCityResourceUsageAccumulator(
+                CityProductionStatisticSystem.CityResourceUsage.Consumer.Industrial,
+                out cityUsageDeps);
+            cityUsageDeps.Complete();
 
             int softwareIndex = EconomyUtils.GetResourceIndex(Resource.Software);
             int electronicsIndex = EconomyUtils.GetResourceIndex(Resource.Electronics);
@@ -1188,6 +1212,11 @@ namespace NoOfficeDemandFix.Systems
                 SoftwareDemand = industrialCompanyDatas.m_Demand[softwareIndex],
                 SoftwareProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[softwareIndex],
                 SoftwarePropertylessCompanies = industrialCompanyDatas.m_ProductionPropertyless[softwareIndex],
+                SoftwareTotalSellableInCity = totalSellableInCity[softwareIndex],
+                SoftwareIndustrialConsumption = m_CityProductionStatisticSystem.GetCityResourceUsages(
+                    CityProductionStatisticSystem.CityResourceUsage.Consumer.Industrial,
+                    Resource.Software),
+                SoftwareIndustrialConsumptionAccumulator = industrialUsageAccumulator[softwareIndex],
                 ElectronicsProduction = industrialCompanyDatas.m_Production[electronicsIndex],
                 ElectronicsDemand = industrialCompanyDatas.m_Demand[electronicsIndex],
                 ElectronicsProductionCompanies = industrialCompanyDatas.m_ProductionCompanies[electronicsIndex],
@@ -1392,8 +1421,50 @@ namespace NoOfficeDemandFix.Systems
                     continue;
                 }
 
+                bool sellerInactive = EntityManager.HasComponent<Building>(propertyRenter.m_Property) &&
+                                      BuildingUtils.CheckOption(EntityManager.GetComponentData<Building>(propertyRenter.m_Property), BuildingOption.Inactive);
+
                 int softwareInputStock = isConsumer ? GetCompanyResourceAmount(company, Resource.Software) : 0;
                 SoftwareConsumerDiagnosticState softwareConsumerState = default;
+                if (isProducer)
+                {
+                    if (sellerInactive)
+                    {
+                        snapshot.SoftwareLocalSellerInactiveExcludedCount++;
+                    }
+                    else
+                    {
+                        int outputStock = GetCompanyResourceAmount(company, processData.m_Output.m_Resource);
+                        int buyingLoad = GetCompanyBuyingLoad(company, processData.m_Output.m_Resource);
+                        int availableStock = outputStock - buyingLoad;
+                        snapshot.SoftwareLocalSellerCount++;
+                        snapshot.SoftwareLocalSellerStock += outputStock;
+                        snapshot.SoftwareLocalSellerBuyingLoad += buyingLoad;
+                        snapshot.SoftwareLocalSellerAvailableStockNet += availableStock;
+                        snapshot.SoftwareLocalSellerMaxAvailableStock = Math.Max(snapshot.SoftwareLocalSellerMaxAvailableStock, availableStock);
+                        if (availableStock > 0)
+                        {
+                            snapshot.SoftwareLocalSellerPositiveAvailableCount++;
+                            snapshot.SoftwareLocalSellerPositiveAvailableStock += availableStock;
+                        }
+                        else
+                        {
+                            snapshot.SoftwareLocalSellerNonPositiveAvailableCount++;
+                        }
+
+                        if (availableStock >= kResourceMinimumRequestAmount)
+                        {
+                            snapshot.SoftwareLocalSellerEligibleCount++;
+                            snapshot.SoftwareLocalSellerEligibleAvailableStock += availableStock;
+                        }
+
+                        if (availableStock >= kResourceLowStockAmount)
+                        {
+                            snapshot.SoftwareLocalSellerEligibleAtFullRequestCount++;
+                        }
+                    }
+                }
+
                 if (isConsumer)
                 {
                     softwareConsumerState = GetSoftwareConsumerDiagnosticState(company, prefabMetadata, snapshot.Day, snapshot.SampleIndex);
@@ -4567,6 +4638,8 @@ namespace NoOfficeDemandFix.Systems
                 $"onMarketOfficeProperties(total={snapshot.OnMarketOfficeProperties}, activelyVacant={snapshot.ActivelyVacantOfficeProperties}, occupied={snapshot.OccupiedOnMarketOfficeProperties}, staleRenterOnly={snapshot.StaleRenterOnMarketOfficeProperties}); " +
                 $"phantomVacancy(signatureOccupiedOnMarketOffice={snapshot.SignatureOccupiedOnMarketOffice}, signatureOccupiedOnMarketIndustrial={snapshot.SignatureOccupiedOnMarketIndustrial}, signatureOccupiedToBeOnMarket={snapshot.SignatureOccupiedToBeOnMarket}, nonSignatureOccupiedOnMarketOffice={snapshot.NonSignatureOccupiedOnMarketOffice}, nonSignatureOccupiedOnMarketIndustrial={snapshot.NonSignatureOccupiedOnMarketIndustrial}, guardCorrections={snapshot.GuardCorrections}); " +
                 $"software(resourceProduction={snapshot.SoftwareProduction}, resourceDemand={snapshot.SoftwareDemand}, companies={snapshot.SoftwareProductionCompanies}, propertyless={snapshot.SoftwarePropertylessCompanies}); " +
+                $"softwareMarket(totalSellableInCity={snapshot.SoftwareTotalSellableInCity}, industrialSinkSmoothed={snapshot.SoftwareIndustrialConsumption}, industrialSinkAccumulator={snapshot.SoftwareIndustrialConsumptionAccumulator}); " +
+                $"softwareLocalSellers(total={snapshot.SoftwareLocalSellerCount}, inactiveExcluded={snapshot.SoftwareLocalSellerInactiveExcludedCount}, requestAmount={kResourceLowStockAmount}, requestHalfThreshold={kResourceMinimumRequestAmount}, stock={snapshot.SoftwareLocalSellerStock}, buyingLoad={snapshot.SoftwareLocalSellerBuyingLoad}, availableNet={snapshot.SoftwareLocalSellerAvailableStockNet}, availablePositive={snapshot.SoftwareLocalSellerPositiveAvailableStock}, positiveAvailableCount={snapshot.SoftwareLocalSellerPositiveAvailableCount}, nonPositiveAvailableCount={snapshot.SoftwareLocalSellerNonPositiveAvailableCount}, eligibleAt2000Count={snapshot.SoftwareLocalSellerEligibleCount}, eligibleAt4000Count={snapshot.SoftwareLocalSellerEligibleAtFullRequestCount}, eligibleAvailableStock={snapshot.SoftwareLocalSellerEligibleAvailableStock}, maxAvailableStock={snapshot.SoftwareLocalSellerMaxAvailableStock}); " +
                 $"electronics(resourceProduction={snapshot.ElectronicsProduction}, resourceDemand={snapshot.ElectronicsDemand}, companies={snapshot.ElectronicsProductionCompanies}, propertyless={snapshot.ElectronicsPropertylessCompanies}); " +
                 $"softwareProducerOffices(total={snapshot.SoftwareProducerOfficeCompanies}, propertyless={snapshot.SoftwareProducerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareProducerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareProducerOfficeLackResourcesZero}); " +
                 $"softwareConsumerOffices(total={snapshot.SoftwareConsumerOfficeCompanies}, propertyless={snapshot.SoftwareConsumerOfficePropertylessCompanies}, efficiencyZero={snapshot.SoftwareConsumerOfficeEfficiencyZero}, lackResourcesZero={snapshot.SoftwareConsumerOfficeLackResourcesZero}, softwareInputZero={snapshot.SoftwareConsumerOfficeSoftwareInputZero}); " +

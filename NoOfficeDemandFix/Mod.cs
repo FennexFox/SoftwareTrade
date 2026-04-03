@@ -44,6 +44,8 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateAfter<OfficeAIHotfixSystem, OfficeAISystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<OfficeAIHotfixSystem, ProcessingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, OfficeAIHotfixSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<OfficeDemandDiagnosticsSystem, CityProductionStatisticSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
             // Run performance telemetry in LateUpdate so metrics are captured after simulation completes,
