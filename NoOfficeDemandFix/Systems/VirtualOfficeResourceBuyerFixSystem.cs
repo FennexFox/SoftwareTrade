@@ -35,6 +35,8 @@ namespace NoOfficeDemandFix.Systems
         private const int kMaxProbeSampleLogs = 3;
         private const float kLowStockThresholdRatio = 0.25f;
         private const uint kFallbackSweepIntervalMask = 127u;
+        private const string kPassKindChangedQuery = "changed_query";
+        private const string kPassKindFullSweep = "full_sweep";
 
         private ResourceSystem m_ResourceSystem;
         private SimulationSystem m_SimulationSystem;
@@ -48,12 +50,63 @@ namespace NoOfficeDemandFix.Systems
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
         private readonly List<BuyerOverrideSample> m_ProbeTopSamples = new();
+        private readonly Dictionary<Entity, CompanyProbeWindowState> m_CompanyProbeWindowStates = new();
 
         private int m_ProbeTotalOverrideCount;
         private int m_ProbeClampedMinimumOverrideCount;
         private int m_ProbeAboveMinimumOverrideCount;
         private int m_ProbeMaxOverrideAmount;
         private int m_ProbeMaxShortfall;
+
+        public readonly struct CompanyProbeWindowSnapshot
+        {
+            public CompanyProbeWindowSnapshot(
+                int seenChangedQueryCount,
+                int seenFullSweepCount,
+                bool lastSeenViaFullSweep,
+                int lastSeenFrame,
+                int overrideCount,
+                bool lastOverrideViaFullSweep,
+                int lastOverrideFrame,
+                int lastOverrideAmount,
+                int lastOverrideShortfall,
+                int lastOverrideStock,
+                int lastOverrideBuyingLoad,
+                int lastOverrideTripNeededAmount,
+                int lastOverrideEffectiveStock,
+                int lastOverrideThreshold)
+            {
+                SeenChangedQueryCount = seenChangedQueryCount;
+                SeenFullSweepCount = seenFullSweepCount;
+                LastSeenViaFullSweep = lastSeenViaFullSweep;
+                LastSeenFrame = lastSeenFrame;
+                OverrideCount = overrideCount;
+                LastOverrideViaFullSweep = lastOverrideViaFullSweep;
+                LastOverrideFrame = lastOverrideFrame;
+                LastOverrideAmount = lastOverrideAmount;
+                LastOverrideShortfall = lastOverrideShortfall;
+                LastOverrideStock = lastOverrideStock;
+                LastOverrideBuyingLoad = lastOverrideBuyingLoad;
+                LastOverrideTripNeededAmount = lastOverrideTripNeededAmount;
+                LastOverrideEffectiveStock = lastOverrideEffectiveStock;
+                LastOverrideThreshold = lastOverrideThreshold;
+            }
+
+            public int SeenChangedQueryCount { get; }
+            public int SeenFullSweepCount { get; }
+            public bool LastSeenViaFullSweep { get; }
+            public int LastSeenFrame { get; }
+            public int OverrideCount { get; }
+            public bool LastOverrideViaFullSweep { get; }
+            public int LastOverrideFrame { get; }
+            public int LastOverrideAmount { get; }
+            public int LastOverrideShortfall { get; }
+            public int LastOverrideStock { get; }
+            public int LastOverrideBuyingLoad { get; }
+            public int LastOverrideTripNeededAmount { get; }
+            public int LastOverrideEffectiveStock { get; }
+            public int LastOverrideThreshold { get; }
+        }
 
         private struct BuyerOverrideProbeRecord
         {
@@ -460,6 +513,7 @@ namespace NoOfficeDemandFix.Systems
             bool diagnosticsEnabled = Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
             bool buyerFixEnabled = Mod.Settings != null && Mod.Settings.EnableVirtualOfficeResourceBuyerFix;
             bool correctiveBuyerTaggingEnabled = diagnosticsEnabled && buyerFixEnabled;
+            NativeArray<Entity> queriedCompanies = default;
 
             try
             {
@@ -485,7 +539,8 @@ namespace NoOfficeDemandFix.Systems
                     return;
                 }
 
-                EntityQuery officeCompanyQuery = ShouldRunFallbackSweep()
+                bool usedFullSweep = ShouldRunFallbackSweep();
+                EntityQuery officeCompanyQuery = usedFullSweep
                     ? m_OfficeCompanyQuery
                     : m_OfficeCompanyChangedQuery;
                 if (officeCompanyQuery.IsEmpty)
@@ -495,6 +550,12 @@ namespace NoOfficeDemandFix.Systems
 
                 ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
                 bool captureProbeResults = diagnosticsEnabled;
+                uint currentSimulationFrame = m_SimulationSystem.frameIndex;
+                if (captureProbeResults)
+                {
+                    queriedCompanies = officeCompanyQuery.ToEntityArray(Allocator.Temp);
+                }
+
                 using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
                 using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
                 using NativeQueue<int2> chunkTelemetryResults = new NativeQueue<int2>(Allocator.TempJob);
@@ -539,13 +600,19 @@ namespace NoOfficeDemandFix.Systems
                     return;
                 }
 
+                ObserveQueriedCompanies(queriedCompanies, usedFullSweep, currentSimulationFrame);
                 while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
                 {
-                    AccumulateProbe(probeRecord);
+                    AccumulateProbe(probeRecord, usedFullSweep, currentSimulationFrame);
                 }
             }
             finally
             {
+                if (queriedCompanies.IsCreated)
+                {
+                    queriedCompanies.Dispose();
+                }
+
                 m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
 
                 if (captureTelemetry)
@@ -864,7 +931,7 @@ namespace NoOfficeDemandFix.Systems
                    currentBuyer.m_Flags == provenance.Flags;
         }
 
-        private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord)
+        private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord, bool usedFullSweep, uint currentSimulationFrame)
         {
             if (Mod.Settings == null)
             {
@@ -881,6 +948,7 @@ namespace NoOfficeDemandFix.Systems
             int shortfall = math.max(0, probeRecord.Threshold - probeRecord.EffectiveStock);
             string companyKey = FormatEntity(probeRecord.Company);
 
+            ObserveOverride(probeRecord, usedFullSweep, currentSimulationFrame);
             m_ProbeTotalOverrideCount++;
             m_ProbeDistinctCompanies.Add(companyKey);
 
@@ -963,11 +1031,88 @@ namespace NoOfficeDemandFix.Systems
             m_ProbeResourceAggregates.Clear();
             m_ProbeDistinctCompanies.Clear();
             m_ProbeTopSamples.Clear();
+            m_CompanyProbeWindowStates.Clear();
             m_ProbeTotalOverrideCount = 0;
             m_ProbeClampedMinimumOverrideCount = 0;
             m_ProbeAboveMinimumOverrideCount = 0;
             m_ProbeMaxOverrideAmount = 0;
             m_ProbeMaxShortfall = 0;
+        }
+
+        public bool TryGetCompanyProbeWindowSnapshot(Entity company, out CompanyProbeWindowSnapshot snapshot)
+        {
+            if (m_CompanyProbeWindowStates.TryGetValue(company, out CompanyProbeWindowState state))
+            {
+                snapshot = new CompanyProbeWindowSnapshot(
+                    state.SeenChangedQueryCount,
+                    state.SeenFullSweepCount,
+                    state.LastSeenViaFullSweep,
+                    state.LastSeenFrame,
+                    state.OverrideCount,
+                    state.LastOverrideViaFullSweep,
+                    state.LastOverrideFrame,
+                    state.LastOverrideAmount,
+                    state.LastOverrideShortfall,
+                    state.LastOverrideStock,
+                    state.LastOverrideBuyingLoad,
+                    state.LastOverrideTripNeededAmount,
+                    state.LastOverrideEffectiveStock,
+                    state.LastOverrideThreshold);
+                return true;
+            }
+
+            snapshot = default;
+            return false;
+        }
+
+        public static string GetPassKindLabel(bool viaFullSweep)
+        {
+            return viaFullSweep ? kPassKindFullSweep : kPassKindChangedQuery;
+        }
+
+        private void ObserveQueriedCompanies(NativeArray<Entity> companies, bool usedFullSweep, uint currentSimulationFrame)
+        {
+            for (int i = 0; i < companies.Length; i++)
+            {
+                CompanyProbeWindowState state = GetOrCreateCompanyProbeWindowState(companies[i]);
+                if (usedFullSweep)
+                {
+                    state.SeenFullSweepCount++;
+                }
+                else
+                {
+                    state.SeenChangedQueryCount++;
+                }
+
+                state.LastSeenViaFullSweep = usedFullSweep;
+                state.LastSeenFrame = (int)currentSimulationFrame;
+            }
+        }
+
+        private void ObserveOverride(BuyerOverrideProbeRecord probeRecord, bool usedFullSweep, uint currentSimulationFrame)
+        {
+            CompanyProbeWindowState state = GetOrCreateCompanyProbeWindowState(probeRecord.Company);
+            state.OverrideCount++;
+            state.LastOverrideViaFullSweep = usedFullSweep;
+            state.LastOverrideFrame = (int)currentSimulationFrame;
+            state.LastOverrideAmount = probeRecord.OverrideAmount;
+            state.LastOverrideShortfall = math.max(0, probeRecord.Threshold - probeRecord.EffectiveStock);
+            state.LastOverrideStock = probeRecord.Stock;
+            state.LastOverrideBuyingLoad = probeRecord.BuyingLoad;
+            state.LastOverrideTripNeededAmount = probeRecord.TripNeededAmount;
+            state.LastOverrideEffectiveStock = probeRecord.EffectiveStock;
+            state.LastOverrideThreshold = probeRecord.Threshold;
+        }
+
+        private CompanyProbeWindowState GetOrCreateCompanyProbeWindowState(Entity company)
+        {
+            if (!m_CompanyProbeWindowStates.TryGetValue(company, out CompanyProbeWindowState state))
+            {
+                state = new CompanyProbeWindowState();
+                m_CompanyProbeWindowStates.Add(company, state);
+            }
+
+            return state;
         }
 
         private void TryCaptureTopSample(BuyerOverrideSample sample)
@@ -1104,6 +1249,24 @@ namespace NoOfficeDemandFix.Systems
             public long TotalOverrideAmount;
             public int MaxOverrideAmount;
             public int MaxShortfall;
+        }
+
+        private sealed class CompanyProbeWindowState
+        {
+            public int SeenChangedQueryCount;
+            public int SeenFullSweepCount;
+            public bool LastSeenViaFullSweep;
+            public int LastSeenFrame = -1;
+            public int OverrideCount;
+            public bool LastOverrideViaFullSweep;
+            public int LastOverrideFrame = -1;
+            public int LastOverrideAmount;
+            public int LastOverrideShortfall;
+            public int LastOverrideStock;
+            public int LastOverrideBuyingLoad;
+            public int LastOverrideTripNeededAmount;
+            public int LastOverrideEffectiveStock;
+            public int LastOverrideThreshold;
         }
 
         private readonly struct PrefabVirtualInputInfo

@@ -496,6 +496,7 @@ namespace NoOfficeDemandFix.Systems
             public bool HasEfficiency;
             public float Efficiency;
             public float LackResources;
+            public int Priority;
             public SoftwareConsumerDiagnosticState SoftwareConsumerState;
         }
 
@@ -1552,7 +1553,7 @@ namespace NoOfficeDemandFix.Systems
                     ShouldCaptureBuyerTimingProbe(softwareConsumerState))
                 {
                     EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
-                    TryAddCandidate(
+                    TryAddBuyerTimingProbeCandidate(
                         detailCapture.SoftwareBuyerTimingProbeDetailCandidates,
                         new SoftwareBuyerTimingProbeDetailCandidate
                         {
@@ -1563,6 +1564,7 @@ namespace NoOfficeDemandFix.Systems
                             HasEfficiency = hasEfficiency,
                             Efficiency = efficiency,
                             LackResources = lackResources,
+                            Priority = GetBuyerTimingProbePriority(softwareConsumerState, hasEfficiency, efficiency, lackResources),
                             SoftwareConsumerState = softwareConsumerState
                         });
                 }
@@ -1608,6 +1610,38 @@ namespace NoOfficeDemandFix.Systems
             }
 
             candidates.Add(candidate);
+        }
+
+        private static void TryAddBuyerTimingProbeCandidate(List<SoftwareBuyerTimingProbeDetailCandidate> candidates, SoftwareBuyerTimingProbeDetailCandidate candidate)
+        {
+            int insertIndex = candidates.Count;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidate.Priority > candidates[i].Priority)
+                {
+                    insertIndex = i;
+                    break;
+                }
+            }
+
+            if (insertIndex >= kMaxDetailEntries && candidates.Count >= kMaxDetailEntries)
+            {
+                return;
+            }
+
+            if (insertIndex < candidates.Count)
+            {
+                candidates.Insert(insertIndex, candidate);
+            }
+            else if (candidates.Count < kMaxDetailEntries)
+            {
+                candidates.Add(candidate);
+            }
+
+            if (candidates.Count > kMaxDetailEntries)
+            {
+                candidates.RemoveAt(candidates.Count - 1);
+            }
         }
 
         private static void AddSoftwareOfficeDetailCandidate(ObservationDetailCapture detailCapture, SoftwareOfficeDetailCandidate candidate)
@@ -1952,6 +1986,40 @@ namespace NoOfficeDemandFix.Systems
                    string.Equals(state.Trace.CurrentClassification, kTraceSelectedCurrentTradingPresent, StringComparison.Ordinal);
         }
 
+        private static int GetBuyerTimingProbePriority(SoftwareConsumerDiagnosticState state, bool hasEfficiency, float efficiency, float lackResources)
+        {
+            int priority = string.Equals(state.Trace.CurrentClassification, kTraceSelectedNoResourceBuyer, StringComparison.Ordinal)
+                ? 1_000_000
+                : string.Equals(state.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal)
+                    ? 900_000
+                    : string.Equals(state.Trace.CurrentClassification, kTraceSelectedPathPending, StringComparison.Ordinal)
+                        ? 800_000
+                        : string.Equals(state.Trace.CurrentClassification, kTraceSelectedTripPresent, StringComparison.Ordinal)
+                            ? 700_000
+                            : 600_000;
+
+            priority += Math.Min(999, state.Acquisition.EstimatedMissedVanillaBuyerPasses) * 1_000;
+            priority += Math.Min(999, state.Acquisition.SelectedNoBuyerConsecutiveWindows) * 100;
+            priority += Math.Min(999, state.Acquisition.SelectedRequestNoPathConsecutiveWindows) * 10;
+
+            if (state.Need.Stock == 0)
+            {
+                priority += 25;
+            }
+
+            if (hasEfficiency && efficiency <= 0f)
+            {
+                priority += 5;
+            }
+
+            if (hasEfficiency && lackResources <= 0f)
+            {
+                priority += 5;
+            }
+
+            return priority;
+        }
+
         private string DescribeConsumerTradeLifecycle(
             Entity company,
             Entity companyPrefab,
@@ -2084,6 +2152,7 @@ namespace NoOfficeDemandFix.Systems
             AppendSoftwareNeedState(builder, softwareConsumerState.Need);
             AppendSoftwareTradeCostState(builder, softwareConsumerState.TradeCost);
             AppendSoftwareAcquisitionState(builder, softwareConsumerState.Acquisition, softwareConsumerState.Trace.CurrentClassification);
+            AppendBuyerFixWindowState(builder, company);
             AppendResourceTripState(builder, "softwareTripState", softwareConsumerState.Acquisition);
             AppendBuyingCompanyState(builder, company);
             if (TryGetPathSeller(softwareConsumerState, out Entity pathSeller))
@@ -2101,6 +2170,60 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(", lackResources=");
             AppendMetricValue(builder, hasEfficiency, lackResources);
             return builder.ToString();
+        }
+
+        private void AppendBuyerFixWindowState(StringBuilder builder, Entity company)
+        {
+            builder.Append(", buyerFixWindow(");
+            VirtualOfficeResourceBuyerFixSystem buyerFixSystem = World.GetExistingSystemManaged<VirtualOfficeResourceBuyerFixSystem>();
+            if (buyerFixSystem == null || !buyerFixSystem.TryGetCompanyProbeWindowSnapshot(company, out VirtualOfficeResourceBuyerFixSystem.CompanyProbeWindowSnapshot snapshot))
+            {
+                builder.Append("seenThisObservation=False");
+                builder.Append(", seenChangedQueryCount=0");
+                builder.Append(", seenFullSweepCount=0");
+                builder.Append(", lastSeenPass=none");
+                builder.Append(", lastSeenFrameAge=n/a");
+                builder.Append(", overrideCount=0");
+                builder.Append(", lastOverridePass=none");
+                builder.Append(", lastOverrideFrameAge=n/a");
+                builder.Append(", lastOverrideAmount=n/a");
+                builder.Append(", lastOverrideShortfall=n/a");
+                builder.Append(", lastOverrideStock=n/a");
+                builder.Append(", lastOverrideBuyingLoad=n/a");
+                builder.Append(", lastOverrideTripNeededAmount=n/a");
+                builder.Append(", lastOverrideEffectiveStock=n/a");
+                builder.Append(", lastOverrideThreshold=n/a");
+                builder.Append(')');
+                return;
+            }
+
+            uint currentSimulationFrame = m_SimulationSystem.frameIndex;
+            builder.Append("seenThisObservation=True");
+            builder.Append(", seenChangedQueryCount=").Append(snapshot.SeenChangedQueryCount);
+            builder.Append(", seenFullSweepCount=").Append(snapshot.SeenFullSweepCount);
+            builder.Append(", lastSeenPass=").Append(VirtualOfficeResourceBuyerFixSystem.GetPassKindLabel(snapshot.LastSeenViaFullSweep));
+            builder.Append(", lastSeenFrameAge=");
+            builder.Append(snapshot.LastSeenFrame >= 0 ? Math.Max(0, (int)currentSimulationFrame - snapshot.LastSeenFrame).ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", overrideCount=").Append(snapshot.OverrideCount);
+            builder.Append(", lastOverridePass=");
+            builder.Append(snapshot.OverrideCount > 0 ? VirtualOfficeResourceBuyerFixSystem.GetPassKindLabel(snapshot.LastOverrideViaFullSweep) : "none");
+            builder.Append(", lastOverrideFrameAge=");
+            builder.Append(snapshot.LastOverrideFrame >= 0 ? Math.Max(0, (int)currentSimulationFrame - snapshot.LastOverrideFrame).ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideAmount=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideAmount.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideShortfall=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideShortfall.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideStock=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideStock.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideBuyingLoad=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideBuyingLoad.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideTripNeededAmount=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideTripNeededAmount.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideEffectiveStock=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideEffectiveStock.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastOverrideThreshold=");
+            builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideThreshold.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(')');
         }
 
         private static void AppendMetricValue(StringBuilder builder, bool hasMetric, float value)
