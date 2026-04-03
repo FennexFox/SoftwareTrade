@@ -53,6 +53,8 @@ namespace NoOfficeDemandFix
             m_Setting = new Setting(this);
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
             Settings = m_Setting;
+            IndustrialDemandDiagnosticsProbePatch.Reset();
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
 
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
             m_Setting.RegisterInOptionsUI();
@@ -80,6 +82,8 @@ namespace NoOfficeDemandFix
             log.Info(nameof(OnDispose));
             PerformanceTelemetryCollector.FlushActiveRun();
             Settings = null;
+            IndustrialDemandDiagnosticsProbePatch.Reset();
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
 
             if (m_Harmony != null)
             {

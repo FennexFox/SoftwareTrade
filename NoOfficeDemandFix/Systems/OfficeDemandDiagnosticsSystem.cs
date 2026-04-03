@@ -17,6 +17,7 @@ using Game.Simulation;
 using Game.Tools;
 using Game.Vehicles;
 using Game.Zones;
+using NoOfficeDemandFix.Patches;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -50,7 +51,6 @@ namespace NoOfficeDemandFix.Systems
         private const string kTraceSelectedCurrentTradingPresent = "selected_current_trading_present";
         private const string kTraceNeedCleared = "need_cleared";
         private const string kTraceTransitionUnobserved = "unobserved";
-
         private struct FactorEntry
         {
             public int Index;
@@ -204,9 +204,11 @@ namespace NoOfficeDemandFix.Systems
             public string FreeSoftwareOfficePropertyDetails;
             public string OnMarketOfficePropertyDetails;
             public string SoftwareOfficeDetails;
+            public string OfficeDemandInternalsDetails;
             public string SoftwareTradeLifecycleDetails;
             public string SoftwareVirtualResolutionProbeDetails;
             public string SoftwareBuyerTimingProbeDetails;
+            public string SoftwareSellerResolutionProbeDetails;
             public ObservationDetailCapture DetailCapture;
         }
 
@@ -500,6 +502,19 @@ namespace NoOfficeDemandFix.Systems
             public SoftwareConsumerDiagnosticState SoftwareConsumerState;
         }
 
+        private struct SoftwareSellerResolutionProbeDetailCandidate
+        {
+            public Entity Company;
+            public Entity CompanyPrefab;
+            public Entity Property;
+            public IndustrialProcessData ProcessData;
+            public bool HasEfficiency;
+            public float Efficiency;
+            public float LackResources;
+            public int Priority;
+            public SoftwareConsumerDiagnosticState SoftwareConsumerState;
+        }
+
         private sealed class ObservationDetailCapture
         {
             public readonly List<SoftwareOfficeDetailGroup> SoftwareOfficeDetailGroups =
@@ -512,6 +527,8 @@ namespace NoOfficeDemandFix.Systems
                 new List<SoftwareVirtualResolutionProbeDetailCandidate>(kMaxDetailEntries);
             public readonly List<SoftwareBuyerTimingProbeDetailCandidate> SoftwareBuyerTimingProbeDetailCandidates =
                 new List<SoftwareBuyerTimingProbeDetailCandidate>(kMaxDetailEntries);
+            public readonly List<SoftwareSellerResolutionProbeDetailCandidate> SoftwareSellerResolutionProbeDetailCandidates =
+                new List<SoftwareSellerResolutionProbeDetailCandidate>(kMaxDetailEntries);
         }
 
         [BurstCompile]
@@ -1025,6 +1042,18 @@ namespace NoOfficeDemandFix.Systems
                     FormatDiagnosticCounters(snapshot),
                     snapshot.TopFactors));
 
+            if (!string.IsNullOrEmpty(snapshot.OfficeDemandInternalsDetails))
+            {
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.OfficeDemandInternalsDetailType,
+                        snapshot.OfficeDemandInternalsDetails));
+            }
+
             if (!string.IsNullOrEmpty(snapshot.FreeSoftwareOfficePropertyDetails))
             {
                 Mod.log.Info(
@@ -1085,6 +1114,18 @@ namespace NoOfficeDemandFix.Systems
                         snapshot.SoftwareVirtualResolutionProbeDetails));
             }
 
+            if (!string.IsNullOrEmpty(snapshot.SoftwareSellerResolutionProbeDetails))
+            {
+                Mod.log.Info(
+                    MachineParsedLogContract.FormatDetail(
+                        m_SessionId,
+                        m_RunSequence,
+                        snapshot.Day,
+                        snapshot.SampleIndex,
+                        MachineParsedLogContract.SoftwareSellerResolutionProbeDetailType,
+                        snapshot.SoftwareSellerResolutionProbeDetails));
+            }
+
             if (!string.IsNullOrEmpty(snapshot.SoftwareBuyerTimingProbeDetails))
             {
                 Mod.log.Info(
@@ -1098,6 +1139,7 @@ namespace NoOfficeDemandFix.Systems
             }
 
             EmitVirtualOfficeBuyerProbeSummary(snapshot);
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
 
             m_RunObservationCount = sampleCount;
             m_LastObservedSampleIndex = snapshot.SampleIndex;
@@ -1163,15 +1205,19 @@ namespace NoOfficeDemandFix.Systems
 
             if (!verboseLogging)
             {
+                snapshot.OfficeDemandInternalsDetails = string.Empty;
                 snapshot.SoftwareTradeLifecycleDetails = string.Empty;
                 snapshot.SoftwareVirtualResolutionProbeDetails = string.Empty;
                 snapshot.SoftwareBuyerTimingProbeDetails = string.Empty;
+                snapshot.SoftwareSellerResolutionProbeDetails = string.Empty;
                 return;
             }
 
+            snapshot.OfficeDemandInternalsDetails = RenderOfficeDemandInternalsDetails(snapshot);
             snapshot.SoftwareTradeLifecycleDetails = RenderSoftwareTradeLifecycleDetails(snapshot.DetailCapture);
             snapshot.SoftwareVirtualResolutionProbeDetails = RenderSoftwareVirtualResolutionProbeDetails(snapshot.DetailCapture);
             snapshot.SoftwareBuyerTimingProbeDetails = RenderSoftwareBuyerTimingProbeDetails(snapshot.DetailCapture);
+            snapshot.SoftwareSellerResolutionProbeDetails = RenderSoftwareSellerResolutionProbeDetails(snapshot.DetailCapture);
         }
 
         private void CountFreeOfficeProperties(ref DiagnosticSnapshot snapshot)
@@ -1570,6 +1616,27 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 if (verboseLogging &&
+                    isConsumer &&
+                    ShouldCaptureSellerResolutionProbe(softwareConsumerState, snapshot.Day, snapshot.SampleIndex))
+                {
+                    EnsureObservationDetailCapture(ref snapshot, ref detailCapture);
+                    TryAddSellerResolutionProbeCandidate(
+                        detailCapture.SoftwareSellerResolutionProbeDetailCandidates,
+                        new SoftwareSellerResolutionProbeDetailCandidate
+                        {
+                            Company = company,
+                            CompanyPrefab = prefabRef.m_Prefab,
+                            Property = propertyRenter.m_Property,
+                            ProcessData = processData,
+                            HasEfficiency = hasEfficiency,
+                            Efficiency = efficiency,
+                            LackResources = lackResources,
+                            Priority = GetSellerResolutionProbePriority(softwareConsumerState, snapshot.Day, snapshot.SampleIndex),
+                            SoftwareConsumerState = softwareConsumerState
+                        });
+                }
+
+                if (verboseLogging &&
                     isProducer &&
                     (efficiencyZero || lackResourcesZero))
                 {
@@ -1613,6 +1680,38 @@ namespace NoOfficeDemandFix.Systems
         }
 
         private static void TryAddBuyerTimingProbeCandidate(List<SoftwareBuyerTimingProbeDetailCandidate> candidates, SoftwareBuyerTimingProbeDetailCandidate candidate)
+        {
+            int insertIndex = candidates.Count;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidate.Priority > candidates[i].Priority)
+                {
+                    insertIndex = i;
+                    break;
+                }
+            }
+
+            if (insertIndex >= kMaxDetailEntries && candidates.Count >= kMaxDetailEntries)
+            {
+                return;
+            }
+
+            if (insertIndex < candidates.Count)
+            {
+                candidates.Insert(insertIndex, candidate);
+            }
+            else if (candidates.Count < kMaxDetailEntries)
+            {
+                candidates.Add(candidate);
+            }
+
+            if (candidates.Count > kMaxDetailEntries)
+            {
+                candidates.RemoveAt(candidates.Count - 1);
+            }
+        }
+
+        private static void TryAddSellerResolutionProbeCandidate(List<SoftwareSellerResolutionProbeDetailCandidate> candidates, SoftwareSellerResolutionProbeDetailCandidate candidate)
         {
             int insertIndex = candidates.Count;
             for (int i = 0; i < candidates.Count; i++)
@@ -1799,6 +1898,58 @@ namespace NoOfficeDemandFix.Systems
             return details == null ? string.Empty : details.ToString();
         }
 
+        private string RenderOfficeDemandInternalsDetails(DiagnosticSnapshot snapshot)
+        {
+            JobHandle officeFactorDeps;
+            NativeArray<int> officeFactors = m_IndustrialDemandSystem.GetOfficeDemandFactors(out officeFactorDeps);
+            officeFactorDeps.Complete();
+
+            StringBuilder builder = new StringBuilder();
+            builder.Append("officeCompanyDemand=").Append(snapshot.OfficeCompanyDemand);
+            builder.Append(", officeBuildingDemand=").Append(snapshot.OfficeBuildingDemand);
+            builder.Append(", emptyBuildingsFactor=").Append(snapshot.EmptyBuildingsFactor);
+            builder.Append(", buildingDemandFactor=").Append(snapshot.BuildingDemandFactor);
+            builder.Append(", localDemandFactor=");
+            builder.Append(snapshot.LocalDemandFactorKnown ? snapshot.LocalDemandFactor.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", observedFreeOfficeProperties=").Append(snapshot.FreeOfficeProperties);
+            builder.Append(", observedOnMarketOfficeProperties=").Append(snapshot.OnMarketOfficeProperties);
+            builder.Append(", observedActivelyVacantOfficeProperties=").Append(snapshot.ActivelyVacantOfficeProperties);
+            builder.Append(", observedSoftwareConsumerPropertyless=").Append(snapshot.SoftwareConsumerOfficePropertylessCompanies);
+            builder.Append(", officeFactors=[").Append(FormatAllFactors(officeFactors)).Append(']');
+
+            if (IndustrialDemandOfficeBaselinePatch.TryCaptureDebugSnapshot(m_IndustrialDemandSystem, out IndustrialDemandOfficeBaselinePatch.OfficeDemandDebugSnapshot baselineDebugSnapshot))
+            {
+                builder.Append(", baselineSnapshotAvailable=True");
+                builder.Append(", lastOfficeCompanyDemand=").Append(baselineDebugSnapshot.LastOfficeCompanyDemand);
+                builder.Append(", lastOfficeBuildingDemand=").Append(baselineDebugSnapshot.LastOfficeBuildingDemand);
+            }
+            else
+            {
+                builder.Append(", baselineSnapshotAvailable=False");
+                builder.Append(", lastOfficeCompanyDemand=n/a");
+                builder.Append(", lastOfficeBuildingDemand=n/a");
+            }
+
+            if (!IndustrialDemandDiagnosticsProbePatch.TryGetLatestSnapshot(out IndustrialDemandDiagnosticsProbePatch.OfficeDemandProbeSnapshot probeSnapshot))
+            {
+                builder.Append(", probeAvailable=False");
+                return builder.ToString();
+            }
+
+            int currentSimulationFrame = (int)m_SimulationSystem.frameIndex;
+            builder.Append(", probeAvailable=True");
+            builder.Append(", probeCaptureComplete=").Append(probeSnapshot.CaptureComplete);
+            builder.Append(", probeCaptureStatus=").Append(probeSnapshot.CaptureStatus);
+            builder.Append(", probeFrameAge=");
+            builder.Append(probeSnapshot.SimulationFrame >= 0
+                ? Math.Max(0, currentSimulationFrame - probeSnapshot.SimulationFrame).ToString(CultureInfo.InvariantCulture)
+                : "n/a");
+            builder.Append(", officeResources=[");
+            AppendOfficeDemandInternalsEntries(builder, probeSnapshot.OfficeResources);
+            builder.Append(']');
+            return builder.ToString();
+        }
+
         private string RenderSoftwareTradeLifecycleDetails(ObservationDetailCapture detailCapture)
         {
             if (detailCapture == null || detailCapture.SoftwareTradeLifecycleDetailCandidates.Count == 0)
@@ -1833,6 +1984,29 @@ namespace NoOfficeDemandFix.Systems
             }
 
             return details == null ? string.Empty : details.ToString();
+        }
+
+        private static void AppendOfficeDemandInternalsEntries(
+            StringBuilder builder,
+            IReadOnlyList<IndustrialDemandDiagnosticsProbePatch.OfficeResourceDemandEntry> entries)
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append("; ");
+                }
+
+                IndustrialDemandDiagnosticsProbePatch.OfficeResourceDemandEntry entry = entries[i];
+                builder.Append(entry.Resource)
+                    .Append("{resourceDemand=").Append(entry.ResourceDemand)
+                    .Append(", companyDemand=")
+                    .Append(entry.CompanyDemandKnown ? entry.CompanyDemand.ToString(CultureInfo.InvariantCulture) : "n/a")
+                    .Append(", buildingDemand=").Append(entry.BuildingDemand)
+                    .Append(", freeProperties=")
+                    .Append(entry.FreePropertiesKnown ? entry.FreeProperties.ToString(CultureInfo.InvariantCulture) : "n/a")
+                    .Append('}');
+            }
         }
 
         private string RenderSoftwareVirtualResolutionProbeDetails(ObservationDetailCapture detailCapture)
@@ -1876,6 +2050,35 @@ namespace NoOfficeDemandFix.Systems
                     ref details,
                     ref detailCount,
                     DescribeSoftwareBuyerTimingProbe(
+                        candidate.Company,
+                        candidate.CompanyPrefab,
+                        candidate.Property,
+                        candidate.ProcessData,
+                        candidate.HasEfficiency,
+                        candidate.Efficiency,
+                        candidate.LackResources,
+                        candidate.SoftwareConsumerState));
+            }
+
+            return details == null ? string.Empty : details.ToString();
+        }
+
+        private string RenderSoftwareSellerResolutionProbeDetails(ObservationDetailCapture detailCapture)
+        {
+            if (detailCapture == null || detailCapture.SoftwareSellerResolutionProbeDetailCandidates.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            StringBuilder details = null;
+            int detailCount = 0;
+            for (int i = 0; i < detailCapture.SoftwareSellerResolutionProbeDetailCandidates.Count; i++)
+            {
+                SoftwareSellerResolutionProbeDetailCandidate candidate = detailCapture.SoftwareSellerResolutionProbeDetailCandidates[i];
+                AppendDetail(
+                    ref details,
+                    ref detailCount,
+                    DescribeSoftwareSellerResolutionProbe(
                         candidate.Company,
                         candidate.CompanyPrefab,
                         candidate.Property,
@@ -2020,6 +2223,47 @@ namespace NoOfficeDemandFix.Systems
             return priority;
         }
 
+        private static bool ShouldCaptureSellerResolutionProbe(SoftwareConsumerDiagnosticState state, int day, int sampleIndex)
+        {
+            if (state.Acquisition.VirtualResolvedThisWindow)
+            {
+                return true;
+            }
+
+            if (ShouldCaptureConsumerTradeLifecycle(state, day, sampleIndex))
+            {
+                return true;
+            }
+
+            return string.Equals(state.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal) ||
+                   string.Equals(state.Trace.CurrentClassification, kTraceSelectedPathPending, StringComparison.Ordinal);
+        }
+
+        private static int GetSellerResolutionProbePriority(SoftwareConsumerDiagnosticState state, int day, int sampleIndex)
+        {
+            int priority = state.Acquisition.VirtualResolvedThisWindow
+                ? 950_000
+                : string.Equals(state.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal)
+                    ? 900_000
+                    : string.Equals(state.Trace.CurrentClassification, kTraceSelectedPathPending, StringComparison.Ordinal)
+                        ? 800_000
+                        : 700_000;
+
+            if (ShouldCaptureConsumerTradeLifecycle(state, day, sampleIndex))
+            {
+                priority += 10_000;
+            }
+
+            priority += Math.Min(999, state.Acquisition.SelectedRequestNoPathConsecutiveWindows) * 100;
+            priority += Math.Min(999, state.Acquisition.BelowThresholdConsecutiveWindows) * 10;
+            if (state.Need.Stock == 0)
+            {
+                priority += 25;
+            }
+
+            return priority;
+        }
+
         private string DescribeConsumerTradeLifecycle(
             Entity company,
             Entity companyPrefab,
@@ -2061,6 +2305,84 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(", lackResources=");
             AppendMetricValue(builder, hasEfficiency, lackResources);
             return builder.ToString();
+        }
+
+        private string DescribeSoftwareSellerResolutionProbe(
+            Entity company,
+            Entity companyPrefab,
+            Entity property,
+            IndustrialProcessData processData,
+            bool hasEfficiency,
+            float efficiency,
+            float lackResources,
+            SoftwareConsumerDiagnosticState softwareConsumerState)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("role=consumer");
+            builder.Append(", company=").Append(FormatEntity(company));
+            builder.Append(", prefab=").Append(GetPrefabLabel(companyPrefab));
+            builder.Append(", property=").Append(FormatEntity(property));
+            builder.Append(", capture=seller_resolution_probe");
+            builder.Append(", currentClassification=").Append(string.IsNullOrEmpty(softwareConsumerState.Trace.CurrentClassification) ? kTraceNeedNotSelected : softwareConsumerState.Trace.CurrentClassification);
+            builder.Append(", resolutionStatus=").Append(GetSellerResolutionStatusLabel(softwareConsumerState));
+            builder.Append(", output=").Append(processData.m_Output.m_Resource);
+            builder.Append(", outputStock=").Append(GetCompanyResourceAmount(company, processData.m_Output.m_Resource));
+            AppendCompanyResourceState(builder, company, "input1", processData.m_Input1.m_Resource);
+            AppendCompanyResourceState(builder, company, "input2", processData.m_Input2.m_Resource);
+            AppendSoftwareNeedState(builder, softwareConsumerState.Need);
+            AppendSoftwareTradeCostState(builder, softwareConsumerState.TradeCost);
+            AppendSoftwareAcquisitionState(builder, softwareConsumerState.Acquisition, softwareConsumerState.Trace.CurrentClassification);
+            builder.Append(", selectedNoBuyerConsecutiveWindows=").Append(softwareConsumerState.Acquisition.SelectedNoBuyerConsecutiveWindows);
+            builder.Append(", selectedRequestNoPathConsecutiveWindows=").Append(softwareConsumerState.Acquisition.SelectedRequestNoPathConsecutiveWindows);
+            builder.Append(", belowThresholdConsecutiveWindows=").Append(softwareConsumerState.Acquisition.BelowThresholdConsecutiveWindows);
+            builder.Append(", recoveredThisObservation=").Append(softwareConsumerState.Acquisition.VirtualResolvedThisWindow);
+            builder.Append(", lastBuyerSeenSampleAge=").Append(softwareConsumerState.Acquisition.LastBuyerSeenSampleAge >= 0 ? softwareConsumerState.Acquisition.LastBuyerSeenSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastPathSeenSampleAge=").Append(softwareConsumerState.Acquisition.LastPathSeenSampleAge >= 0 ? softwareConsumerState.Acquisition.LastPathSeenSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", lastVirtualResolutionSampleAge=").Append(softwareConsumerState.Acquisition.LastVirtualResolutionSampleAge >= 0 ? softwareConsumerState.Acquisition.LastVirtualResolutionSampleAge.ToString(CultureInfo.InvariantCulture) : "n/a");
+            AppendBuyingCompanyState(builder, company);
+            if (TryGetPathSeller(softwareConsumerState, out Entity pathSeller))
+            {
+                AppendSellerSnapshot(builder, "pathSeller", pathSeller, Resource.Software);
+            }
+
+            if (TryGetLastTradePartner(company, out Entity lastTradePartner))
+            {
+                AppendSellerSnapshot(builder, "lastTradePartnerSeller", lastTradePartner, Resource.Software);
+            }
+
+            AppendOutsideConnectionSellerProbeState(builder, company, Resource.Software);
+            builder.Append(", efficiency=");
+            AppendMetricValue(builder, hasEfficiency, efficiency);
+            builder.Append(", lackResources=");
+            AppendMetricValue(builder, hasEfficiency, lackResources);
+            return builder.ToString();
+        }
+
+        private static string GetSellerResolutionStatusLabel(SoftwareConsumerDiagnosticState state)
+        {
+            if (state.Acquisition.VirtualResolvedThisWindow)
+            {
+                return "recovered_this_window";
+            }
+
+            if (string.Equals(state.Trace.CurrentClassification, kTraceSelectedPathPending, StringComparison.Ordinal))
+            {
+                return "path_pending_without_resolution";
+            }
+
+            if (string.Equals(state.Trace.CurrentClassification, kTraceSelectedResourceBuyerNoPath, StringComparison.Ordinal))
+            {
+                return "buyer_only_no_path";
+            }
+
+            if (IsNeedClearedAfterSelected(state.Trace))
+            {
+                return "need_cleared_after_selected";
+            }
+
+            return string.IsNullOrEmpty(state.Trace.CurrentClassification)
+                ? kTraceTransitionUnobserved
+                : state.Trace.CurrentClassification;
         }
 
         private string DescribeProducerTradeLifecycle(
@@ -2556,6 +2878,59 @@ namespace NoOfficeDemandFix.Systems
             }
 
             builder.Append(')');
+        }
+
+        private void AppendOutsideConnectionSellerProbeState(StringBuilder builder, Entity company, Resource resource)
+        {
+            builder.Append(", outsideConnectionSellerProbe(");
+            if (!OutsideConnectionVirtualSellerFixPatch.TryGetLatestOfficeImportProbeSnapshot(company, resource, out OutsideConnectionVirtualSellerFixPatch.OfficeImportProbeSnapshot snapshot))
+            {
+                builder.Append("seenRecently=False");
+                builder.Append(", frameAge=n/a");
+                builder.Append(", requestedAmount=n/a");
+                builder.Append(", totalOutsideConnectionSellers=n/a");
+                builder.Append(", missingStoredResourcePairs=n/a");
+                builder.Append(", inactiveOutsideConnections=n/a");
+                builder.Append(", availableCandidateCount=n/a");
+                builder.Append(", zeroOrNegativeStockSellerCount=n/a");
+                builder.Append(", topAvailableStock=n/a");
+                builder.Append(", appendedOutsideConnectionCandidates=n/a");
+                builder.Append(", assessment=no_recent_probe");
+                builder.Append(')');
+                return;
+            }
+
+            int currentSimulationFrame = (int)m_SimulationSystem.frameIndex;
+            builder.Append("seenRecently=True");
+            builder.Append(", frameAge=");
+            builder.Append(snapshot.SimulationFrame >= 0
+                ? Math.Max(0, currentSimulationFrame - snapshot.SimulationFrame).ToString(CultureInfo.InvariantCulture)
+                : "n/a");
+            builder.Append(", requestedAmount=").Append(snapshot.RequestedAmount);
+            builder.Append(", totalOutsideConnectionSellers=").Append(snapshot.TotalOutsideConnectionSellers);
+            builder.Append(", missingStoredResourcePairs=").Append(snapshot.MissingStoredResourcePairs);
+            builder.Append(", inactiveOutsideConnections=").Append(snapshot.InactiveOutsideConnections);
+            builder.Append(", availableCandidateCount=").Append(snapshot.AvailableCandidateCount);
+            builder.Append(", zeroOrNegativeStockSellerCount=").Append(snapshot.ZeroOrNegativeStockSellerCount);
+            builder.Append(", topAvailableStock=").Append(snapshot.TopAvailableStock);
+            builder.Append(", appendedOutsideConnectionCandidates=").Append(snapshot.AppendedOutsideConnectionCandidates);
+            builder.Append(", assessment=").Append(GetOutsideConnectionSellerAssessmentLabel(snapshot));
+            builder.Append(')');
+        }
+
+        private static string GetOutsideConnectionSellerAssessmentLabel(OutsideConnectionVirtualSellerFixPatch.OfficeImportProbeSnapshot snapshot)
+        {
+            if (snapshot.AvailableCandidateCount > 0)
+            {
+                return "candidates_available";
+            }
+
+            if (snapshot.ZeroOrNegativeStockSellerCount > 0)
+            {
+                return "all_zero_stock";
+            }
+
+            return "no_candidate";
         }
 
         private void AppendTradeCostSnapshot(StringBuilder builder, string label, Resource resource, Entity company)
@@ -3609,6 +3984,23 @@ namespace NoOfficeDemandFix.Systems
             return builder.ToString();
         }
 
+        private static string FormatAllFactors(NativeArray<int> factors)
+        {
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < factors.Length; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(", ");
+                }
+
+                string factorName = Enum.GetName(typeof(DemandFactor), i) ?? $"factor_{i}";
+                builder.Append(factorName).Append('=').Append(factors[i]);
+            }
+
+            return builder.ToString();
+        }
+
         private static bool TryGetDemandFactorValue(NativeArray<int> factors, string factorName, out int value)
         {
             value = 0;
@@ -3890,6 +4282,8 @@ namespace NoOfficeDemandFix.Systems
             m_SoftwareOfficePrefabCache.Clear();
             m_ResourceWeightCache.Clear();
             ResetVirtualOfficeBuyerProbeState();
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
+            IndustrialDemandDiagnosticsProbePatch.Reset();
         }
 
         private static string CreateSessionId()
@@ -3907,6 +4301,8 @@ namespace NoOfficeDemandFix.Systems
             m_DisplayedClockDay = int.MinValue;
             m_LastComputedSampleSlot = int.MinValue;
             ResetVirtualOfficeBuyerProbeState();
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
+            IndustrialDemandDiagnosticsProbePatch.Reset();
             m_LastSettingsState = settingsState;
             m_LastSettingsSnapshot = FormatSettingsSnapshot(settingsState);
             m_LastPatchState = patchState;
