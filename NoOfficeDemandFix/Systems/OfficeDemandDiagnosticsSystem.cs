@@ -2153,6 +2153,7 @@ namespace NoOfficeDemandFix.Systems
             AppendSoftwareTradeCostState(builder, softwareConsumerState.TradeCost);
             AppendSoftwareAcquisitionState(builder, softwareConsumerState.Acquisition, softwareConsumerState.Trace.CurrentClassification);
             AppendBuyerFixWindowState(builder, company);
+            AppendBuyerFixQueryEligibilityState(builder, company);
             AppendResourceTripState(builder, "softwareTripState", softwareConsumerState.Acquisition);
             AppendBuyingCompanyState(builder, company);
             if (TryGetPathSeller(softwareConsumerState, out Entity pathSeller))
@@ -2224,6 +2225,109 @@ namespace NoOfficeDemandFix.Systems
             builder.Append(", lastOverrideThreshold=");
             builder.Append(snapshot.OverrideCount > 0 ? snapshot.LastOverrideThreshold.ToString(CultureInfo.InvariantCulture) : "n/a");
             builder.Append(')');
+        }
+
+        private void AppendBuyerFixQueryEligibilityState(StringBuilder builder, Entity company)
+        {
+            bool hasBuyingCompany = EntityManager.HasComponent<BuyingCompany>(company);
+            bool hasPropertyRenter = EntityManager.HasComponent<PropertyRenter>(company);
+            bool hasResourcesBuffer = EntityManager.HasBuffer<Resources>(company);
+            bool hasCitizenTripNeededBuffer = EntityManager.HasBuffer<CitizenTripNeeded>(company);
+            int tripNeededBufferLength = hasCitizenTripNeededBuffer
+                ? EntityManager.GetBuffer<CitizenTripNeeded>(company, isReadOnly: true).Length
+                : 0;
+            bool hasAnyResourceBuyer = EntityManager.HasComponent<ResourceBuyer>(company);
+            ResourceBuyer anyResourceBuyer = hasAnyResourceBuyer
+                ? EntityManager.GetComponentData<ResourceBuyer>(company)
+                : default;
+            bool hasPathInformation = EntityManager.HasComponent<PathInformation>(company);
+            PathInformation pathInformation = hasPathInformation
+                ? EntityManager.GetComponentData<PathInformation>(company)
+                : default;
+            bool hasCurrentTradingBuffer = EntityManager.HasBuffer<CurrentTrading>(company);
+            int currentTradingEntryCount = hasCurrentTradingBuffer
+                ? EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true).Length
+                : 0;
+            bool eligibleNow = hasBuyingCompany &&
+                               hasPropertyRenter &&
+                               hasResourcesBuffer &&
+                               hasCitizenTripNeededBuffer &&
+                               !hasAnyResourceBuyer &&
+                               !hasPathInformation &&
+                               !hasCurrentTradingBuffer;
+
+            builder.Append(", buyerFixQueryEligibility(");
+            builder.Append("eligibleNow=").Append(eligibleNow);
+            builder.Append(", hasBuyingCompany=").Append(hasBuyingCompany);
+            builder.Append(", hasPropertyRenter=").Append(hasPropertyRenter);
+            builder.Append(", hasResourcesBuffer=").Append(hasResourcesBuffer);
+            builder.Append(", hasCitizenTripNeededBuffer=").Append(hasCitizenTripNeededBuffer);
+            builder.Append(", tripNeededBufferLength=").Append(tripNeededBufferLength);
+            builder.Append(", hasAnyResourceBuyer=").Append(hasAnyResourceBuyer);
+            builder.Append(", anyResourceBuyerResource=");
+            builder.Append(hasAnyResourceBuyer ? anyResourceBuyer.m_ResourceNeeded.ToString() : "none");
+            builder.Append(", anyResourceBuyerAmount=");
+            builder.Append(hasAnyResourceBuyer ? anyResourceBuyer.m_AmountNeeded.ToString(CultureInfo.InvariantCulture) : "n/a");
+            builder.Append(", hasPathInformation=").Append(hasPathInformation);
+            builder.Append(", pathInfoState=");
+            builder.Append(hasPathInformation ? pathInformation.m_State.ToString() : "none");
+            builder.Append(", hasCurrentTradingBuffer=").Append(hasCurrentTradingBuffer);
+            builder.Append(", currentTradingEntryCount=").Append(currentTradingEntryCount);
+            builder.Append(", excludedBy=").Append(GetBuyerFixQueryExclusionReasonLabel(
+                hasBuyingCompany,
+                hasPropertyRenter,
+                hasResourcesBuffer,
+                hasCitizenTripNeededBuffer,
+                hasAnyResourceBuyer,
+                hasPathInformation,
+                hasCurrentTradingBuffer));
+            builder.Append(')');
+        }
+
+        private static string GetBuyerFixQueryExclusionReasonLabel(
+            bool hasBuyingCompany,
+            bool hasPropertyRenter,
+            bool hasResourcesBuffer,
+            bool hasCitizenTripNeededBuffer,
+            bool hasAnyResourceBuyer,
+            bool hasPathInformation,
+            bool hasCurrentTradingBuffer)
+        {
+            if (hasBuyingCompany &&
+                hasPropertyRenter &&
+                hasResourcesBuffer &&
+                hasCitizenTripNeededBuffer &&
+                !hasAnyResourceBuyer &&
+                !hasPathInformation &&
+                !hasCurrentTradingBuffer)
+            {
+                return "none";
+            }
+
+            StringBuilder builder = new StringBuilder();
+            AppendBuyerFixExclusionReason(builder, !hasBuyingCompany, "missing_buying_company");
+            AppendBuyerFixExclusionReason(builder, !hasPropertyRenter, "missing_property_renter");
+            AppendBuyerFixExclusionReason(builder, !hasResourcesBuffer, "missing_resources_buffer");
+            AppendBuyerFixExclusionReason(builder, !hasCitizenTripNeededBuffer, "missing_trip_needed_buffer");
+            AppendBuyerFixExclusionReason(builder, hasAnyResourceBuyer, "resource_buyer_present");
+            AppendBuyerFixExclusionReason(builder, hasPathInformation, "path_information_present");
+            AppendBuyerFixExclusionReason(builder, hasCurrentTradingBuffer, "current_trading_present");
+            return builder.Length > 0 ? builder.ToString() : "unknown";
+        }
+
+        private static void AppendBuyerFixExclusionReason(StringBuilder builder, bool condition, string label)
+        {
+            if (!condition)
+            {
+                return;
+            }
+
+            if (builder.Length > 0)
+            {
+                builder.Append('+');
+            }
+
+            builder.Append(label);
         }
 
         private static void AppendMetricValue(StringBuilder builder, bool hasMetric, float value)
