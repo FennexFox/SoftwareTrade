@@ -42,6 +42,7 @@ namespace NoOfficeDemandFix.Systems
         private SimulationSystem m_SimulationSystem;
         private EntityQuery m_OfficeCompanyQuery;
         private EntityQuery m_OfficeCompanyChangedQuery;
+        private EntityQuery m_OfficeCompanyCurrentTradingChangedQuery;
         private EntityQuery m_CorrectiveBuyerBackfillQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
         private EntityQuery m_CorrectiveBuyerProvenanceCleanupQuery;
@@ -490,12 +491,14 @@ namespace NoOfficeDemandFix.Systems
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_OfficeCompanyQuery = GetEntityQuery(CreateOfficeCompanyQueryDesc());
             m_OfficeCompanyChangedQuery = EntityManager.CreateEntityQuery(CreateOfficeCompanyQueryDesc());
+            m_OfficeCompanyCurrentTradingChangedQuery = EntityManager.CreateEntityQuery(CreateOfficeCompanyCurrentTradingChangedQueryDesc());
             m_CorrectiveBuyerBackfillQuery = GetEntityQuery(CreateCorrectiveBuyerBackfillQueryDesc());
             m_OfficeCompanyChangedQuery.SetChangedVersionFilter(new[]
             {
                 ComponentType.ReadOnly<Resources>(),
                 ComponentType.ReadOnly<CitizenTripNeeded>()
             });
+            m_OfficeCompanyCurrentTradingChangedQuery.SetChangedVersionFilter(ComponentType.ReadOnly<CurrentTrading>());
             m_CorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
                 ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
                 ComponentType.Exclude<ResourceBuyer>(),
@@ -531,7 +534,6 @@ namespace NoOfficeDemandFix.Systems
             bool diagnosticsEnabled = Mod.Settings != null && Mod.Settings.EnableDemandDiagnostics;
             bool buyerFixEnabled = Mod.Settings != null && Mod.Settings.EnableVirtualOfficeResourceBuyerFix;
             bool correctiveBuyerTaggingEnabled = diagnosticsEnabled && buyerFixEnabled;
-            NativeArray<Entity> queriedCompanies = default;
 
             try
             {
@@ -558,17 +560,65 @@ namespace NoOfficeDemandFix.Systems
                 }
 
                 bool usedFullSweep = ShouldRunFallbackSweep();
-                EntityQuery officeCompanyQuery = usedFullSweep
-                    ? m_OfficeCompanyQuery
-                    : m_OfficeCompanyChangedQuery;
-                if (officeCompanyQuery.IsEmpty)
+                if (usedFullSweep)
                 {
+                    RunBuyerOverridePass(
+                        m_OfficeCompanyQuery,
+                        usedFullSweep,
+                        diagnosticsEnabled,
+                        captureTelemetry,
+                        ref telemetryEntitiesInspected,
+                        ref telemetryRepathRequested);
                     return;
                 }
 
-                ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
-                bool captureProbeResults = diagnosticsEnabled;
-                uint currentSimulationFrame = m_SimulationSystem.frameIndex;
+                RunBuyerOverridePass(
+                    m_OfficeCompanyChangedQuery,
+                    usedFullSweep,
+                    diagnosticsEnabled,
+                    captureTelemetry,
+                    ref telemetryEntitiesInspected,
+                    ref telemetryRepathRequested);
+                RunBuyerOverridePass(
+                    m_OfficeCompanyCurrentTradingChangedQuery,
+                    usedFullSweep,
+                    diagnosticsEnabled,
+                    captureTelemetry,
+                    ref telemetryEntitiesInspected,
+                    ref telemetryRepathRequested);
+            }
+            finally
+            {
+                m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
+
+                if (captureTelemetry)
+                {
+                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
+                    PerformanceTelemetryCollector.RecordModActivity(telemetryEntitiesInspected, telemetryRepathRequested);
+                }
+            }
+        }
+
+        private void RunBuyerOverridePass(
+            EntityQuery officeCompanyQuery,
+            bool usedFullSweep,
+            bool diagnosticsEnabled,
+            bool captureTelemetry,
+            ref int telemetryEntitiesInspected,
+            ref int telemetryRepathRequested)
+        {
+            if (officeCompanyQuery.IsEmpty)
+            {
+                return;
+            }
+
+            ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
+            bool captureProbeResults = diagnosticsEnabled;
+            uint currentSimulationFrame = m_SimulationSystem.frameIndex;
+            NativeArray<Entity> queriedCompanies = default;
+
+            try
+            {
                 if (captureProbeResults)
                 {
                     queriedCompanies = officeCompanyQuery.ToEntityArray(Allocator.Temp);
@@ -630,14 +680,6 @@ namespace NoOfficeDemandFix.Systems
                 if (queriedCompanies.IsCreated)
                 {
                     queriedCompanies.Dispose();
-                }
-
-                m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
-
-                if (captureTelemetry)
-                {
-                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
-                    PerformanceTelemetryCollector.RecordModActivity(telemetryEntitiesInspected, telemetryRepathRequested);
                 }
             }
         }
@@ -1258,6 +1300,30 @@ namespace NoOfficeDemandFix.Systems
                     ComponentType.ReadOnly<PropertyRenter>(),
                     ComponentType.ReadOnly<Resources>(),
                     ComponentType.ReadOnly<CitizenTripNeeded>()
+                },
+                None = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<ResourceBuyer>(),
+                    ComponentType.ReadOnly<PathInformation>(),
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            };
+        }
+
+        private static EntityQueryDesc CreateOfficeCompanyCurrentTradingChangedQueryDesc()
+        {
+            return new EntityQueryDesc
+            {
+                All = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<OfficeCompany>(),
+                    ComponentType.ReadOnly<BuyingCompany>(),
+                    ComponentType.ReadOnly<PrefabRef>(),
+                    ComponentType.ReadOnly<PropertyRenter>(),
+                    ComponentType.ReadOnly<Resources>(),
+                    ComponentType.ReadOnly<CitizenTripNeeded>(),
+                    ComponentType.ReadOnly<CurrentTrading>()
                 },
                 None = new ComponentType[]
                 {
