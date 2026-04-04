@@ -713,6 +713,11 @@ namespace NoOfficeDemandFix.Patches
             for (int i = 0; i < layout.Length; i++)
             {
                 Entity layoutVehicle = layout[i].m_Vehicle;
+                if (layoutVehicle == vehicle)
+                {
+                    continue;
+                }
+
                 if (!entityManager.HasComponent<DeliveryTruckComponent>(layoutVehicle))
                 {
                     continue;
