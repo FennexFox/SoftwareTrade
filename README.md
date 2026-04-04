@@ -6,15 +6,16 @@ plus a separate experimental software-troubleshooting toolset:
 - `Phantom Vacancy`: occupied properties that are still counted as market listings
 - `Office AI chunk iteration`: office stock consumption and virtual export should
   not stop at the first low-stock office in a chunk
-- office-resource / `software` instability: experimental import seller and buyer fallbacks plus optional diagnostics for remaining fulfillment stalls and demand-response mismatches
+- office-resource / `software` instability: experimental import seller and buyer fallbacks plus optional diagnostics for demand-recovery versus software-fulfillment-latency mismatches
 
 The current release ships the confirmed `Signature` phantom-vacancy fix and
 an always-on office AI hotfix, and also includes enabled-by-default
-experimental software import seller and buyer fallbacks. Diagnostics remain available for
-troubleshooting but are disabled by default. Optional coarse performance
+experimental software import seller and buyer fallbacks with richer
+diagnostics available but disabled by default. Optional coarse performance
 telemetry is also available for before/after steady-state and stall
 comparisons and is disabled by default. It keeps the broader `software`
-track under investigation.
+track under investigation across demand recovery and
+software-fulfillment latency.
 
 This release also restores the older `2x` office resource-demand baseline
 with a direct Harmony patch instead of keeping the newer vanilla `3x`
@@ -32,8 +33,8 @@ What the current code does:
 - hotfixes the vanilla office AI loop so one low-stock office no longer prevents later offices in the same chunk from consuming output and queuing virtual exports
 - restores the pre-hotfix office demand baseline for office resources with a direct Harmony patch, so office-demand comparisons stay on the older `2x` basis rather than vanilla's newer `3x`
 - includes an experimental Harmony-based outside-connection virtual seller correction that appends active outside connections reporting stock for office virtual-resource imports when the vanilla seller pass filtered them out because the prefab storage mask does not list that virtual resource
-- includes an experimental virtual office buyer timing correction that adds a narrow post-vanilla fallback buyer for zero-weight office inputs when a company still has no buyer, path, trip, or same-resource current-trading state
-- keeps diagnostics available for office demand, phantom vacancy, and `software` producer/consumer office state when you turn them on for troubleshooting
+- includes an experimental virtual office buyer timing correction that adds a narrow post-vanilla fallback buyer for zero-weight office inputs when a company still has no buyer, path, or trip, while same-resource `CurrentTrading` remains absent
+- keeps diagnostics available for office demand, phantom vacancy, and `software` producer/consumer office state, including demand-recovery counters, seller-resolution detail, and buyer-state probes when you turn them on for troubleshooting
 - retires the earlier office-resource storage patch experiment because zero-weight office resources do not fit the current vanilla virtual-resource architecture
 
 What it does not claim:
@@ -50,9 +51,9 @@ Current defaults from [Setting.cs](./NoOfficeDemandFix/Setting.cs):
 | --- | --- | --- |
 | `EnablePhantomVacancyFix` | `true` | Enables the shipped guard that removes stale market state from occupied `Signature` office and industrial properties. Applies immediately to future simulation ticks; disabling it stops future corrections but does not restore already cleaned-up market state. |
 | `EnableOutsideConnectionVirtualSellerFix` | `true` | Enables the default experimental software import seller fallback. Takes effect on the next game launch. It only appends active outside connections that already report stock for the requested office virtual-resource import but were filtered out by the prefab storage mask, and it does not change cargo or storage definitions. |
-| `EnableVirtualOfficeResourceBuyerFix` | `true` | Enables the default experimental software import buyer fallback. It adds a narrow fallback `ResourceBuyer` for zero-weight office inputs such as `Software` when a company is below the low-stock threshold but still has no buyer/path/trip/same-resource current-trading state. |
+| `EnableVirtualOfficeResourceBuyerFix` | `true` | Enables the default experimental software import buyer fallback. It adds a narrow fallback `ResourceBuyer` for zero-weight office inputs such as `Software` when a company is below the low-stock threshold but still has no buyer/path/trip while same-resource `CurrentTrading` remains absent. |
 | `EnableOfficeDemandDirectPatch` | `true` | Restores the pre-1.5.6f1 office demand baseline with the shipped direct Harmony patch. Keep it on for the current release unless you are intentionally comparing against the newer vanilla `3x` baseline. |
-| `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` office-state details when the simulation looks suspicious. Disabled by default; turn it on for troubleshooting, or leave it off for quieter logs. |
+| `EnableDemandDiagnostics` | `false` | Logs office-demand, phantom-vacancy, and `software` office-state details, including demand-recovery counters, seller-resolution detail, and buyer-state probes when the simulation looks suspicious. Disabled by default; turn it on for troubleshooting, or leave it off for quieter logs. |
 | `DiagnosticsSamplesPerDay` | `2` | Sets how many scheduled diagnostic samples run per displayed in-game day while diagnostics are enabled. Higher values produce denser logs. |
 | `CaptureStableEvidence` | `false` | Keeps scheduled software diagnostics running even when the city looks stable. Use it only when you want baseline logs for troubleshooting. |
 | `VerboseLogging` | `false` | Adds noisier correction traces and supplemental office-trade detail lines, and forces diagnostics output at the configured cadence while it is on. Use it only when you want detailed troubleshooting logs. |
@@ -77,7 +78,7 @@ The safest repository-facing summary of the current release is:
 - confirmed fix for the reproduced `Signature` phantom-vacancy symptom
 - confirmed fix for the office AI chunk-iteration abort on low stock
 - shipped comparability rollback for the pre-hotfix office demand baseline via a direct Harmony patch
-- default experimental software import seller and buyer fallbacks; diagnostics remain available but disabled by default
+- default experimental software import seller and buyer fallbacks; richer diagnostics remain available but disabled by default
 - retired office-resource storage patch experiment
 - current evidence splits the broader software-related office/resource investigation into office-demand recovery and software-fulfillment latency
 - recent one-day same-lineage evidence shows office demand can recover while many existing software consumers still remain at `efficiency=0` with corrective buyers already present
