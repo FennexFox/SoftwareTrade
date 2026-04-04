@@ -26,6 +26,8 @@ namespace NoOfficeDemandFix
         public const string SoftwareTradeLifecycleDetailType = "softwareTradeLifecycle";
         public const string SoftwareVirtualResolutionProbeDetailType = "softwareVirtualResolutionProbe";
         public const string SoftwareBuyerTimingProbeDetailType = "softwareBuyerTimingProbe";
+        public const string OfficeDemandInternalsDetailType = "officeDemandInternals";
+        public const string SoftwareSellerResolutionProbeDetailType = "softwareSellerResolutionProbe";
         public const string VirtualOfficeBuyerFixProbePrefix = "virtualOfficeBuyerFixProbe ";
 
         public static string FormatObservationWindow(
