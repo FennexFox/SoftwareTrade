@@ -48,6 +48,7 @@ namespace NoOfficeDemandFix.Patches
         private static int s_TotalInactiveOutsideConnections;
         private static int s_ProbeSampleLogsEmitted;
         private static readonly HashSet<Resource> s_ObservedRequestedResourcesPrefilter = new HashSet<Resource>();
+        private static readonly Dictionary<Entity, OfficeImportProbeSnapshot> s_LastOfficeImportProbeSnapshots = new Dictionary<Entity, OfficeImportProbeSnapshot>();
         private static EntityQuery s_OutsideConnectionSellerQuery;
         private static World s_OutsideConnectionSellerQueryWorld;
 
@@ -87,6 +88,86 @@ namespace NoOfficeDemandFix.Patches
             public int MissingStoredResourcePairs { get; }
             public int InactiveOutsideConnections { get; }
             public string RequestedResourcesPrefilter { get; }
+        }
+
+        public readonly struct OfficeImportProbeSnapshot
+        {
+            public OfficeImportProbeSnapshot(
+                int simulationFrame,
+                Resource resource,
+                int requestedAmount,
+                int totalOutsideConnectionSellers,
+                int missingStoredResourcePairs,
+                int inactiveOutsideConnections,
+                int availableCandidateCount,
+                int zeroOrNegativeStockSellerCount,
+                int topAvailableStock,
+                bool appendedOutsideConnectionCandidates)
+            {
+                SimulationFrame = simulationFrame;
+                Resource = resource;
+                RequestedAmount = requestedAmount;
+                TotalOutsideConnectionSellers = totalOutsideConnectionSellers;
+                MissingStoredResourcePairs = missingStoredResourcePairs;
+                InactiveOutsideConnections = inactiveOutsideConnections;
+                AvailableCandidateCount = availableCandidateCount;
+                ZeroOrNegativeStockSellerCount = zeroOrNegativeStockSellerCount;
+                TopAvailableStock = topAvailableStock;
+                AppendedOutsideConnectionCandidates = appendedOutsideConnectionCandidates;
+            }
+
+            public int SimulationFrame { get; }
+            public Resource Resource { get; }
+            public int RequestedAmount { get; }
+            public int TotalOutsideConnectionSellers { get; }
+            public int MissingStoredResourcePairs { get; }
+            public int InactiveOutsideConnections { get; }
+            public int AvailableCandidateCount { get; }
+            public int ZeroOrNegativeStockSellerCount { get; }
+            public int TopAvailableStock { get; }
+            public bool AppendedOutsideConnectionCandidates { get; }
+        }
+
+        private readonly struct SoftwareOutsideConnectionProbeAggregate
+        {
+            public SoftwareOutsideConnectionProbeAggregate(
+                int totalOutsideConnectionSellers,
+                int missingStoredResourcePairs,
+                int inactiveOutsideConnections,
+                int availableCandidateCount,
+                int zeroOrNegativeStockSellerCount,
+                int topAvailableStock)
+            {
+                TotalOutsideConnectionSellers = totalOutsideConnectionSellers;
+                MissingStoredResourcePairs = missingStoredResourcePairs;
+                InactiveOutsideConnections = inactiveOutsideConnections;
+                AvailableCandidateCount = availableCandidateCount;
+                ZeroOrNegativeStockSellerCount = zeroOrNegativeStockSellerCount;
+                TopAvailableStock = topAvailableStock;
+            }
+
+            public int TotalOutsideConnectionSellers { get; }
+            public int MissingStoredResourcePairs { get; }
+            public int InactiveOutsideConnections { get; }
+            public int AvailableCandidateCount { get; }
+            public int ZeroOrNegativeStockSellerCount { get; }
+            public int TopAvailableStock { get; }
+        }
+
+        public static bool TryGetLatestOfficeImportProbeSnapshot(Entity seekerEntity, Resource resource, out OfficeImportProbeSnapshot snapshot)
+        {
+            if (resource != Resource.Software)
+            {
+                snapshot = default;
+                return false;
+            }
+
+            return s_LastOfficeImportProbeSnapshots.TryGetValue(seekerEntity, out snapshot);
+        }
+
+        public static void ResetDetailedRequestProbes()
+        {
+            s_LastOfficeImportProbeSnapshots.Clear();
         }
 
         public static MethodBase TargetMethod()
@@ -190,6 +271,7 @@ namespace NoOfficeDemandFix.Patches
             s_TotalInactiveOutsideConnections = 0;
             s_ProbeSampleLogsEmitted = 0;
             s_ObservedRequestedResourcesPrefilter.Clear();
+            s_LastOfficeImportProbeSnapshots.Clear();
         }
 
         private static int CountOfficeImportCandidatesPrefilter(in PathfindSetupSystem.SetupData setupData)
@@ -245,6 +327,7 @@ namespace NoOfficeDemandFix.Patches
             }
 
             appendedRequestCount = officeImportRequests.Length;
+            MaybeCaptureDetailedRequestProbes(system, officeImportRequests, requestedResources, resourceRequestRanges);
 
             JobHandle jobHandle = new AppendOutsideConnectionOfficeImportTargetsJob
             {
@@ -463,6 +546,191 @@ namespace NoOfficeDemandFix.Patches
                 missingStoredResourcePairs,
                 inactiveOutsideConnections,
                 FormatResourceSet(requestedResourcesPrefilter));
+        }
+
+        private static void MaybeCaptureDetailedRequestProbes(
+            PathfindSetupSystem system,
+            NativeArray<OfficeImportRequest> officeImportRequests,
+            NativeArray<Resource> requestedResources,
+            NativeArray<ResourceRequestRange> resourceRequestRanges)
+        {
+            if (Mod.Settings == null || !Mod.Settings.EnableDemandDiagnostics || !Mod.Settings.VerboseLogging)
+            {
+                return;
+            }
+
+            int softwareResourceIndex = -1;
+            for (int i = 0; i < requestedResources.Length; i++)
+            {
+                if (requestedResources[i] == Resource.Software)
+                {
+                    softwareResourceIndex = i;
+                    break;
+                }
+            }
+
+            if (softwareResourceIndex < 0)
+            {
+                return;
+            }
+
+            ResourceRequestRange requestRange = resourceRequestRanges[softwareResourceIndex];
+            if (requestRange.Count <= 0)
+            {
+                return;
+            }
+
+            SimulationSystem simulationSystem = system.World?.GetExistingSystemManaged<SimulationSystem>();
+            int simulationFrame = simulationSystem != null ? (int)simulationSystem.frameIndex : -1;
+            SoftwareOutsideConnectionProbeAggregate aggregate = CaptureSoftwareOutsideConnectionProbeAggregate(system);
+            for (int requestOffset = 0; requestOffset < requestRange.Count; requestOffset++)
+            {
+                OfficeImportRequest request = officeImportRequests[requestRange.StartIndex + requestOffset];
+                s_LastOfficeImportProbeSnapshots[request.SeekerEntity] = new OfficeImportProbeSnapshot(
+                    simulationFrame,
+                    Resource.Software,
+                    request.RequestedAmount,
+                    aggregate.TotalOutsideConnectionSellers,
+                    aggregate.MissingStoredResourcePairs,
+                    aggregate.InactiveOutsideConnections,
+                    aggregate.AvailableCandidateCount,
+                    aggregate.ZeroOrNegativeStockSellerCount,
+                    aggregate.TopAvailableStock,
+                    aggregate.AvailableCandidateCount > 0);
+            }
+        }
+
+        private static SoftwareOutsideConnectionProbeAggregate CaptureSoftwareOutsideConnectionProbeAggregate(PathfindSetupSystem system)
+        {
+            EntityQuery query = GetOutsideConnectionSellerQuery(system);
+            if (query.IsEmptyIgnoreFilter)
+            {
+                return default;
+            }
+
+            EntityManager entityManager = system.EntityManager;
+            int totalOutsideConnectionSellers = 0;
+            int missingStoredResourcePairs = 0;
+            int inactiveOutsideConnections = 0;
+            int availableCandidateCount = 0;
+            int zeroOrNegativeStockSellerCount = 0;
+            int topAvailableStock = 0;
+
+            using NativeArray<Entity> sellerEntities = query.ToEntityArray(Allocator.Temp);
+            using NativeArray<PrefabRef> sellerPrefabs = query.ToComponentDataArray<PrefabRef>(Allocator.Temp);
+            for (int entityIndex = 0; entityIndex < sellerEntities.Length; entityIndex++)
+            {
+                Entity sellerEntity = sellerEntities[entityIndex];
+                totalOutsideConnectionSellers++;
+
+                if (entityManager.HasComponent<BuildingComponent>(sellerEntity) &&
+                    BuildingUtils.CheckOption(entityManager.GetComponentData<BuildingComponent>(sellerEntity), BuildingOption.Inactive))
+                {
+                    inactiveOutsideConnections++;
+                    continue;
+                }
+
+                Entity prefab = sellerPrefabs[entityIndex].m_Prefab;
+                if (!entityManager.HasComponent<StorageCompanyData>(prefab))
+                {
+                    continue;
+                }
+
+                StorageCompanyData storageCompanyData = entityManager.GetComponentData<StorageCompanyData>(prefab);
+                if ((storageCompanyData.m_StoredResources & Resource.Software) != Resource.NoResource)
+                {
+                    continue;
+                }
+
+                missingStoredResourcePairs++;
+
+                if (!entityManager.HasBuffer<Game.Economy.Resources>(sellerEntity))
+                {
+                    zeroOrNegativeStockSellerCount++;
+                    continue;
+                }
+
+                int stock = EconomyUtils.GetResources(Resource.Software, entityManager.GetBuffer<Game.Economy.Resources>(sellerEntity, isReadOnly: true));
+                int buyingLoad = GetBuyingTruckLoad(entityManager, sellerEntity, Resource.Software);
+                int availableAmount = stock - buyingLoad;
+                if (availableAmount > 0)
+                {
+                    availableCandidateCount++;
+                    topAvailableStock = Math.Max(topAvailableStock, availableAmount);
+                }
+                else
+                {
+                    zeroOrNegativeStockSellerCount++;
+                }
+            }
+
+            return new SoftwareOutsideConnectionProbeAggregate(
+                totalOutsideConnectionSellers,
+                missingStoredResourcePairs,
+                inactiveOutsideConnections,
+                availableCandidateCount,
+                zeroOrNegativeStockSellerCount,
+                topAvailableStock);
+        }
+
+        private static int GetBuyingTruckLoad(EntityManager entityManager, Entity sellerEntity, Resource resource)
+        {
+            int amount = 0;
+            if (!entityManager.HasBuffer<GuestVehicle>(sellerEntity))
+            {
+                return amount;
+            }
+
+            DynamicBuffer<GuestVehicle> guestVehicles = entityManager.GetBuffer<GuestVehicle>(sellerEntity, isReadOnly: true);
+            for (int i = 0; i < guestVehicles.Length; i++)
+            {
+                amount += GetVehicleBuyingLoad(entityManager, guestVehicles[i].m_Vehicle, resource);
+            }
+
+            return amount;
+        }
+
+        private static int GetVehicleBuyingLoad(EntityManager entityManager, Entity vehicle, Resource resource)
+        {
+            if (!entityManager.HasComponent<DeliveryTruckComponent>(vehicle))
+            {
+                return 0;
+            }
+
+            int amount = 0;
+            DeliveryTruckComponent truck = entityManager.GetComponentData<DeliveryTruckComponent>(vehicle);
+            if (truck.m_Resource == resource && (truck.m_State & DeliveryTruckFlags.Buying) != 0)
+            {
+                amount += truck.m_Amount;
+            }
+
+            if (!entityManager.HasBuffer<LayoutElement>(vehicle))
+            {
+                return amount;
+            }
+
+            DynamicBuffer<LayoutElement> layout = entityManager.GetBuffer<LayoutElement>(vehicle, isReadOnly: true);
+            for (int i = 0; i < layout.Length; i++)
+            {
+                Entity layoutVehicle = layout[i].m_Vehicle;
+                if (layoutVehicle == vehicle)
+                {
+                    continue;
+                }
+
+                if (!entityManager.HasComponent<DeliveryTruckComponent>(layoutVehicle))
+                {
+                    continue;
+                }
+
+                DeliveryTruckComponent layoutTruck = entityManager.GetComponentData<DeliveryTruckComponent>(layoutVehicle);
+                if (layoutTruck.m_Resource == resource && (layoutTruck.m_State & DeliveryTruckFlags.Buying) != 0)
+                {
+                    amount += layoutTruck.m_Amount;
+                }
+            }
+
+            return amount;
         }
 
         private static EntityQuery GetOutsideConnectionSellerQuery(PathfindSetupSystem system)
