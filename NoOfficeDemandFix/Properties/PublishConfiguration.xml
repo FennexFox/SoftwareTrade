@@ -37,10 +37,12 @@ Current release status:
 	<!--Recommended version of the base game to use the mod-->
 	<GameVersion Value="1.5.*" />
 	<!--Change log for new version. Single line or multi line. Supports minimal markdown subset-->
-<ChangeLog>- Added explicit comparison-status and queue-sampling health fields to the optional performance telemetry path for current validation runs.
+	<ChangeLog>
+- Added explicit comparison-status and queue-sampling health fields to the optional performance telemetry path for current validation runs.
 - Expanded optional software troubleshooting diagnostics with demand-recovery, seller-resolution, and buyer-state probes so logs can separate office-demand recovery from software-fulfillment latency.
 - Refined the experimental outside-connection seller and virtual office buyer fallbacks, including skipping corrective buyers when same-resource current trading already exists.
-- Updated troubleshooting docs and raw-log tooling for the richer software diagnostics fields used by current investigations.</ChangeLog>
+- Updated troubleshooting docs and raw-log tooling for the richer software diagnostics fields used by current investigations.
+	</ChangeLog>
 	<!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
 	<ExternalLink Type="github" Url="https://github.com/FennexFox/NoOfficeDemandFix" />
 	<ExternalLink Type="discord" Url="https://discord.gg/HTav7ARPs2" />
