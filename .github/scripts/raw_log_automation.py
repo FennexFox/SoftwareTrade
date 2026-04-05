@@ -1741,6 +1741,9 @@ def compact_office_snapshot(observation: dict[str, Any] | None) -> str:
                 "selectedNoResourceBuyer",
                 "selectedNoBuyerShortGap",
                 "selectedNoBuyerPersistent",
+                "selectedNoBuyerMissedVanillaPass",
+                "selectedNoBuyerMissedMultipleVanillaPasses",
+                "selectedNoBuyerMaxMissedVanillaPasses",
                 "selectedRequestNoPath",
                 "selectedRequestNoPathShortGap",
                 "selectedRequestNoPathPersistent",
@@ -2429,6 +2432,28 @@ def build_llm_semantic_facts(parsed_log: dict[str, Any]) -> list[str]:
             f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerPersistent={selected_no_buyer_persistent} marks selected software consumers whose buyerless state persisted across multiple windows."
         )
 
+    selected_no_buyer_missed_vanilla_pass = safe_int(buyer_state.get("selectedNoBuyerMissedVanillaPass"))
+    if selected_no_buyer_missed_vanilla_pass > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerMissedVanillaPass={selected_no_buyer_missed_vanilla_pass} marks selected software consumers whose buyerless state already spanned at least one estimated vanilla buyer pass."
+        )
+
+    selected_no_buyer_missed_multiple_vanilla_passes = safe_int(
+        buyer_state.get("selectedNoBuyerMissedMultipleVanillaPasses")
+    )
+    if selected_no_buyer_missed_multiple_vanilla_passes > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerMissedMultipleVanillaPasses={selected_no_buyer_missed_multiple_vanilla_passes} marks selected software consumers whose buyerless state spanned multiple estimated vanilla buyer passes."
+        )
+
+    selected_no_buyer_max_missed_vanilla_passes = safe_int(
+        buyer_state.get("selectedNoBuyerMaxMissedVanillaPasses")
+    )
+    if selected_no_buyer_max_missed_vanilla_passes > 0:
+        facts.append(
+            f"Latest counters: softwareConsumerBuyerState.selectedNoBuyerMaxMissedVanillaPasses={selected_no_buyer_max_missed_vanilla_passes} is the maximum estimated vanilla buyer passes crossed by a still-buyerless selected software consumer."
+        )
+
     selected_request_no_path_short_gap = safe_int(buyer_state.get("selectedRequestNoPathShortGap"))
     if selected_request_no_path_short_gap > 0:
         facts.append(
@@ -2531,6 +2556,7 @@ def build_llm_request_payload(context: dict[str, Any], model: str | None = None)
         - If `softwareConsumerBuyerState.correctiveBuyerPresent` or `softwareConsumerBuyerState.vanillaBuyerPresent` is nonzero, mention corrective or vanilla buyer coverage when buyer-state fields are central to the run.
         - If `softwareConsumerBuyerState.selectedRequestNoPath` or `softwareConsumerBuyerState.pathPending` is nonzero, prefer path-stage wording such as buyer-present / no-path / pending-path rather than buyer-shortage wording.
         - If `softwareConsumerBuyerState.selectedNoBuyerPersistent` or `softwareConsumerBuyerState.selectedRequestNoPathPersistent` is nonzero, use persistence wording rather than generic shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerMissedVanillaPass` or `softwareConsumerBuyerState.selectedNoBuyerMissedMultipleVanillaPasses` is nonzero, describe that as buyerless state persisting past estimated vanilla buyer passes rather than as a simple next-tick wait.
         - If `softwareConsumerBuyerState.selectedNoBuyerShortGap` or `softwareConsumerBuyerState.selectedRequestNoPathShortGap` is nonzero, use short-gap wording rather than persistent-stall wording.
         - If `softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected` or `softwareConsumerBuyerState.virtualResolvedThisWindow` is nonzero, include that actual in-window virtual resolution was observed.
         - Do not use legacy wording such as `noBuyerDespiteNeed` unless that exact field is present in the provided facts.
@@ -2617,6 +2643,7 @@ def build_summary_refinement_request_payload(context: dict[str, Any], model: str
         - If `softwareConsumerBuyerState.resourceBuyerPresent` equals `softwareConsumerBuyerState.needSelected`, describe that literally as buyer coverage rather than shortage.
         - If `softwareConsumerBuyerState.correctiveBuyerPresent` or `softwareConsumerBuyerState.vanillaBuyerPresent` is nonzero, mention corrective or vanilla buyer coverage when buyer-state fields are central to the run.
         - If `softwareConsumerBuyerState.selectedNoBuyerPersistent` or `softwareConsumerBuyerState.selectedRequestNoPathPersistent` is nonzero, prefer persistence wording rather than generic shortage wording.
+        - If `softwareConsumerBuyerState.selectedNoBuyerMissedVanillaPass` or `softwareConsumerBuyerState.selectedNoBuyerMissedMultipleVanillaPasses` is nonzero, prefer wording that the buyerless state extended past estimated vanilla buyer passes.
         - If `softwareConsumerBuyerState.selectedNoBuyerShortGap` or `softwareConsumerBuyerState.selectedRequestNoPathShortGap` is nonzero, prefer short-gap wording rather than persistent-stall wording.
         - If `softwareConsumerBuyerState.resolvedVirtualNoTrackingExpected` or `softwareConsumerBuyerState.virtualResolvedThisWindow` is nonzero, include that actual in-window virtual resolution was observed.
         - Avoid subjective intensifiers like "significantly".

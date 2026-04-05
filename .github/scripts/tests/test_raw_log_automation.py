@@ -549,6 +549,9 @@ class RawLogAutomationTests(unittest.TestCase):
                         "correctiveBuyerPresent": 2,
                         "vanillaBuyerPresent": 2,
                         "selectedNoBuyerPersistent": 1,
+                        "selectedNoBuyerMissedVanillaPass": 1,
+                        "selectedNoBuyerMissedMultipleVanillaPasses": 1,
+                        "selectedNoBuyerMaxMissedVanillaPasses": 5,
                         "selectedRequestNoPathShortGap": 3,
                         "virtualResolvedThisWindow": 2,
                         "virtualResolvedAmount": 96,
@@ -559,6 +562,9 @@ class RawLogAutomationTests(unittest.TestCase):
         self.assertIn("correctiveBuyerPresent=2", snapshot)
         self.assertIn("vanillaBuyerPresent=2", snapshot)
         self.assertIn("selectedNoBuyerPersistent=1", snapshot)
+        self.assertIn("selectedNoBuyerMissedVanillaPass=1", snapshot)
+        self.assertIn("selectedNoBuyerMissedMultipleVanillaPasses=1", snapshot)
+        self.assertIn("selectedNoBuyerMaxMissedVanillaPasses=5", snapshot)
         self.assertIn("selectedRequestNoPathShortGap=3", snapshot)
         self.assertIn("virtualResolvedThisWindow=2", snapshot)
         self.assertIn("virtualResolvedAmount=96", snapshot)
@@ -630,6 +636,7 @@ class RawLogAutomationTests(unittest.TestCase):
             "correctiveBuyerPresent": 4,
             "vanillaBuyerPresent": 0,
             "selectedNoResourceBuyer": 0,
+            "selectedNoBuyerMissedVanillaPass": 2,
             "virtualResolvedThisWindow": 2,
             "virtualResolvedAmount": 64,
         }
@@ -652,6 +659,10 @@ class RawLogAutomationTests(unittest.TestCase):
         )
         self.assertTrue(
             any("virtualResolvedThisWindow=2" in fact for fact in context["semantic_facts"]),
+            context["semantic_facts"],
+        )
+        self.assertTrue(
+            any("selectedNoBuyerMissedVanillaPass=2" in fact for fact in context["semantic_facts"]),
             context["semantic_facts"],
         )
 

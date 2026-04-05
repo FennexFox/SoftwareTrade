@@ -62,7 +62,7 @@ Observation fields describe the actual evidence collected.
 Required:
 
 - `symptom_classification`: the main observed symptom, using a stable label
-- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away. When buyer-lifecycle or zero-weight virtual-resolution behavior is part of the claim, preserve any emitted `softwareConsumerBuyerState(...)` subfields that separate corrective versus vanilla buyers, short-gap versus persistent buyerless states, and virtual-resolution summaries instead of collapsing them into prose
+- `diagnostic_counters`: the relevant counter groups captured during the observation window; include all groups needed for the hypothesis under test, such as `software(...)`, `electronics(...)`, `softwareProducerOffices(...)`, `softwareConsumerOffices(...)`, and `softwareConsumerBuyerState(...)` when present. If the claim is about office-demand response, preserve `officeDemand(...)` instead of paraphrasing it away. When buyer-lifecycle or zero-weight virtual-resolution behavior is part of the claim, preserve any emitted `softwareConsumerBuyerState(...)` subfields that separate corrective versus vanilla buyers, short-gap versus persistent buyerless states, and virtual-resolution summaries instead of collapsing them into prose. When the claim is an in-window divergence between demand recovery and continuing consumer stalls, it is acceptable to preserve two or more labeled snapshots from the same bounded run instead of only the final endpoint counters
 - `evidence_summary`: the short factual summary of what was observed
 - `confidence`: low, medium, or high
 - `confounders`: known uncertainties, competing explanations, or `none known`; use this for uncertainty that is not already represented directly by counters or metadata
@@ -105,7 +105,7 @@ Treat `selected_no_resource_buyer` as too broad to interpret on its own; pair it
 
 When the active question is whether a selected software need stayed below threshold long enough to justify or explain the corrective buyer pass, preserve `detail_type=softwareBuyerTimingProbe` as supplemental artifact material. Use it to distinguish short same-sample cadence gaps from repeated below-threshold windows, but do not let it replace the scheduled observation-window anchor, copied counters, or helper-rich `softwareOfficeStates` excerpts.
 
-When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone.
+When the active question is whether software-office distress actually affected office demand, keep `officeDemand(...)` together with the software counters. Treat demand movement as something to observe directly, not something implied by `softwareConsumerOffices.efficiencyZero` or `softwareInputZero` alone. When the same bounded run contains both recovery and lingering stalls, preserve labeled earlier and later counter snapshots plus at least one stalled or recovered consumer excerpt rather than flattening the run into one prose sentence.
 
 If the interpretation relies on code reading, separate what came from vanilla decompiled game code from what came from this mod's code. Vanilla decompile is the source of truth for base-game trade lifecycle and virtual-resource handling; mod code explains instrumentation, local patches, and any deviations that belong in `patch_state`.
 
@@ -195,7 +195,7 @@ Use short stable labels instead of free-form titles where possible. Current exam
 - `software_demand_mismatch`
 - `software_track_unclear`
 
-`software_demand_mismatch` is the preferred label when software-office distress is present but office-demand counters stay flat or rise, or when the expected software-to-demand relationship does not appear.
+`software_demand_mismatch` is the preferred label when software-office distress is present but office-demand counters stay flat or rise, or when the expected software-to-demand relationship does not appear. Use it both for steady mismatch and for in-window recovery cases where office demand rebounds while many software consumers still remain stalled.
 
 These labels are working categories, not proof of root cause.
 Keep them symptom-based rather than cause-based. Do not introduce presumed root-cause labels such as `electronics_shortage`.

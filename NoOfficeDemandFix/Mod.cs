@@ -44,6 +44,8 @@ namespace NoOfficeDemandFix
             updateSystem.UpdateAfter<OfficeAIHotfixSystem, OfficeAISystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<OfficeAIHotfixSystem, ProcessingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, IndustrialDemandSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateAfter<OfficeDemandDiagnosticsSystem, OfficeAIHotfixSystem>(SystemUpdatePhase.GameSimulation);
+            updateSystem.UpdateBefore<OfficeDemandDiagnosticsSystem, CityProductionStatisticSystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateAfter<VirtualOfficeResourceBuyerFixSystem, BuyingCompanySystem>(SystemUpdatePhase.GameSimulation);
             updateSystem.UpdateBefore<VirtualOfficeResourceBuyerFixSystem, ResourceBuyerSystem>(SystemUpdatePhase.GameSimulation);
             // Run performance telemetry in LateUpdate so metrics are captured after simulation completes,
@@ -53,6 +55,8 @@ namespace NoOfficeDemandFix
             m_Setting = new Setting(this);
             AssetDatabase.global.LoadSettings(nameof(NoOfficeDemandFix), m_Setting, new Setting(this));
             Settings = m_Setting;
+            IndustrialDemandDiagnosticsProbePatch.Reset();
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
 
             GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
             m_Setting.RegisterInOptionsUI();
@@ -80,6 +84,8 @@ namespace NoOfficeDemandFix
             log.Info(nameof(OnDispose));
             PerformanceTelemetryCollector.FlushActiveRun();
             Settings = null;
+            IndustrialDemandDiagnosticsProbePatch.Reset();
+            OutsideConnectionVirtualSellerFixPatch.ResetDetailedRequestProbes();
 
             if (m_Harmony != null)
             {

@@ -170,6 +170,7 @@ Mixed-cause interpretations are allowed. Record them explicitly instead of forci
 - when buyerless or pre-path states remain unexplained, prefer adding or preserving reason / age instrumentation before introducing behavior-changing experimental patches
 - widespread consumer-side `efficiency=0`, `lackResources=0`, or `softwareInputZero=true` does not by itself prove office demand will fall
 - if software-consumer distress persists while `officeDemand(...)` stays flat or rises, record that as contradictory to the original direct software-to-demand assumption
+- if `officeDemand(...)` recovers while `selectedNoResourceBuyer` stays near zero but `selected_resource_buyer_no_path` / `pathPending` remain elevated, record that as split evidence: demand recovery can coexist with software-fulfillment latency
 - keep root-cause interpretation in `confounders`, `notes`, or the umbrella summary rather than inventing root-cause `symptom_classification` labels
 
 ## Instrumentation Priority For Ambiguous Buyer States
@@ -191,15 +192,17 @@ This keeps instrumentation work and fix work separate, which makes later compari
 
 Use day count as the primary rule for reusable windows:
 
-- `3 days`: minimum reusable bounded window for a promoted evidence entry
-- `5 days`: preferred for long-window same-lineage acquisition-state or persistence comparison
-- `7 days`: preferred when outside-connection state, persistence, or recovery is under review
+- `1 day`: screening or mechanism-check capture; keep it raw unless the hypothesis is intentionally about an in-window transition only, for example office-demand recovery diverging from ongoing software-consumer stalls in the same run
+- `2 days`: minimum reusable bounded window for a promoted evidence entry when the main question is short-horizon virtual-resource behavior on a tightly matched save lineage
+- `3 days`: default release-gate or comparison-grade bounded window
+- `5 days`: preferred only when same-lineage buyer-lifecycle or persistence interpretation is still materially ambiguous after the shorter window
 
 At the default `DiagnosticsSamplesPerDay=2` cadence, stable-capture windows with no skipped slots usually yield roughly:
 
+- `1 day`: about `2` emitted observation windows
+- `2 days`: about `4` emitted observation windows
 - `3 days`: about `6` emitted observation windows
 - `5 days`: about `10` emitted observation windows
-- `7 days`: about `14` emitted observation windows
 
 ### Reading Observation-Window Fields
 
@@ -309,7 +312,7 @@ Use the checkpoint that matches the active question. Do not force every investig
 - question: does software-consumer distress align with lower office demand, no material demand shift, or rising demand?
 - hold constant: same game/mod/settings except the variable under test, comparable observation window, no unrelated city change large enough to dominate office demand
 - primary evidence: `officeDemand(...)`, `softwareConsumerOffices(...)`, and relevant `softwareEvidenceDiagnostics detail(...)` lines with `detail_type=softwareOfficeStates`
-- interpretation note: treat strong consumer distress with flat or rising `officeDemand(...)` as contradictory to the original direct-demand assumption unless another direct demand mechanism is separately evidenced
+- interpretation note: treat strong consumer distress with flat or rising `officeDemand(...)` as contradictory to the original direct-demand assumption unless another direct demand mechanism is separately evidenced; when buyerless counts stay near zero at the same time, treat that as demand recovery plus fulfillment latency rather than as a solved software track
 - invalid when: office-demand counters were not preserved, unrelated interventions dominated city state, or the demand claim was inferred only from software counters
 
 ### 8. Software Need Selection Vs Buyer Lifecycle State

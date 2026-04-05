@@ -35,11 +35,14 @@ namespace NoOfficeDemandFix.Systems
         private const int kMaxProbeSampleLogs = 3;
         private const float kLowStockThresholdRatio = 0.25f;
         private const uint kFallbackSweepIntervalMask = 127u;
+        private const string kPassKindChangedQuery = "changed_query";
+        private const string kPassKindFullSweep = "full_sweep";
 
         private ResourceSystem m_ResourceSystem;
         private SimulationSystem m_SimulationSystem;
         private EntityQuery m_OfficeCompanyQuery;
         private EntityQuery m_OfficeCompanyChangedQuery;
+        private EntityQuery m_OfficeCompanyCurrentTradingChangedQuery;
         private EntityQuery m_CorrectiveBuyerBackfillQuery;
         private EntityQuery m_CorrectiveBuyerMarkerCleanupQuery;
         private EntityQuery m_CorrectiveBuyerProvenanceCleanupQuery;
@@ -48,12 +51,63 @@ namespace NoOfficeDemandFix.Systems
         private readonly Dictionary<Resource, ResourceOverrideAggregate> m_ProbeResourceAggregates = new();
         private readonly HashSet<string> m_ProbeDistinctCompanies = new();
         private readonly List<BuyerOverrideSample> m_ProbeTopSamples = new();
+        private readonly Dictionary<Entity, CompanyProbeWindowState> m_CompanyProbeWindowStates = new();
 
         private int m_ProbeTotalOverrideCount;
         private int m_ProbeClampedMinimumOverrideCount;
         private int m_ProbeAboveMinimumOverrideCount;
         private int m_ProbeMaxOverrideAmount;
         private int m_ProbeMaxShortfall;
+
+        public readonly struct CompanyProbeWindowSnapshot
+        {
+            public CompanyProbeWindowSnapshot(
+                int seenChangedQueryCount,
+                int seenFullSweepCount,
+                bool lastSeenViaFullSweep,
+                int lastSeenFrame,
+                int overrideCount,
+                bool lastOverrideViaFullSweep,
+                int lastOverrideFrame,
+                int lastOverrideAmount,
+                int lastOverrideShortfall,
+                int lastOverrideStock,
+                int lastOverrideBuyingLoad,
+                int lastOverrideTripNeededAmount,
+                int lastOverrideEffectiveStock,
+                int lastOverrideThreshold)
+            {
+                SeenChangedQueryCount = seenChangedQueryCount;
+                SeenFullSweepCount = seenFullSweepCount;
+                LastSeenViaFullSweep = lastSeenViaFullSweep;
+                LastSeenFrame = lastSeenFrame;
+                OverrideCount = overrideCount;
+                LastOverrideViaFullSweep = lastOverrideViaFullSweep;
+                LastOverrideFrame = lastOverrideFrame;
+                LastOverrideAmount = lastOverrideAmount;
+                LastOverrideShortfall = lastOverrideShortfall;
+                LastOverrideStock = lastOverrideStock;
+                LastOverrideBuyingLoad = lastOverrideBuyingLoad;
+                LastOverrideTripNeededAmount = lastOverrideTripNeededAmount;
+                LastOverrideEffectiveStock = lastOverrideEffectiveStock;
+                LastOverrideThreshold = lastOverrideThreshold;
+            }
+
+            public int SeenChangedQueryCount { get; }
+            public int SeenFullSweepCount { get; }
+            public bool LastSeenViaFullSweep { get; }
+            public int LastSeenFrame { get; }
+            public int OverrideCount { get; }
+            public bool LastOverrideViaFullSweep { get; }
+            public int LastOverrideFrame { get; }
+            public int LastOverrideAmount { get; }
+            public int LastOverrideShortfall { get; }
+            public int LastOverrideStock { get; }
+            public int LastOverrideBuyingLoad { get; }
+            public int LastOverrideTripNeededAmount { get; }
+            public int LastOverrideEffectiveStock { get; }
+            public int LastOverrideThreshold { get; }
+        }
 
         private struct BuyerOverrideProbeRecord
         {
@@ -105,6 +159,9 @@ namespace NoOfficeDemandFix.Systems
 
             [ReadOnly]
             public BufferLookup<LayoutElement> LayoutElements;
+
+            [ReadOnly]
+            public BufferLookup<CurrentTrading> CurrentTradings;
 
             [ReadOnly]
             public ResourcePrefabs ResourcePrefabs;
@@ -172,6 +229,11 @@ namespace NoOfficeDemandFix.Systems
                     }
 
                     if (HasAnyTripForResource(tripNeededBuffer, selectedResource))
+                    {
+                        continue;
+                    }
+
+                    if (HasCurrentTradingForResource(company, selectedResource))
                     {
                         continue;
                     }
@@ -260,6 +322,16 @@ namespace NoOfficeDemandFix.Systems
                     ? processData.m_Input2.m_Resource
                     : Resource.NoResource;
                 return new PrefabVirtualInputInfo(input1, input2, slotCapacity);
+            }
+
+            private bool HasCurrentTradingForResource(Entity company, Resource resource)
+            {
+                if (!CurrentTradings.HasBuffer(company))
+                {
+                    return false;
+                }
+
+                return VirtualOfficeResourceBuyerFixSystem.HasCurrentTradingForResource(CurrentTradings[company], resource);
             }
 
             private bool TrySelectVirtualOfficeInput(
@@ -419,12 +491,14 @@ namespace NoOfficeDemandFix.Systems
             m_SimulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
             m_OfficeCompanyQuery = GetEntityQuery(CreateOfficeCompanyQueryDesc());
             m_OfficeCompanyChangedQuery = EntityManager.CreateEntityQuery(CreateOfficeCompanyQueryDesc());
+            m_OfficeCompanyCurrentTradingChangedQuery = EntityManager.CreateEntityQuery(CreateOfficeCompanyCurrentTradingChangedQueryDesc());
             m_CorrectiveBuyerBackfillQuery = GetEntityQuery(CreateCorrectiveBuyerBackfillQueryDesc());
             m_OfficeCompanyChangedQuery.SetChangedVersionFilter(new[]
             {
                 ComponentType.ReadOnly<Resources>(),
                 ComponentType.ReadOnly<CitizenTripNeeded>()
             });
+            m_OfficeCompanyCurrentTradingChangedQuery.SetChangedVersionFilter(ComponentType.ReadOnly<CurrentTrading>());
             m_CorrectiveBuyerMarkerCleanupQuery = GetEntityQuery(
                 ComponentType.ReadOnly<CorrectiveSoftwareBuyerTag>(),
                 ComponentType.Exclude<ResourceBuyer>(),
@@ -485,16 +559,71 @@ namespace NoOfficeDemandFix.Systems
                     return;
                 }
 
-                EntityQuery officeCompanyQuery = ShouldRunFallbackSweep()
-                    ? m_OfficeCompanyQuery
-                    : m_OfficeCompanyChangedQuery;
-                if (officeCompanyQuery.IsEmpty)
+                bool usedFullSweep = ShouldRunFallbackSweep();
+                if (usedFullSweep)
                 {
+                    RunBuyerOverridePass(
+                        m_OfficeCompanyQuery,
+                        usedFullSweep,
+                        diagnosticsEnabled,
+                        captureTelemetry,
+                        ref telemetryEntitiesInspected,
+                        ref telemetryRepathRequested);
                     return;
                 }
 
-                ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
-                bool captureProbeResults = diagnosticsEnabled;
+                RunBuyerOverridePass(
+                    m_OfficeCompanyChangedQuery,
+                    usedFullSweep,
+                    diagnosticsEnabled,
+                    captureTelemetry,
+                    ref telemetryEntitiesInspected,
+                    ref telemetryRepathRequested);
+                RunBuyerOverridePass(
+                    m_OfficeCompanyCurrentTradingChangedQuery,
+                    usedFullSweep,
+                    diagnosticsEnabled,
+                    captureTelemetry,
+                    ref telemetryEntitiesInspected,
+                    ref telemetryRepathRequested);
+            }
+            finally
+            {
+                m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
+
+                if (captureTelemetry)
+                {
+                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
+                    PerformanceTelemetryCollector.RecordModActivity(telemetryEntitiesInspected, telemetryRepathRequested);
+                }
+            }
+        }
+
+        private void RunBuyerOverridePass(
+            EntityQuery officeCompanyQuery,
+            bool usedFullSweep,
+            bool diagnosticsEnabled,
+            bool captureTelemetry,
+            ref int telemetryEntitiesInspected,
+            ref int telemetryRepathRequested)
+        {
+            if (officeCompanyQuery.IsEmpty)
+            {
+                return;
+            }
+
+            ResourcePrefabs resourcePrefabs = m_ResourceSystem.GetPrefabs();
+            bool captureProbeResults = diagnosticsEnabled;
+            uint currentSimulationFrame = m_SimulationSystem.frameIndex;
+            NativeArray<Entity> queriedCompanies = default;
+
+            try
+            {
+                if (captureProbeResults)
+                {
+                    queriedCompanies = officeCompanyQuery.ToEntityArray(Allocator.Temp);
+                }
+
                 using EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.TempJob);
                 using NativeQueue<BuyerOverrideProbeRecord> probeResults = new NativeQueue<BuyerOverrideProbeRecord>(Allocator.TempJob);
                 using NativeQueue<int2> chunkTelemetryResults = new NativeQueue<int2>(Allocator.TempJob);
@@ -514,6 +643,7 @@ namespace NoOfficeDemandFix.Systems
                         OwnedVehicles = GetBufferLookup<OwnedVehicle>(isReadOnly: true),
                         DeliveryTrucks = GetComponentLookup<Game.Vehicles.DeliveryTruck>(isReadOnly: true),
                         LayoutElements = GetBufferLookup<LayoutElement>(isReadOnly: true),
+                        CurrentTradings = GetBufferLookup<CurrentTrading>(isReadOnly: true),
                         ResourcePrefabs = resourcePrefabs,
                         CommandBuffer = commandBuffer.AsParallelWriter(),
                         ProbeResults = probeResults.AsParallelWriter(),
@@ -539,19 +669,17 @@ namespace NoOfficeDemandFix.Systems
                     return;
                 }
 
+                ObserveQueriedCompanies(queriedCompanies, usedFullSweep, currentSimulationFrame);
                 while (probeResults.TryDequeue(out BuyerOverrideProbeRecord probeRecord))
                 {
-                    AccumulateProbe(probeRecord);
+                    AccumulateProbe(probeRecord, usedFullSweep, currentSimulationFrame);
                 }
             }
             finally
             {
-                m_LastCorrectiveBuyerTaggingEnabled = correctiveBuyerTaggingEnabled;
-
-                if (captureTelemetry)
+                if (queriedCompanies.IsCreated)
                 {
-                    PerformanceTelemetryCollector.RecordModUpdateElapsedTicks(Stopwatch.GetTimestamp() - telemetryStart);
-                    PerformanceTelemetryCollector.RecordModActivity(telemetryEntitiesInspected, telemetryRepathRequested);
+                    queriedCompanies.Dispose();
                 }
             }
         }
@@ -660,6 +788,11 @@ namespace NoOfficeDemandFix.Systems
                 return false;
             }
 
+            if (HasCurrentTradingForResource(company, selectedResource))
+            {
+                return false;
+            }
+
             int overrideAmount = math.max(kResourceMinimumRequestAmount, threshold - effectiveStock);
             if (overrideAmount <= 0)
             {
@@ -675,6 +808,29 @@ namespace NoOfficeDemandFix.Systems
                 m_ResourceNeeded = selectedResource
             };
             return true;
+        }
+
+        private bool HasCurrentTradingForResource(Entity company, Resource resource)
+        {
+            if (!EntityManager.HasBuffer<CurrentTrading>(company))
+            {
+                return false;
+            }
+
+            return HasCurrentTradingForResource(EntityManager.GetBuffer<CurrentTrading>(company, isReadOnly: true), resource);
+        }
+
+        private static bool HasCurrentTradingForResource(DynamicBuffer<CurrentTrading> currentTrading, Resource resource)
+        {
+            for (int i = 0; i < currentTrading.Length; i++)
+            {
+                if (currentTrading[i].m_TradingResource == resource)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private PrefabVirtualInputInfo GetPrefabVirtualInputInfo(Entity prefab)
@@ -864,7 +1020,7 @@ namespace NoOfficeDemandFix.Systems
                    currentBuyer.m_Flags == provenance.Flags;
         }
 
-        private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord)
+        private void AccumulateProbe(BuyerOverrideProbeRecord probeRecord, bool usedFullSweep, uint currentSimulationFrame)
         {
             if (Mod.Settings == null)
             {
@@ -881,6 +1037,7 @@ namespace NoOfficeDemandFix.Systems
             int shortfall = math.max(0, probeRecord.Threshold - probeRecord.EffectiveStock);
             string companyKey = FormatEntity(probeRecord.Company);
 
+            ObserveOverride(probeRecord, usedFullSweep, currentSimulationFrame);
             m_ProbeTotalOverrideCount++;
             m_ProbeDistinctCompanies.Add(companyKey);
 
@@ -963,11 +1120,88 @@ namespace NoOfficeDemandFix.Systems
             m_ProbeResourceAggregates.Clear();
             m_ProbeDistinctCompanies.Clear();
             m_ProbeTopSamples.Clear();
+            m_CompanyProbeWindowStates.Clear();
             m_ProbeTotalOverrideCount = 0;
             m_ProbeClampedMinimumOverrideCount = 0;
             m_ProbeAboveMinimumOverrideCount = 0;
             m_ProbeMaxOverrideAmount = 0;
             m_ProbeMaxShortfall = 0;
+        }
+
+        public bool TryGetCompanyProbeWindowSnapshot(Entity company, out CompanyProbeWindowSnapshot snapshot)
+        {
+            if (m_CompanyProbeWindowStates.TryGetValue(company, out CompanyProbeWindowState state))
+            {
+                snapshot = new CompanyProbeWindowSnapshot(
+                    state.SeenChangedQueryCount,
+                    state.SeenFullSweepCount,
+                    state.LastSeenViaFullSweep,
+                    state.LastSeenFrame,
+                    state.OverrideCount,
+                    state.LastOverrideViaFullSweep,
+                    state.LastOverrideFrame,
+                    state.LastOverrideAmount,
+                    state.LastOverrideShortfall,
+                    state.LastOverrideStock,
+                    state.LastOverrideBuyingLoad,
+                    state.LastOverrideTripNeededAmount,
+                    state.LastOverrideEffectiveStock,
+                    state.LastOverrideThreshold);
+                return true;
+            }
+
+            snapshot = default;
+            return false;
+        }
+
+        public static string GetPassKindLabel(bool viaFullSweep)
+        {
+            return viaFullSweep ? kPassKindFullSweep : kPassKindChangedQuery;
+        }
+
+        private void ObserveQueriedCompanies(NativeArray<Entity> companies, bool usedFullSweep, uint currentSimulationFrame)
+        {
+            for (int i = 0; i < companies.Length; i++)
+            {
+                CompanyProbeWindowState state = GetOrCreateCompanyProbeWindowState(companies[i]);
+                if (usedFullSweep)
+                {
+                    state.SeenFullSweepCount++;
+                }
+                else
+                {
+                    state.SeenChangedQueryCount++;
+                }
+
+                state.LastSeenViaFullSweep = usedFullSweep;
+                state.LastSeenFrame = (int)currentSimulationFrame;
+            }
+        }
+
+        private void ObserveOverride(BuyerOverrideProbeRecord probeRecord, bool usedFullSweep, uint currentSimulationFrame)
+        {
+            CompanyProbeWindowState state = GetOrCreateCompanyProbeWindowState(probeRecord.Company);
+            state.OverrideCount++;
+            state.LastOverrideViaFullSweep = usedFullSweep;
+            state.LastOverrideFrame = (int)currentSimulationFrame;
+            state.LastOverrideAmount = probeRecord.OverrideAmount;
+            state.LastOverrideShortfall = math.max(0, probeRecord.Threshold - probeRecord.EffectiveStock);
+            state.LastOverrideStock = probeRecord.Stock;
+            state.LastOverrideBuyingLoad = probeRecord.BuyingLoad;
+            state.LastOverrideTripNeededAmount = probeRecord.TripNeededAmount;
+            state.LastOverrideEffectiveStock = probeRecord.EffectiveStock;
+            state.LastOverrideThreshold = probeRecord.Threshold;
+        }
+
+        private CompanyProbeWindowState GetOrCreateCompanyProbeWindowState(Entity company)
+        {
+            if (!m_CompanyProbeWindowStates.TryGetValue(company, out CompanyProbeWindowState state))
+            {
+                state = new CompanyProbeWindowState();
+                m_CompanyProbeWindowStates.Add(company, state);
+            }
+
+            return state;
         }
 
         private void TryCaptureTopSample(BuyerOverrideSample sample)
@@ -1071,7 +1305,30 @@ namespace NoOfficeDemandFix.Systems
                 {
                     ComponentType.ReadOnly<ResourceBuyer>(),
                     ComponentType.ReadOnly<PathInformation>(),
-                    ComponentType.ReadOnly<CurrentTrading>(),
+                    ComponentType.ReadOnly<Deleted>(),
+                    ComponentType.ReadOnly<Temp>()
+                }
+            };
+        }
+
+        private static EntityQueryDesc CreateOfficeCompanyCurrentTradingChangedQueryDesc()
+        {
+            return new EntityQueryDesc
+            {
+                All = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<OfficeCompany>(),
+                    ComponentType.ReadOnly<BuyingCompany>(),
+                    ComponentType.ReadOnly<PrefabRef>(),
+                    ComponentType.ReadOnly<PropertyRenter>(),
+                    ComponentType.ReadOnly<Resources>(),
+                    ComponentType.ReadOnly<CitizenTripNeeded>(),
+                    ComponentType.ReadOnly<CurrentTrading>()
+                },
+                None = new ComponentType[]
+                {
+                    ComponentType.ReadOnly<ResourceBuyer>(),
+                    ComponentType.ReadOnly<PathInformation>(),
                     ComponentType.ReadOnly<Deleted>(),
                     ComponentType.ReadOnly<Temp>()
                 }
@@ -1104,6 +1361,24 @@ namespace NoOfficeDemandFix.Systems
             public long TotalOverrideAmount;
             public int MaxOverrideAmount;
             public int MaxShortfall;
+        }
+
+        private sealed class CompanyProbeWindowState
+        {
+            public int SeenChangedQueryCount;
+            public int SeenFullSweepCount;
+            public bool LastSeenViaFullSweep;
+            public int LastSeenFrame = -1;
+            public int OverrideCount;
+            public bool LastOverrideViaFullSweep;
+            public int LastOverrideFrame = -1;
+            public int LastOverrideAmount;
+            public int LastOverrideShortfall;
+            public int LastOverrideStock;
+            public int LastOverrideBuyingLoad;
+            public int LastOverrideTripNeededAmount;
+            public int LastOverrideEffectiveStock;
+            public int LastOverrideThreshold;
         }
 
         private readonly struct PrefabVirtualInputInfo

@@ -47,6 +47,7 @@ When multiple telemetry captures feed the same performance question:
 - if a fix toggle itself is the variable under test, say that explicitly in `What changed`; direct deltas are still allowed when save/scenario, sampling interval, and stall threshold match and telemetry metadata shows exactly one known fix-toggle difference
 - prefer the same save lineage, same game version, and same mod version for direct comparison
 - telemetry bundles should now use `telemetry_schema_version=2`; the summary CSV adds explicit simulation-cadence columns while keeping `fps_mean` and `render_latency_*` aligned to visible frame cadence
+- queue-health metadata may also include `path_queue_sampling_state` and `path_queue_sampling_reason`; treat queue metrics as reliable only when sampling state is `ok`
 - if you need semantic interpretation later, also capture a matching diagnostics raw log on the same save and settings
 
 ## What To Upload
@@ -64,7 +65,8 @@ Also accepted:
 
 The baseline bundle is required. The comparison bundle is optional.
 If the optional comparison bundle is unreadable or malformed, the automation
-still keeps the baseline summary and reports the comparison input as ignored.
+still keeps the baseline summary and reports the comparison input as ignored
+with comparison status `comparison_ignored`.
 
 ## Comparison Rules
 
@@ -89,15 +91,29 @@ pair as `not directly comparable`.
 If those invariants do not hold, the automation still summarizes each run, but
 it labels the pair as `not directly comparable` and skips direct delta claims.
 
+The managed comment now reports one explicit comparison status first:
+
+- `baseline_only`
+- `comparison_ignored`
+- `not_directly_comparable`
+- `comparable`
+- `comparable_single_fix_toggle`
+
+Read that status before interpreting any metric block or follow-up suggestion.
+
 ## What The Automation Does
 
 The managed comment computes:
 
 - steady-state rollups from summary windows where `is_stall_window=false`
 - stall rollups from `perf_stalls.csv`
-- direct comparison deltas when invariants hold
+- direct comparison deltas only when comparison status is `comparable` or `comparable_single_fix_toggle`
 - observational anomaly flags such as queue pressure or elevated stall
   frequency
+
+When queue sampling state is not `ok`, the automation suppresses queue-based
+delta claims and queue-pressure conclusions instead of treating queue `0`
+values as trustworthy.
 
 The automation is deterministic only. It does not use GitHub Models and does
 not assign causal explanations such as "the mod caused the stall".
