@@ -23,6 +23,11 @@ repository. Task-specific templates are split by topic under
 - Do not invent details not present in the diff or context.
 - Prefer actionable language. Avoid vague phrases like "various changes"
   unless unavoidable.
+- Treat `.codex/vendor/**` as external vendored code managed in a
+  separate repository.
+- Do not propose edits or review comments for `.codex/vendor/**` unless
+  the request explicitly targets vendor sync, upstream fixes, or a
+  vendoring audit.
 
 ## Language & Style Guardrails
 - Prefer short bullets over long paragraphs.
