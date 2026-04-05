@@ -85,6 +85,60 @@ class WeeklyUpdateFailurePathTests(unittest.TestCase):
         self.assertEqual(packets["incidents_packet.json"]["candidate_ids"], [])
         self.assertEqual(packets["risks_packet.json"]["candidate_ids"], [])
 
+    def test_override_signal_promotes_local_only_to_targeted_delegation(self) -> None:
+        quiet_context = dict(self.context)
+        quiet_context["releases"] = []
+        quiet_context["top_level_prs"] = []
+        quiet_context["nested_prs"] = []
+        quiet_context["pr_lineage"] = {}
+        quiet_context["classified_issues"] = []
+        quiet_context["review_findings"] = []
+        quiet_context["workflow_failures"] = []
+        quiet_context["candidate_inventory"] = []
+        quiet_context["counts"] = {
+            "releases": 0,
+            "top_level_prs": 0,
+            "nested_prs": 0,
+            "selected_issues": 0,
+            "review_findings": 0,
+            "workflow_failures": 0,
+            "actual_incident_items": 0,
+            "changed_files": 0,
+            "task_packet_count": len(wl.PACKET_NAMES),
+            "batch_count": 0,
+        }
+        quiet_context["override_signals"] = {
+            "high_churn": True,
+            "multi_surface_active": False,
+            "nested_lineage_complexity": False,
+        }
+        lint = wl.lint_context(quiet_context)
+        packets = wl.build_packets(quiet_context, lint)
+        self.assertTrue(lint["can_proceed"])
+        self.assertEqual(packets["orchestrator.json"]["review_mode_baseline"], "local-only")
+        self.assertEqual(packets["orchestrator.json"]["review_mode"], "targeted-delegation")
+        self.assertEqual(packets["orchestrator.json"]["review_mode_adjustments"], ["override_signal"])
+        self.assertGreater(len(packets["orchestrator.json"]["recommended_workers"]), 0)
+
+    def test_non_mapping_analysis_ref_is_ignored_during_packet_builds(self) -> None:
+        legacy_context = dict(self.context)
+        legacy_context["analysis_ref"] = "main"
+        normalized_context = dict(self.context)
+        normalized_context["analysis_ref"] = {}
+
+        self.assertEqual(
+            wl.build_context_fingerprint(legacy_context),
+            wl.build_context_fingerprint(normalized_context),
+        )
+
+        lint = wl.lint_context(legacy_context)
+        artifacts = wl.build_packet_artifacts(legacy_context, lint)
+
+        self.assertIsNone(artifacts["packets"]["global_packet.json"]["analysis_ref"]["policy"])
+        self.assertIsNone(artifacts["build_result"]["analysis_ref_policy"])
+        self.assertIsNone(artifacts["build_result"]["analysis_ref_selected_branch"])
+        self.assertIsNone(artifacts["build_result"]["analysis_ref_selected_sha"])
+
     def test_collect_context_surfaces_truncation_warnings_in_source_gaps(self) -> None:
         repo_path = Path("C:/repo")
         with (
@@ -92,6 +146,31 @@ class WeeklyUpdateFailurePathTests(unittest.TestCase):
             patch.object(wl, "verify_gh_auth", return_value=None),
             patch.object(wl, "get_repo_metadata", return_value={"repo_slug": "example/repo", "default_branch": "master", "repo_url": "https://example.invalid/repo"}),
             patch.object(wl, "get_branch_state", return_value={"current_branch": "master", "head_sha": "deadbeef"}),
+            patch.object(
+                wl,
+                "resolve_analysis_ref",
+                return_value={
+                    "policy": wl.DEFAULT_ANALYSIS_REF_POLICY,
+                    "preferred_branch_order": [],
+                    "resolved_via": wl.DEFAULT_ANALYSIS_REF_POLICY,
+                    "selected_ref": "refs/heads/master",
+                    "selected_branch": "master",
+                    "selected_branch_label": "master",
+                    "selected_sha": "deadbeef",
+                    "selected_commit_timestamp": "2026-03-27T12:00:00Z",
+                    "workspace_branch": "master",
+                    "workspace_branch_label": "master",
+                    "workspace_head_sha": "deadbeef",
+                    "workspace_commit_timestamp": "2026-03-27T12:00:00Z",
+                    "workspace_detached": False,
+                    "selection_matches_workspace_head": True,
+                    "local_branch_count": 1,
+                    "read_mode": wl.ANALYSIS_REF_READ_MODE,
+                    "treeish": "deadbeef",
+                    "git_common_dir": "C:/repo/.git",
+                    "fallback_reason": None,
+                },
+            ),
             patch.object(wl, "compute_repo_hash", return_value="fixturehash"),
             patch.object(wl, "load_state_marker", return_value=(None, [])),
             patch.object(wl, "list_releases", return_value=([], [])),

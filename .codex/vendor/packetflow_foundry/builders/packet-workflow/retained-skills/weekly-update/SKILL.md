@@ -69,7 +69,7 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
 - Stop and report the blocker if you cannot resolve a concrete interpreter path.
 - Resolve `<runtime-root>` to `<repo-root>/.codex/tmp/packet-workflow/weekly-update/<run-id>/` and keep `.codex/tmp/` gitignored.
 - Set `<packet-dir>` to `<runtime-root>/packets`.
-- Set `<eval-log-json>` to `~/.codex/tmp/evaluation_logs/weekly-update/<run-id>.json` by default. If the sandbox blocks that path, use `<repo-root>/.codex/tmp/evaluation_logs/weekly-update/<run-id>.json` as an explicit override and keep `.codex/tmp/` gitignored.
+- Set `<eval-log-json>` to `<repo-root>/.codex/tmp/evaluation_logs/weekly-update/<run-id>.json` by default and keep `.codex/tmp/` gitignored.
 
 ## Workflow
 
@@ -83,6 +83,11 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
 - Run `<python-bin> -B <skill-dir>/scripts/collect_weekly_update_context.py --repo-root <repo-root> --output <context-json> [--profile <profile-json>]`.
 - Run `<python-bin> -B <skill-dir>/scripts/lint_weekly_update.py --context <context-json> --output <lint-json>`.
 - Run `<python-bin> -B <skill-dir>/scripts/build_weekly_update_packets.py --context <context-json> --lint <lint-json> --output-dir <packet-dir> --result-output <build-result-json>`.
+- `collect_weekly_update_context.py` resolves `repo_profile.extra.weekly_update.analysis_ref` before any local git or file evidence is interpreted.
+- Default retained behavior is `analysis_ref.policy=freshest_local_branch`: select the newest commit timestamp under `refs/heads/*`.
+- `analysis_ref.policy=current_head` preserves the old attached or detached `HEAD` behavior.
+- `analysis_ref.policy=preferred_branch_order` chooses the first configured local branch, then falls back to `freshest_local_branch`, then to `current_head` if no local branches exist.
+- Treat releases, PRs, issues, reviews, and workflow runs as repo-wide GitHub evidence. Treat any local git or file reread as selected-ref-local. When the selected ref differs from the workspace `HEAD`, use `analysis_ref.selected_sha` with `git show <sha>:<path>` or an equivalent selected-ref materialization instead of reading the detached worktree filesystem directly.
 - Read `<packet-dir>/orchestrator.json` first.
 - Keep `<packet-dir>/global_packet.json` in view before reading focused packets.
 - Treat `packet_metrics.json` and `<build-result-json>` as evaluation/regression artifacts, not runtime routing inputs.
@@ -98,10 +103,11 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
 - Worker outputs remain proposal-grade only; they never decide final classification or final weekly wording.
 
 4. Respect review mode and keep delegation narrow.
-- `local-only`: use no workers. Reserve for quiet windows with a small candidate set and no meaningful rollout or incident activity.
+- `local-only`: use no workers on the final path. Quiet windows still start here, but the final mode may promote to `targeted-delegation` when `review_mode_adjustments` includes `delegation_savings_floor`.
 - `targeted-delegation`: default mode. Use 1-2 `gpt-5.4-mini` workers on one focused packet each.
 - `broad-delegation`: use 3-4 `gpt-5.4-mini` workers only when releases, incidents, reviews, and nested PR lineage all expand the evidence surface.
 - Read `references/delegation-playbook.md` when `review_mode` is not `local-only`.
+- Use `review_mode_baseline` and `review_mode_adjustments` to explain why a quiet-window baseline still delegated.
 - Use `packet_worker_map` as the only concrete routing source for delegated packets.
 - Treat `worker_selection_guidance` and worker families as explanatory metadata only.
 - Do not ask workers to rediscover the whole repo, reread long raw diffs, or draft the final weekly update.
@@ -114,6 +120,7 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
   - directly related review, issue, and workflow-run evidence
   - structured workflow packets
   - local last-success state as baseline only
+- Repo-wide GitHub evidence stays repo-wide even when the analysis ref is redirected. Only local git and file evidence follows the selected analysis ref.
 - `Incidents` is narrow. Include only actual events that materially affected operations, validation, release, or schedule during the reporting window.
 - Put release gates, pending investigations, reusable evidence artifacts, and unresolved risks in `Blockers / Risks` instead.
 - In `Reviews`, include resolved findings once. Unresolved gate-impact findings may also appear in `Blockers / Risks`.
@@ -126,6 +133,7 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
 - `apply_weekly_update.py` reads only the synthesized plan fields `overall_confidence`, `stop_reasons`, and `allow_marker_update`.
 - Do not let the apply step read worker footers directly.
 - Stop before marker updates when unresolved `raw_reread_reason` candidates remain or the final plan confidence is `low`.
+- Default state-marker identity is keyed by the logical repo's shared git common-dir plus the analysis-ref policy so temporary worktree paths reuse the same weekly baseline.
 
 ## Required Packets
 
@@ -156,7 +164,7 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
 - `<skill-dir>/scripts/apply_weekly_update.py`
   - Update only the last-success marker after the local plan passes the apply gate.
 - `<skill-dir>/scripts/smoke_weekly_update.py`
-  - Run an opt-in end-to-end smoke of collect → lint → build → eval init/build → validate → eval validate → apply `--dry-run` → eval apply, verify runtime packets stay lean, and confirm `--dry-run` apply does not write a marker.
+  - Run an opt-in end-to-end smoke of collect -> lint -> build -> eval init/build -> validate -> eval validate -> apply `--dry-run` -> eval apply, verify runtime packets stay lean, and confirm `--dry-run` apply does not write a marker.
 - `<skill-dir>/scripts/refresh_weekly_update_live_fixture.py`
   - Maintainer-only helper that refreshes the live sample fixture and paired plan fixtures from current repo and GitHub evidence. Keep it out of the default test path and prefer `--dry-run` before overwriting fixture files.
 
@@ -167,7 +175,7 @@ If the run cannot proceed, report the blocker clearly and stop at the appropriat
 - Use phase updates for deterministic validate and apply results when those outputs exist.
 - Keep token-efficiency counters in `packet_metrics.json` and the evaluation log only; do not treat them as runtime routing metadata.
 - Finalize the evaluation log after the run with worker usage, packet usage, confidence, marker-update status, and any stop reasons.
-- Keep the evaluation log at the contract-default outside-repo path unless you intentionally need the gitignored `.codex/tmp/` fallback.
+- Keep the evaluation log under the repo-local `.codex/tmp/evaluation_logs/` tree.
 - Read `references/evaluation-log-contract.md` for the shared envelope and `references/weekly-update-evaluation-contract.md` for workflow-specific fields.
 
 ## Output
