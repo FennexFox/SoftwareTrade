@@ -12,8 +12,8 @@
   },
   "bindings": {
     "primary_readme_path": "README.md",
-    "settings_source_path": null,
-    "publish_config_path": null
+    "settings_source_path": "NoOfficeDemandFix/Setting.cs",
+    "publish_config_path": "NoOfficeDemandFix/Properties/PublishConfiguration.xml"
   },
   "packet_defaults": {
     "review_docs": {

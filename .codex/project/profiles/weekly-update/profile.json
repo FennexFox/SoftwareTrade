@@ -86,6 +86,13 @@
       },
       "state": {
         "namespace": "weekly-update"
+      },
+      "analysis_ref": {
+        "policy": "freshest_local_branch",
+        "preferred_branch_order": [
+          "develop",
+          "master"
+        ]
       }
     }
   },

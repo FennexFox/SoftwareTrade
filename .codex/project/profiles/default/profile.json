@@ -12,12 +12,26 @@
   },
   "bindings": {
     "primary_readme_path": "README.md",
-    "settings_source_path": null,
-    "publish_config_path": null
+    "settings_source_path": "NoOfficeDemandFix/Setting.cs",
+    "publish_config_path": "NoOfficeDemandFix/Properties/PublishConfiguration.xml"
   },
   "packet_defaults": {
-    "review_docs": {},
-    "source_path_globs": {}
+    "review_docs": {
+      "repo_context": [
+        "README.md",
+        "CONTRIBUTING.md",
+        "MAINTAINING.md",
+        ".codex/AGENTS.md"
+      ]
+    },
+    "source_path_globs": {
+      "repo_context": [
+        "NoOfficeDemandFix/**",
+        "scripts/**",
+        ".github/**",
+        "*.md"
+      ]
+    }
   },
   "lint_rules": {
     "require_readme_settings_table": false,
