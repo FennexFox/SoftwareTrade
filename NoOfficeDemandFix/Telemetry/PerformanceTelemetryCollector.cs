@@ -841,9 +841,48 @@ namespace NoOfficeDemandFix.Telemetry
             s_ConsecutiveBelowThreshold = 0;
             s_HasSimulationUpdateTimestamp = false;
             s_LastSimulationUpdateTimestamp = 0L;
+            RefreshPathQueueSamplingStatusForRun();
+            ResetFrameInstrumentation();
+        }
+
+        private static void RefreshPathQueueSamplingStatusForRun()
+        {
+            if (!s_PathfindReflectionInitialized)
+            {
+                s_PathQueueSamplingState = kPathQueueSamplingStateOk;
+                s_PathQueueSamplingReason = kPathQueueSamplingReasonNone;
+                return;
+            }
+
+            if (s_PathfindActionFields == null ||
+                s_PathfindActionItemsFields == null ||
+                s_PathfindActionNextIndexFields == null ||
+                s_PathfindActionCountProperties == null)
+            {
+                if (GetPathQueueSamplingSeverity(s_PathQueueSamplingState) < GetPathQueueSamplingSeverity(kPathQueueSamplingStateFailed))
+                {
+                    s_PathQueueSamplingState = kPathQueueSamplingStateFailed;
+                    s_PathQueueSamplingReason = kPathQueueSamplingReasonBindFailed;
+                }
+
+                return;
+            }
+
+            for (int i = 0; i < s_PathfindActionFields.Length; i++)
+            {
+                if (s_PathfindActionFields[i] == null ||
+                    (s_PathfindActionItemsFields[i] == null &&
+                     s_PathfindActionNextIndexFields[i] == null &&
+                     s_PathfindActionCountProperties[i] == null))
+                {
+                    s_PathQueueSamplingState = kPathQueueSamplingStatePartial;
+                    s_PathQueueSamplingReason = kPathQueueSamplingReasonUnsupportedFields;
+                    return;
+                }
+            }
+
             s_PathQueueSamplingState = kPathQueueSamplingStateOk;
             s_PathQueueSamplingReason = kPathQueueSamplingReasonNone;
-            ResetFrameInstrumentation();
         }
 
         private static void ResetFrameInstrumentation()
